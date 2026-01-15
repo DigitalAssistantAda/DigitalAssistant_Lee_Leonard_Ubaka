@@ -37,6 +37,9 @@ yarn-error.log*
 *.key
 secrets/
 
+# AI agent instructions (local use only)
+.github/copilot-instructions.md
+
 # Database
 *.db
 *.sqlite

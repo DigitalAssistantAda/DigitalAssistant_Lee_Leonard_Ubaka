@@ -40,6 +40,9 @@ secrets/
 # AI agent instructions (local use only)
 .github/copilot-instructions.md
 
+# Security and threat models (private)
+THREAT_MODEL.md
+
 # Database
 *.db
 *.sqlite

@@ -1,68 +1,84 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 
-function App() {
-  const [healthStatus, setHealthStatus] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+import Navigation from './components/Navigation';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import Workspaces from './pages/Workspaces';
+import Documents from './pages/Documents';
+import Search from './pages/Search';
+import Summaries from './pages/Summaries';
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    checkHealth();
+    // Check if user is already logged in
+    const token = localStorage.getItem('token');
+    const savedUser = localStorage.getItem('user');
+    
+    if (token && savedUser) {
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch (err) {
+        console.error('Error parsing saved user:', err);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
+    }
+    
+    setLoading(false);
   }, []);
 
-  const checkHealth = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await fetch(`${API_URL}/health`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setHealthStatus(data);
-    } catch (err) {
-      setError(err.message);
-      console.error('Error checking health:', err);
-    } finally {
-      setLoading(false);
-    }
+  const handleLogin = (data) => {
+    setUser(data.user);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+  };
+
+  if (loading) {
+    return <div style={{ padding: '20px' }}>Loading...</div>;
+  }
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>Ada</h1>
+    <Router>
+      <div className="App">
+        <Navigation user={user} onLogout={handleLogout} />
         
-        <div className="health-check">
-          <h2>Backend Health Status</h2>
-          
-          {loading && <p>Checking backend health...</p>}
-          
-          {error && (
-            <div className="error">
-              <p> Error: {error}</p>
-              <p>Make sure the backend is running at {API_URL}</p>
-            </div>
-          )}
-          
-          {healthStatus && (
-            <div className="success">
-              <p> Status: {healthStatus.status}</p>
-              <p>Message: {healthStatus.message}</p>
-            </div>
-          )}
-          
-          <button onClick={checkHealth} disabled={loading}>
-            {loading ? 'Checking...' : 'Refresh Health Check'}
-          </button>
-        </div>
-      </header>
-    </div>
+        <Routes>
+          <Route 
+            path="/" 
+            element={user ? <Navigate to="/dashboard" /> : <Login onLogin={handleLogin} />} 
+          />
+          <Route 
+            path="/dashboard" 
+            element={user ? <Dashboard /> : <Navigate to="/" />} 
+          />
+          <Route 
+            path="/workspaces" 
+            element={user ? <Workspaces /> : <Navigate to="/" />} 
+          />
+          <Route 
+            path="/documents" 
+            element={user ? <Documents /> : <Navigate to="/" />} 
+          />
+          <Route 
+            path="/search" 
+            element={user ? <Search /> : <Navigate to="/" />} 
+          />
+          <Route 
+            path="/summaries" 
+            element={user ? <Summaries /> : <Navigate to="/" />} 
+          />
+        </Routes>
+      </div>
+    </Router>
   );
 }
 

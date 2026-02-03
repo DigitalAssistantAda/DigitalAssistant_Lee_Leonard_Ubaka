@@ -5,6 +5,7 @@ from .job import *
 from .search import *
 from .summary import *
 from .audit_log import *
+from .task import *
 
 __all__ = [
     "RegisterRequest",
@@ -38,4 +39,8 @@ __all__ = [
     "ErrorResponse",
     "AuditLogResponse",
     "AuditLogListResponse",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskResponse",
+    "TaskListResponse",
 ]

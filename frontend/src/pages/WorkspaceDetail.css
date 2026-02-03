@@ -1,0 +1,351 @@
+/* Workspace Detail Page */
+
+.workspace-detail-page {
+  min-height: 100vh;
+  background: var(--bg-primary, #ffffff);
+  color: var(--text-primary, #1a1f35);
+}
+
+/* Header */
+.detail-header {
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--border-color, #e0e6ed);
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: var(--accent-primary, #7c3aed);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.back-btn:hover {
+  color: var(--accent-dark, #6d28d9);
+}
+
+.header-content {
+  flex: 1;
+}
+
+.detail-header h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.detail-header p {
+  margin: 0.5rem 0 0 0;
+  color: var(--text-secondary, #6c757d);
+}
+
+/* Container */
+.detail-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Tabs */
+.detail-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color, #e0e6ed);
+  gap: 0;
+  margin-bottom: 2rem;
+}
+
+.tab {
+  background: none;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  color: var(--text-secondary, #6c757d);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.tab:hover {
+  color: var(--text-primary, #1a1f35);
+}
+
+.tab.active {
+  color: var(--accent-primary, #7c3aed);
+  border-bottom-color: var(--accent-primary, #7c3aed);
+}
+
+/* Tab Content */
+.detail-content h2 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+/* Overview Tab */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+}
+
+.stat-card {
+  padding: 1.5rem;
+  border: 1px solid var(--border-color, #e0e6ed);
+  border-radius: 0;
+  text-align: center;
+  background: var(--bg-secondary, #f5f7fa);
+}
+
+.stat-card h3 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: var(--accent-primary, #7c3aed);
+}
+
+.stat-card p {
+  margin: 0.5rem 0 0 0;
+  color: var(--text-secondary, #6c757d);
+}
+
+/* Documents Tab */
+.documents-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.document-item {
+  padding: 1rem;
+  border: 1px solid var(--border-color, #e0e6ed);
+  border-radius: 0;
+  background: white;
+  transition: all 0.2s ease;
+}
+
+.document-item:hover {
+  border-color: var(--accent-primary, #7c3aed);
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.1);
+}
+
+.doc-name {
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.doc-meta {
+  color: var(--text-secondary, #6c757d);
+  font-size: 0.9rem;
+}
+
+/* Members Tab */
+.members-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.member-item {
+  padding: 1rem;
+  border: 1px solid var(--border-color, #e0e6ed);
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: white;
+}
+
+.member-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 0;
+  background: var(--accent-primary, #7c3aed);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.member-name {
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+
+.member-role {
+  color: var(--text-secondary, #6c757d);
+  font-size: 0.85rem;
+}
+
+/* Discussion Tab */
+.messages-container {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 0;
+  min-height: 300px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.message {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem;
+  background: white;
+  border-radius: 0;
+}
+
+.message-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 0;
+  background: var(--accent-primary, #7c3aed);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.message-header {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.message-author {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.message-time {
+  color: var(--text-secondary, #6c757d);
+  font-size: 0.85rem;
+}
+
+.message-content {
+  color: var(--text-primary, #1a1f35);
+  word-break: break-word;
+}
+
+.message-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.message-form input {
+  flex: 1;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color, #e0e6ed);
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.message-form button {
+  padding: 0.75rem 1.5rem;
+  background: var(--accent-primary, #7c3aed);
+  color: white;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.message-form button:hover:not(:disabled) {
+  background: var(--accent-dark, #6d28d9);
+}
+
+.message-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Settings Tab */
+.settings-section {
+  margin-bottom: 2rem;
+}
+
+.settings-section h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.setting-item {
+  padding: 1rem;
+  border: 1px solid var(--border-color, #e0e6ed);
+  border-radius: 0;
+  margin-bottom: 1rem;
+}
+
+.setting-item label {
+  display: block;
+  color: var(--text-secondary, #6c757d);
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.setting-item p {
+  margin: 0;
+  color: var(--text-primary, #1a1f35);
+}
+
+/* Empty State */
+.empty-message {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-secondary, #6c757d);
+}
+
+/* Loading/Error */
+.loading, .error {
+  padding: 3rem 2rem;
+  text-align: center;
+  color: var(--text-secondary, #6c757d);
+}
+
+.error {
+  color: #991b1b;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .detail-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .detail-tabs {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-container {
+    padding: 1rem;
+  }
+}

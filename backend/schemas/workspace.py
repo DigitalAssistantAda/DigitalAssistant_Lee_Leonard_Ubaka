@@ -13,6 +13,8 @@ class WorkspaceResponse(BaseModel):
     tenant_id: int
     created_by: int
     created_at: datetime
+    member_count: Optional[int] = 0
+    document_count: Optional[int] = 0
 
     class Config:
         from_attributes = True
@@ -28,7 +30,10 @@ class WorkspaceListResponse(BaseModel):
 
 
 class WorkspaceMemberResponse(BaseModel):
+    id: int
     user_id: int
+    username: Optional[str] = None
+    email: Optional[str] = None
     role: str
     joined_at: datetime
     status: str

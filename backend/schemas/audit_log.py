@@ -1,15 +1,17 @@
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List
 from datetime import datetime
 
 
 class AuditLogResponse(BaseModel):
+    """Single audit log entry"""
     id: int
+    tenant_id: int
     actor_user_id: int
     action: str
     object_type: str
     object_id: Optional[int] = None
-    metadata_json: Optional[dict] = None
+    metadata_json: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -17,5 +19,9 @@ class AuditLogResponse(BaseModel):
 
 
 class AuditLogListResponse(BaseModel):
-    items: List[AuditLogResponse]
+    """List of audit logs with pagination"""
+    logs: List[AuditLogResponse]
+    total: int
+    limit: int
+    offset: int
     next_cursor: Optional[str] = None

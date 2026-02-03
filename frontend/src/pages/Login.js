@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
+import '../styles/shared.css';
 
 function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -55,50 +58,60 @@ function Login({ onLogin }) {
   };
 
   return (
-    <div style={{ maxWidth: '400px', margin: '50px auto', padding: '20px' }}>
-      <h1>{isRegister ? 'Register' : 'Login'}</h1>
+    <div className="auth-container">
+      <Link to="/" className="back-link">
+        <ArrowLeft size={20} />
+        <span>Back to Home</span>
+      </Link>
+      <h1 className="auth-title">{isRegister ? 'Create Account' : 'Welcome Back'}</h1>
+      <p className="auth-subtitle">
+        {isRegister ? 'Join Ada to organize your knowledge' : 'Sign in to continue to Ada'}
+      </p>
       
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: '15px' }}>
-          <label>Username:</label>
+      <form className="auth-form" onSubmit={handleSubmit}>
+        <div className="form-group">
+          <label className="form-label">Username</label>
           <input
             type="text"
             name="username"
             value={formData.username}
             onChange={handleInputChange}
             required
-            style={{ width: '100%', padding: '8px' }}
+            className="form-input"
+            placeholder="Enter your username"
           />
         </div>
 
         {isRegister && (
-          <div style={{ marginBottom: '15px' }}>
-            <label>Email:</label>
+          <div className="form-group">
+            <label className="form-label">Email</label>
             <input
               type="email"
               name="email"
               value={formData.email}
               onChange={handleInputChange}
               required
-              style={{ width: '100%', padding: '8px' }}
+              className="form-input"
+              placeholder="Enter your email"
             />
           </div>
         )}
 
-        <div style={{ marginBottom: '15px' }}>
-          <label>Password:</label>
+        <div className="form-group">
+          <label className="form-label">Password</label>
           <input
             type="password"
             name="password"
             value={formData.password}
             onChange={handleInputChange}
             required
-            style={{ width: '100%', padding: '8px' }}
+            className="form-input"
+            placeholder="Enter your password"
           />
         </div>
 
         {error && (
-          <div style={{ color: 'red', marginBottom: '15px' }}>
+          <div className="error-message">
             {error}
           </div>
         )}
@@ -106,18 +119,16 @@ function Login({ onLogin }) {
         <button 
           type="submit" 
           disabled={loading}
-          style={{ width: '100%', padding: '10px', cursor: 'pointer' }}
+          className="btn-primary"
         >
-          {loading ? 'Processing...' : (isRegister ? 'Register' : 'Login')}
+          {loading ? 'Processing...' : (isRegister ? 'Create Account' : 'Sign In')}
         </button>
       </form>
 
-      <div style={{ marginTop: '15px', textAlign: 'center' }}>
-        <button 
-          onClick={() => setIsRegister(!isRegister)}
-          style={{ background: 'none', border: 'none', color: 'blue', cursor: 'pointer' }}
-        >
-          {isRegister ? 'Already have an account? Login' : "Don't have an account? Register"}
+      <div className="auth-toggle">
+        {isRegister ? 'Already have an account? ' : "Don't have an account? "}
+        <button onClick={() => setIsRegister(!isRegister)}>
+          {isRegister ? 'Sign In' : 'Create Account'}
         </button>
       </div>
     </div>

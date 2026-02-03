@@ -25,9 +25,10 @@ function Search() {
 
       if (response.ok) {
         const data = await response.json();
-        setWorkspaces(data);
-        if (data.length > 0) {
-          setSelectedWorkspace(data[0].id);
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        setWorkspaces(items);
+        if (items.length > 0) {
+          setSelectedWorkspace(items[0].id);
         }
       }
     } catch (err) {

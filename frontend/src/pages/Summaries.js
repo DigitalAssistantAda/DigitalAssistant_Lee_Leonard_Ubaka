@@ -33,9 +33,10 @@ function Summaries() {
 
       if (response.ok) {
         const data = await response.json();
-        setWorkspaces(data);
-        if (data.length > 0) {
-          setSelectedWorkspace(data[0].id);
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        setWorkspaces(items);
+        if (items.length > 0) {
+          setSelectedWorkspace(items[0].id);
         }
       }
     } catch (err) {
@@ -56,7 +57,8 @@ function Summaries() {
 
       if (response.ok) {
         const data = await response.json();
-        setDocuments(data);
+        const items = Array.isArray(data?.documents) ? data.documents : Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        setDocuments(items);
       }
     } catch (err) {
       console.error('Error fetching documents:', err);

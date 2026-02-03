@@ -1,0 +1,773 @@
+/* Dashboard uses global CSS variables from index.css */
+
+.dashboard-container {
+    font-family: var(--font-ui);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+.dashboard-content {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 2.5rem 2rem;
+}
+
+/* Main Layout */
+.main-layout {
+    display: grid;
+    grid-template-columns: 350px 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.left-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* Dashboard Grid */
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+.dashboard-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+/* User Profile Card */
+.user-profile-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0;
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.user-profile-card::before {
+    display: none;
+}
+
+.user-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 0;
+    background: var(--accent-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    font-weight: 700;
+    color: white;
+    margin: 0 auto 1rem;
+}
+
+.user-name {
+    text-align: center;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+    font-family: var(--font-display);
+}
+
+.user-email {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 1.5rem;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.user-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.user-stat-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 0;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.user-stat-item:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+}
+
+.user-stat-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.user-stat-value {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.user-status {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--accent-primary);
+    border-radius: 0;
+}
+
+.user-status-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.user-status-text {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    font-style: italic;
+}
+
+.dashboard-card::before {
+    display: none;
+}
+
+.dashboard-card:hover {
+    border-color: var(--accent-primary);
+    transform: none;
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-display);
+}
+
+.card-badge {
+    background: var(--bg-tertiary);
+    color: var(--accent-primary);
+    padding: 0.2rem 0.6rem;
+    border-radius: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    border: 1px solid var(--border-color);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.card-content {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+/* Overview Card */
+.status-items {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.status-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 0;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.status-item:hover {
+    background: var(--bg-tertiary);
+    transform: none;
+    border-color: var(--status-success);
+}
+
+.status-item.overdue {
+    border-color: var(--border-color);
+}
+
+.status-item.overdue:hover {
+    border-color: var(--status-danger);
+}
+
+.status-label {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.status-count {
+    background: var(--bg-primary);
+    padding: 0.2rem 0.6rem;
+    border-radius: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--status-success);
+}
+
+.status-item.overdue .status-count {
+    color: var(--status-danger);
+}
+
+/* Accomplishments */
+.accomplishment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.accomplishment-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-tertiary);
+    border-radius: 0;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.accomplishment-item:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--status-success);
+}
+
+.accomplishment-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 0;
+    background: var(--status-success);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    font-size: 0.7rem;
+    color: white;
+}
+
+.accomplishment-text {
+    flex: 1;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.accomplishment-time {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    opacity: 0.7;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* Issues */
+.issues-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.issue-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.issue-item {
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 0;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.issue-item:hover {
+    background: var(--bg-tertiary);
+    transform: none;
+    border-color: var(--accent-primary);
+}
+
+.issue-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.issue-number {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.issue-title {
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+
+.issue-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.issue-priority {
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-secondary);
+    border-radius: 0;
+}
+
+/* Deadlines */
+.deadlines-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.deadline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.deadline-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 0;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.deadline-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.deadline-item.upcoming:hover {
+    border-color: var(--status-warning);
+}
+
+.deadline-item.overdue:hover {
+    border-color: var(--status-danger);
+}
+
+.deadline-info {
+    flex: 1;
+}
+
+.deadline-title {
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+.deadline-date {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.deadline-due {
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    text-align: right;
+    margin-left: auto;
+}
+
+.deadline-date {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.deadline-status {
+    padding: 0.25rem 0.75rem;
+    border-radius: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    border: 1px solid var(--border-color);
+}
+
+.deadline-status.upcoming {
+    background: var(--bg-tertiary);
+    color: var(--status-warning);
+    border-color: var(--status-warning);
+}
+
+.deadline-status.overdue {
+    background: var(--bg-tertiary);
+    color: var(--status-danger);
+    border-color: var(--status-danger);
+}
+
+/* Bottom Section */
+.bottom-section {
+    grid-column: 2;
+    margin-top: 3rem;
+}
+
+/* Calendar */
+.calendar-container {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 0;
+    padding: 1.5rem;
+}
+
+.calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.calendar-title {
+    font-size: 1.1rem;
+    font-family: var(--font-display);
+    font-weight: 600;
+}
+
+.calendar-nav {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.calendar-nav button {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.calendar-nav button:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.calendar-day.header {
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 0.8rem;
+    cursor: default;
+    border: none;
+}
+
+.calendar-day.inactive {
+    color: var(--text-secondary);
+    opacity: 0.4;
+    border: none;
+}
+
+.calendar-day.active {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+}
+
+.calendar-day.active:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+}
+
+.calendar-day.today {
+    background: var(--accent-primary);
+    color: white;
+    border: 1px solid var(--accent-primary);
+}
+
+.calendar-day.has-event {
+    position: relative;
+}
+
+.calendar-day.has-event::after {
+    content: '';
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    background: var(--status-success);
+    border-radius: 0;
+}
+
+/* Activity Timeline */
+.activity-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+}
+
+.timeline-item {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 0;
+    position: relative;
+    border-left: 2px solid var(--border-color);
+    margin-left: 10px;
+}
+
+.timeline-item:last-child {
+    border-left-color: transparent;
+}
+
+.timeline-marker {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--status-success);
+    background: var(--bg-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.8rem;
+    position: relative;
+    left: -13px;
+}
+
+.timeline-content {
+    flex: 1;
+    padding-bottom: 0.5rem;
+}
+
+.timeline-title {
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+    font-size: 0.95rem;
+}
+
+.timeline-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    gap: 1rem;
+}
+
+.timeline-time {
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+}
+
+.filter-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.4rem 0.75rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+    font-family: var(--font-ui);
+}
+
+.filter-btn:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-primary);
+}
+
+.filter-btn.active {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: white;
+}
+
+/* Remove old activity styles */
+.activity-workspace {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 1.5rem 0;
+}
+
+.workspace-header {
+    margin-bottom: 1.5rem;
+}
+
+.workspace-title {
+    font-size: 1.1rem;
+    font-family: var(--font-display);
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.progress-bar-container {
+    background: var(--bg-tertiary);
+    height: 8px;
+    border-radius: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+}
+
+.progress-bar {
+    height: 100%;
+    background: var(--accent-primary);
+    transition: width 0.6s ease;
+}
+
+.activity-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.activity-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-tertiary);
+    border-radius: 0;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.activity-item:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent-primary);
+}
+
+.activity-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 0;
+    background: var(--accent-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: white;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+}
+
+.activity-details {
+    flex: 1;
+}
+
+.activity-name {
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+}
+
+.activity-meta {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.activity-progress {
+    width: 100px;
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--status-success);
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.dashboard-card {
+    animation: fadeInUp 0.6s ease backwards;
+}
+
+.dashboard-card:nth-child(1) { animation-delay: 0.1s; }
+.dashboard-card:nth-child(2) { animation-delay: 0.2s; }
+.dashboard-card:nth-child(3) { animation-delay: 0.3s; }
+.dashboard-card:nth-child(4) { animation-delay: 0.4s; }
+
+.calendar-container,
+.activity-workspace {
+    animation: fadeInUp 0.6s ease 0.5s backwards;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .main-layout {
+        grid-template-columns: 1fr;
+    }
+    
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .bottom-section {
+        grid-column: 1;
+    }
+}

@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import Optional
 from database import get_db
 from models.user import User
 from models.workspace import Workspace, WorkspaceMember, WorkspaceRole, MemberStatus
+from models.document import Document
 from schemas.workspace import (
     CreateWorkspaceRequest,
     WorkspaceResponse,
@@ -42,6 +44,18 @@ def check_workspace_access(workspace_id: int, user: User, db: Session, required_
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     
     return workspace
+
+
+def build_member_response(member: WorkspaceMember, user: User) -> WorkspaceMemberResponse:
+    return WorkspaceMemberResponse(
+        id=member.id,
+        user_id=member.user_id,
+        username=user.username,
+        email=user.email,
+        role=member.role,
+        joined_at=member.joined_at,
+        status=member.status,
+    )
 
 
 @router.post("", response_model=WorkspaceResponse)
@@ -89,9 +103,26 @@ async def list_workspaces(
         Workspace.tenant_id == current_user.tenant_id
     ).all()
     
-    return WorkspaceListResponse(
-        items=[WorkspaceResponse.model_validate(w) for w in member_workspaces]
-    )
+    # Enrich with counts
+    workspace_responses = []
+    for workspace in member_workspaces:
+        # Count active members
+        member_count = db.query(func.count(WorkspaceMember.id)).filter(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.status == MemberStatus.ACTIVE
+        ).scalar() or 0
+        
+        # Count documents in workspace
+        document_count = db.query(func.count(Document.id)).filter(
+            Document.workspace_id == workspace.id
+        ).scalar() or 0
+        
+        workspace_dict = WorkspaceResponse.model_validate(workspace).model_dump()
+        workspace_dict['member_count'] = member_count
+        workspace_dict['document_count'] = document_count
+        workspace_responses.append(WorkspaceResponse(**workspace_dict))
+    
+    return WorkspaceListResponse(items=workspace_responses)
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
@@ -156,12 +187,14 @@ async def list_workspace_members(
     
     check_workspace_access(workspace_id, current_user, db)
     
-    members = db.query(WorkspaceMember).filter(
+    members = db.query(WorkspaceMember, User).join(
+        User, WorkspaceMember.user_id == User.id
+    ).filter(
         WorkspaceMember.workspace_id == workspace_id
     ).all()
     
     return WorkspaceMemberListResponse(
-        items=[WorkspaceMemberResponse.model_validate(m) for m in members]
+        items=[build_member_response(m, u) for m, u in members]
     )
 
 
@@ -209,7 +242,7 @@ async def add_workspace_member(
     
     create_audit_log(db, current_user, "workspace.member_added", "workspace_member", member.id)
     
-    return WorkspaceMemberResponse.model_validate(member)
+    return build_member_response(member, target_user)
 
 
 @router.put("/{workspace_id}/members/{user_id}", response_model=WorkspaceMemberResponse)
@@ -242,7 +275,8 @@ async def update_workspace_member(
     
     create_audit_log(db, current_user, "workspace.member_updated", "workspace_member", member.id)
     
-    return WorkspaceMemberResponse.model_validate(member)
+    updated_user = db.query(User).filter(User.id == member.user_id).first()
+    return build_member_response(member, updated_user)
 
 
 @router.delete("/{workspace_id}/members/{user_id}", response_model=SuccessResponse)

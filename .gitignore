@@ -33,15 +33,24 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*
 *.pem
 *.key
 secrets/
+*.secret
+.secrets
 
 # AI agent instructions (local use only)
 .github/copilot-instructions.md
 
 # Security and threat models (private)
 THREAT_MODEL.md
+
+# Backup files
+*.bak
+*.backup
+*~
+.swp
 
 # Database
 *.db

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -9,6 +9,21 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
     tenant_name: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, value: str) -> str:
+        if len(value) < 12:
+            raise ValueError("Password must be at least 12 characters long")
+        if not any(c.islower() for c in value):
+            raise ValueError("Password must include a lowercase letter")
+        if not any(c.isupper() for c in value):
+            raise ValueError("Password must include an uppercase letter")
+        if not any(c.isdigit() for c in value):
+            raise ValueError("Password must include a number")
+        if not any(c in "!@#$%^&*()-_=+[]{};:,.?/" for c in value):
+            raise ValueError("Password must include a special character")
+        return value
 
 
 class LoginRequest(BaseModel):

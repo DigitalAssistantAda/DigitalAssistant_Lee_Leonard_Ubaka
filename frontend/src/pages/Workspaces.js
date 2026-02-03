@@ -1,22 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Trash2, X, Search, Settings, AlertCircle } from 'lucide-react';
+import './Workspaces.css';
 
 function Workspaces() {
+  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newWorkspace, setNewWorkspace] = useState({
-    name: '',
-    description: ''
-  });
+  const [newWorkspace, setNewWorkspace] = useState({ name: '' });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortOrder, setSortOrder] = useState('recent');
+  const [workspaceFilter, setWorkspaceFilter] = useState('all');
+  const [selectedWorkspaces, setSelectedWorkspaces] = useState(new Set());
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-  useEffect(() => {
-    fetchWorkspaces();
-  }, []);
-
-  const fetchWorkspaces = async () => {
+  const fetchWorkspaces = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -24,7 +25,7 @@ function Workspaces() {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_URL}/api/v1/workspaces`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -33,24 +34,29 @@ function Workspaces() {
       }
 
       const data = await response.json();
-      setWorkspaces(data);
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      setWorkspaces(items);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Unable to load workspaces');
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_URL]);
+
+  useEffect(() => {
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
 
   const handleCreateWorkspace = async (e) => {
     e.preventDefault();
-    setError(null);
+    if (!newWorkspace.name.trim()) return;
 
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_URL}/api/v1/workspaces`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(newWorkspace),
@@ -60,25 +66,23 @@ function Workspaces() {
         throw new Error('Failed to create workspace');
       }
 
-      setNewWorkspace({ name: '', description: '' });
+      setNewWorkspace({ name: '' });
       setShowCreateForm(false);
       fetchWorkspaces();
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to create workspace');
     }
   };
 
-  const handleDeleteWorkspace = async (workspaceId) => {
-    if (!window.confirm('Are you sure you want to delete this workspace?')) {
-      return;
-    }
+  const handleDeleteWorkspace = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this workspace?')) return;
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}`, {
+      const response = await fetch(`${API_URL}/api/v1/workspaces/${id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -86,92 +90,268 @@ function Workspaces() {
         throw new Error('Failed to delete workspace');
       }
 
+      setSelectedWorkspaces(prev => {
+        const updated = new Set(prev);
+        updated.delete(id);
+        return updated;
+      });
       fetchWorkspaces();
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Failed to delete workspace');
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedWorkspaces.size === 0) return;
+    const count = selectedWorkspaces.size;
+    if (!window.confirm(`Delete ${count} workspace${count > 1 ? 's' : ''}?`)) return;
+
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const deletionPromises = Array.from(selectedWorkspaces).map(id =>
+        fetch(`${API_URL}/api/v1/workspaces/${id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      );
+
+      await Promise.all(deletionPromises);
+      setSelectedWorkspaces(new Set());
+      fetchWorkspaces();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCheckboxChange = (id) => {
+    const newSelected = new Set(selectedWorkspaces);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedWorkspaces(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedWorkspaces.size === filteredWorkspaces.length) {
+      setSelectedWorkspaces(new Set());
+    } else {
+      setSelectedWorkspaces(new Set(filteredWorkspaces.map(ws => ws.id)));
+    }
+  };
+
+  const filteredWorkspaces = useMemo(() => {
+    let filtered = workspaces;
+
+    if (workspaceFilter === 'mine') {
+      // TODO: filter by user's workspaces
+    }
+
+    if (searchTerm) {
+      filtered = filtered.filter(w => w.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    }
+
+    return filtered.sort((a, b) => {
+      if (sortOrder === 'name') {
+        return a.name.localeCompare(b.name);
+      }
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+  }, [workspaces, searchTerm, sortOrder, workspaceFilter]);
+
+  const formatDate = (value) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
+  const navigateToWorkspace = (id) => {
+    navigate(`/workspace/${id}`);
+  };
+
   return (
-    <div style={{ padding: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1>Workspaces</h1>
+    <div className="workspaces-page">
+      <header className="workspaces-header">
+        <div className="header-content">
+          <h1>Workspaces</h1>
+          <p>Manage your workspaces and documents</p>
+        </div>
         <button 
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          style={{ padding: '10px 20px', cursor: 'pointer' }}
+          className="btn btn-primary" 
+          onClick={() => setShowCreateForm(true)}
+          title="Create new workspace"
+          aria-label="Create new workspace"
         >
-          {showCreateForm ? 'Cancel' : 'Create New Workspace'}
+          <Plus size={18} />
+          New Workspace
         </button>
-      </div>
+      </header>
 
       {error && (
-        <div style={{ color: 'red', padding: '10px', marginBottom: '20px' }}>
-          Error: {error}
+        <div className="alert alert-error">
+          <span>{error}</span>
+          <button 
+            className="close-error"
+            onClick={() => setError(null)}
+            aria-label="Close error message"
+          >
+            <X size={16} />
+          </button>
         </div>
       )}
 
       {showCreateForm && (
-        <div style={{ marginBottom: '30px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
-          <h2>Create New Workspace</h2>
-          <form onSubmit={handleCreateWorkspace}>
-            <div style={{ marginBottom: '15px' }}>
-              <label>Name:</label>
-              <input
-                type="text"
-                value={newWorkspace.name}
-                onChange={(e) => setNewWorkspace({ ...newWorkspace, name: e.target.value })}
-                required
-                style={{ width: '100%', padding: '8px' }}
-              />
+        <div className="modal-overlay" onClick={() => setShowCreateForm(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Create Workspace</h2>
+              <button 
+                className="modal-close" 
+                onClick={() => setShowCreateForm(false)}
+                aria-label="Close dialog"
+              >
+                <X size={20} />
+              </button>
             </div>
-            <div style={{ marginBottom: '15px' }}>
-              <label>Description:</label>
-              <textarea
-                value={newWorkspace.description}
-                onChange={(e) => setNewWorkspace({ ...newWorkspace, description: e.target.value })}
-                style={{ width: '100%', padding: '8px', minHeight: '80px' }}
-              />
-            </div>
-            <button type="submit" style={{ padding: '10px 20px', cursor: 'pointer' }}>
-              Create Workspace
-            </button>
-          </form>
+            <form onSubmit={handleCreateWorkspace}>
+              <div className="form-group">
+                <label htmlFor="workspace-name">Workspace Name</label>
+                <input
+                  id="workspace-name"
+                  type="text"
+                  placeholder="Workspace name"
+                  value={newWorkspace.name}
+                  onChange={(e) => setNewWorkspace({ name: e.target.value })}
+                  required
+                  autoFocus
+                />
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setShowCreateForm(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Create
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
-      {loading ? (
-        <p>Loading workspaces...</p>
-      ) : (
-        <div style={{ display: 'grid', gap: '20px' }}>
-          {workspaces.length === 0 ? (
-            <p>No workspaces found. Create your first workspace to get started.</p>
-          ) : (
-            workspaces.map((workspace) => (
-              <div 
-                key={workspace.id} 
-                style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}
-              >
-                <h3>{workspace.name}</h3>
-                {workspace.description && <p>{workspace.description}</p>}
-                <div style={{ marginTop: '10px', display: 'flex', gap: '10px' }}>
+      <div className="workspaces-controls">
+        <div className="controls-left">
+          <select value={workspaceFilter} onChange={(e) => setWorkspaceFilter(e.target.value)}>
+            <option value="all">All Workspaces</option>
+            <option value="mine">My Workspaces</option>
+          </select>
+          <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+            <option value="recent">Most Recent</option>
+            <option value="name">Name (A-Z)</option>
+          </select>
+        </div>
+        <div className="search-box">
+          <Search size={18} />
+          <input
+            type="text"
+            placeholder="Search workspaces..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            aria-label="Search workspaces"
+          />
+        </div>
+      </div>
+
+      {selectedWorkspaces.size > 0 && (
+        <div className="bulk-actions-bar">
+          <div className="bulk-info">
+            <input 
+              type="checkbox"
+              checked={selectedWorkspaces.size === filteredWorkspaces.length}
+              onChange={handleSelectAll}
+              title={selectedWorkspaces.size === filteredWorkspaces.length ? 'Deselect all' : 'Select all'}
+              aria-label={selectedWorkspaces.size === filteredWorkspaces.length ? 'Deselect all workspaces' : 'Select all workspaces'}
+            />
+            <span>{selectedWorkspaces.size} selected</span>
+          </div>
+          <button 
+            className="action-btn delete-btn"
+            onClick={handleBulkDelete}
+            title="Delete selected workspaces"
+            aria-label={`Delete ${selectedWorkspaces.size} workspace${selectedWorkspaces.size > 1 ? 's' : ''}`}
+          >
+            <Trash2 size={18} />
+            Delete
+          </button>
+        </div>
+      )}
+
+      <div className="workspaces-list">
+        {loading ? (
+          <div className="loading">Loading workspaces...</div>
+        ) : filteredWorkspaces.length === 0 ? (
+          <div className="empty-state">
+            <p>No workspaces found</p>
+            <button className="btn btn-primary" onClick={() => setShowCreateForm(true)}>
+              Create your first workspace
+            </button>
+          </div>
+        ) : (
+          <div className="workspace-grid">
+            {filteredWorkspaces.map((workspace) => (
+              <div key={workspace.id} className="workspace-row">
+                <div className="workspace-checkbox">
+                  <input 
+                    type="checkbox"
+                    checked={selectedWorkspaces.has(workspace.id)}
+                    onChange={() => handleCheckboxChange(workspace.id)}
+                    title="Select workspace"
+                    aria-label={`Select ${workspace.name}`}
+                  />
+                </div>
+                <div className="workspace-info" onClick={() => navigateToWorkspace(workspace.id)}>
+                  <h3>{workspace.name}</h3>
+                  <div className="workspace-meta">
+                    <span>{workspace.document_count ?? 0} Documents</span>
+                    <span>{workspace.member_count ?? 0} Members</span>
+                    <span>Created {formatDate(workspace.created_at)}</span>
+                  </div>
+                </div>
+                <div className="workspace-actions">
                   <button 
-                    onClick={() => window.location.href = `/documents?workspace=${workspace.id}`}
-                    style={{ padding: '8px 16px', cursor: 'pointer' }}
+                    className="btn btn-secondary"
+                    onClick={() => navigate(`/workspace/${workspace.id}/issues`)}
+                    title="View issues"
+                    aria-label={`View issues in ${workspace.name}`}
                   >
-                    View Documents
+                    <AlertCircle size={16} /> Issues
                   </button>
                   <button 
-                    onClick={() => handleDeleteWorkspace(workspace.id)}
-                    style={{ padding: '8px 16px', cursor: 'pointer', background: '#dc3545', color: 'white' }}
+                    className="btn btn-secondary"
+                    onClick={() => navigate(`/workspace/${workspace.id}/settings`)}
+                    title="Workspace settings"
+                    aria-label={`Settings for ${workspace.name}`}
                   >
-                    Delete
+                    <Settings size={16} /> Settings
+                  </button>
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={() => navigateToWorkspace(workspace.id)}
+                    title="Open workspace"
+                    aria-label={`Open ${workspace.name}`}
+                  >
+                    Open
                   </button>
                 </div>
               </div>
-            ))
-          )}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

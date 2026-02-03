@@ -1,13 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Font stack variables */
+  --font-display: "Canela", "Libre Baskerville", "Georgia", serif;
+  --font-body: "Source Serif 4", "Charter", "Georgia", serif;
+  --font-ui: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+
+  /* Transitional Palette - Light Mode */
+  --bg-primary: #F7F2F8;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #EEE6F7;
+  --text-primary: #1A1226;
+  --text-secondary: #564A66;
+  --text-muted: #564A66;
+  --border-color: #D6CAE7;
+  --accent-primary: #4F2697;
+  --accent-hover: #5E2FB6;
+  --accent-secondary: #B66A4A;
+  --accent-highlight: #D7B77A;
+  --status-success: #2F7B61;
+  --status-warning: #B96E2F;
+  --status-danger: #B54141;
+}
+
+.dark {
+  /* Transitional Palette - Dark Mode */
+  --bg-primary: #1A1226;
+  --bg-secondary: #2A1F3D;
+  --bg-tertiary: #3A2E54;
+  --text-primary: #F7F2F8;
+  --text-secondary: #C7BBD4;
+  --text-muted: #A89AB8;
+  --border-color: #4A3D64;
+  --accent-primary: #8B6AC7;
+  --accent-hover: #A285D9;
+  --accent-secondary: #D79977;
+  --accent-highlight: #E8D4A8;
+  --status-success: #5BA886;
+  --status-warning: #E0985E;
+  --status-danger: #D96E6E;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  /* Use UI font by default */
+  font-family: var(--font-ui);
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-ui);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+h1 {
+  font-size: 2.5rem;
+}
+
+h2 {
+  font-size: 2rem;
+}
+
+h3 {
+  font-size: 1.5rem;
+}
+
+p, span, a, button {
+  font-family: var(--font-ui);
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: 'JetBrains Mono', monospace;
 }

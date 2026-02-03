@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 from database import init_db
+from middleware import authorization_middleware, log_request_middleware
 from api import (
     auth_router,
     users_router,
@@ -13,6 +14,9 @@ from api import (
     summaries_router,
     audit_logs_router,
 )
+from api.dashboard import router as dashboard_router
+from api.messages import router as messages_router
+from api.tasks import router as tasks_router
 
 app = FastAPI(
     title="Digital Assistant API",
@@ -28,6 +32,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add authorization middleware for request-level checks
+app.middleware("http")(authorization_middleware)
+
+# Add logging middleware for all requests
+app.middleware("http")(log_request_middleware)
 
 # Initialize database on startup
 @app.on_event("startup")
@@ -64,3 +74,6 @@ app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
 app.include_router(summaries_router, prefix="/api/v1")
 app.include_router(audit_logs_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/v1")
+app.include_router(messages_router, prefix="/api/v1")
+app.include_router(tasks_router, prefix="/api/v1")

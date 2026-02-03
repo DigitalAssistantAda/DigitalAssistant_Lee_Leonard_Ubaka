@@ -5,10 +5,11 @@ import enum
 
 
 class DocumentStatus(str, enum.Enum):
-    PENDING = "pending"
+    UPLOADED = "uploaded"
     PROCESSING = "processing"
     READY = "ready"
     FAILED = "failed"
+    DELETED = "deleted"
 
 
 class Document(Base):
@@ -20,7 +21,6 @@ class Document(Base):
     filename = Column(String, nullable=False)
     mime_type = Column(String, nullable=False)
     size_bytes = Column(BigInteger, nullable=False)
-    storage_path = Column(String, nullable=False)
-    status = Column(Enum(DocumentStatus), nullable=False, default=DocumentStatus.PENDING)
+    storage_uri = Column(String, nullable=False)  # s3://bucket/path or minio://path
+    status = Column(Enum(DocumentStatus), nullable=False, default=DocumentStatus.UPLOADED)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

@@ -80,15 +80,21 @@ class MinIOBackend(StorageBackend):
 
 
 class S3Backend(StorageBackend):
-    """AWS S3 object storage backend (production)"""
+    """AWS S3 / Cloudflare R2 object storage backend (production)"""
     
     def __init__(self):
-        self.client = boto3.client(
-            "s3",
-            region_name=settings.s3_region,
-            aws_access_key_id=settings.s3_access_key,
-            aws_secret_access_key=settings.s3_secret_key
-        )
+        # Support both AWS S3 and Cloudflare R2 (S3-compatible)
+        client_config = {
+            "region_name": settings.s3_region,
+            "aws_access_key_id": settings.s3_access_key,
+            "aws_secret_access_key": settings.s3_secret_key
+        }
+        
+        # Add custom endpoint for R2 or S3-compatible services
+        if settings.s3_endpoint_url:
+            client_config["endpoint_url"] = settings.s3_endpoint_url
+        
+        self.client = boto3.client("s3", **client_config)
     
     async def upload(self, bucket: str, path: str, data: bytes, content_type: str) -> str:
         """Upload to S3"""

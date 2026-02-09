@@ -109,12 +109,20 @@ async def get_current_user(
     return user
 
 
-def create_audit_log(db: Session, user: User, action: str, object_type: str, object_id: Optional[int] = None, metadata: Optional[dict] = None):
+def create_audit_log(
+    db: Session,
+    user: User,
+    action: str,
+    object_type: str,
+    object_id: Optional[int] = None,
+    metadata: Optional[dict] = None,
+    workspace_id: Optional[int] = None
+):
     """Create an audit log entry"""
     from models.audit_log import AuditLog
     
     log = AuditLog(
-        tenant_id=user.tenant_id,
+        workspace_id=workspace_id,
         actor_user_id=user.id,
         action=action,
         object_type=object_type,

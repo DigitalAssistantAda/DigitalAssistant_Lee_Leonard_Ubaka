@@ -5,7 +5,6 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from models.user import User
 from models.workspace import WorkspaceMember, WorkspaceRole
-from models.tenant import Tenant
 from models.document import Document
 from typing import Optional
 
@@ -50,10 +49,9 @@ def check_workspace_access(
         PermissionDenied: If user doesn't have access or insufficient role
         NotFound: If workspace doesn't exist
     """
-    # Verify workspace exists and belongs to user's tenant
+    # Verify workspace exists
     workspace = db.query(Workspace).filter(
-        (Workspace.id == workspace_id) &
-        (Workspace.tenant_id == user.tenant_id)
+        Workspace.id == workspace_id
     ).first()
     
     if not workspace:
@@ -125,19 +123,6 @@ def check_document_access(
         raise PermissionDenied("You can only modify documents you uploaded")
     
     return document
-
-
-def check_tenant_isolation(user_tenant_id: int, resource_tenant_id: int):
-    """
-    Verify that user and resource belong to same tenant.
-    
-    This is a safety check to prevent cross-tenant access.
-    
-    Raises:
-        PermissionDenied: If tenant IDs don't match
-    """
-    if user_tenant_id != resource_tenant_id:
-        raise PermissionDenied("Access denied")
 
 
 # Import Workspace after defining check functions to avoid circular imports

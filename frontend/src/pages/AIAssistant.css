@@ -24,11 +24,6 @@
   align-items: center;
   gap: 1rem;
 }
-
-.ai-icon {
-  color: var(--accent-primary);
-}
-
 .ai-header h1 {
   margin: 0;
   font-size: 1.75rem;
@@ -39,7 +34,7 @@
 .mode-toggle {
   display: flex;
   gap: 0;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   overflow: hidden;
 }
 
@@ -115,7 +110,7 @@
   padding: 0.75rem;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -150,7 +145,7 @@
   padding: 0.75rem;
   background: var(--accent-primary);
   color: white;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   font-size: 0.85rem;
   font-weight: 600;
 }
@@ -161,7 +156,7 @@
   padding: 1rem;
   background: rgba(79, 70, 229, 0.1);
   border: 1px solid var(--accent-primary);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   margin-top: auto;
 }
 
@@ -237,7 +232,7 @@
   padding: 0.75rem 1.25rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   color: var(--text-primary);
   cursor: pointer;
   font-size: 0.85rem;
@@ -269,7 +264,7 @@
 .message-icon {
   width: 36px;
   height: 36px;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   display: flex;
@@ -297,7 +292,7 @@
 .message-text {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   padding: 1rem;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -323,7 +318,7 @@
   padding: 0.25rem 0.5rem;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.75rem;
 }
@@ -381,7 +376,7 @@
   flex: 1;
   padding: 0.75rem 1rem;
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 0.95rem;
@@ -399,7 +394,7 @@
   background: var(--accent-primary);
   color: white;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -409,7 +404,7 @@
 }
 
 .btn-send:hover:not(:disabled) {
-  background: #4338ca;
+  background: var(--accent-hover);
 }
 
 .btn-send:disabled {
@@ -439,7 +434,7 @@
 .summarize-form {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   padding: 2rem;
   margin-bottom: 2rem;
 }
@@ -460,7 +455,7 @@
   width: 100%;
   padding: 0.75rem;
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 0.95rem;
@@ -483,7 +478,7 @@
   background: var(--accent-primary);
   color: white;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   cursor: pointer;
   font-weight: 600;
   font-size: 0.95rem;
@@ -492,7 +487,7 @@
 }
 
 .btn-generate:hover:not(:disabled) {
-  background: #4338ca;
+  background: var(--accent-hover);
 }
 
 .btn-generate:disabled {
@@ -519,14 +514,14 @@
 .summary-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   padding: 1.5rem;
   transition: all 0.2s ease;
 }
 
 .summary-card:hover {
   border-color: var(--accent-primary);
-  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .summary-header {
@@ -546,7 +541,7 @@
 
 .status-badge {
   padding: 0.25rem 0.75rem;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;

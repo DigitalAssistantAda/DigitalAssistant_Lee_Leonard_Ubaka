@@ -19,6 +19,11 @@ function WorkspaceIssues({ workspaceId }) {
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
 
+  const filteredIssues = useMemo(() => {
+    if (statusFilter === 'all') return issues;
+    return issues.filter((issue) => issue.status === statusFilter);
+  }, [issues, statusFilter]);
+
   const resolvedWorkspaceId = useMemo(() => {
     const fromProp = Number(workspaceId);
     if (!Number.isNaN(fromProp) && Number.isFinite(fromProp)) return fromProp;
@@ -131,11 +136,6 @@ function WorkspaceIssues({ workspaceId }) {
     }
   };
 
-  const filteredIssues = issues.filter((issue) => {
-    if (statusFilter === 'all') return true;
-    return issue.status === statusFilter;
-  });
-
   const getStatusIcon = (status) => {
     switch (status) {
       case 'open':
@@ -149,13 +149,9 @@ function WorkspaceIssues({ workspaceId }) {
     }
   };
 
-  const getPriorityColor = (priority) => {
-    const colors = {
-      high: 'var(--status-error)',
-      medium: 'var(--status-warning)',
-      low: 'var(--status-success)',
-    };
-    return colors[priority] || 'var(--text-secondary)';
+  const getPriorityClass = (priority) => {
+    if (!priority) return 'priority-neutral';
+    return `priority-${priority}`;
   };
 
   if (loading) return <div className="issues-container"><p>Loading issues...</p></div>;
@@ -240,8 +236,7 @@ function WorkspaceIssues({ workspaceId }) {
                   {issue.priority && (
                     <div className="meta-item">
                       <span
-                        className="priority-badge"
-                        style={{ color: getPriorityColor(issue.priority) }}
+                        className={`priority-badge ${getPriorityClass(issue.priority)}`}
                       >
                         {issue.priority}
                       </span>

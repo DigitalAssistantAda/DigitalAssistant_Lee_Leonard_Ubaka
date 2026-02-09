@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Send, FileText, Bot, AlertCircle, Sparkles, X, CheckCircle } from 'lucide-react';
+import { Send, FileText, Bot, AlertCircle, Sparkles, CheckCircle } from 'lucide-react';
 import './AIAssistant.css';
 
 function AIAssistant() {
+  const [workspaces, setWorkspaces] = useState([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -10,90 +12,179 @@ function AIAssistant() {
   const [selectedDocuments, setSelectedDocuments] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState('chat'); // 'chat' or 'summarize'
-  const [summaryInstructions, setSummaryInstructions] = useState('');
-  const [summaries, setSummaries] = useState([]);
+  const [error, setError] = useState(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
 
   useEffect(() => {
-    // Mock: In real implementation, fetch user's documents
-    setDocuments([
-      { id: 1, name: 'Project Requirements.pdf', workspace_id: 1 },
-      { id: 2, name: 'Technical Spec.docx', workspace_id: 1 },
-      { id: 3, name: 'Meeting Notes Q4.txt', workspace_id: 1 },
-    ]);
-
-    // Mock: Fetch user's conversations
-    setConversations([
-      { id: 1, title: 'Previous Chat', last_message_at: '2 hours ago' },
-    ]);
-
-    // Mock: Sample summaries
-    setSummaries([
-      {
-        id: 1,
-        title: 'Requirements Summary',
-        status: 'completed',
-        document_id: 1,
-        created_at: 'Yesterday',
-      },
-    ]);
+    fetchWorkspaces();
   }, []);
 
-  const handleSendMessage = () => {
-    if (!input.trim()) return;
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    fetchDocuments(activeWorkspaceId);
+    fetchConversations(activeWorkspaceId);
+  }, [activeWorkspaceId]);
 
-    // Mock: Add user message
-    const userMessage = {
-      id: messages.length + 1,
-      role: 'user',
-      content: input,
-      created_at: new Date().toISOString(),
-    };
+  const fetchWorkspaces = async () => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_URL}/api/v1/workspaces`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
 
-    setMessages([...messages, userMessage]);
-    setInput('');
-    setLoading(true);
+      if (!response.ok) {
+        throw new Error('Failed to load workspaces');
+      }
 
-    // Mock: Simulate AI response
-    setTimeout(() => {
-      const aiMessage = {
-        id: messages.length + 2,
-        role: 'assistant',
-        content: `[AI Service Placeholder]\n\nThis is a mock response. In production, this would:\n• Query your selected documents using vector search\n• Generate contextual answers using GPT-4 or Claude\n• Cite specific passages from your documents\n• Maintain conversation history\n\nSelected context: ${selectedDocuments.length} documents`,
-        sources: selectedDocuments.map((id) => documents.find((d) => d.id === id)?.name),
-        created_at: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, aiMessage]);
-      setLoading(false);
-    }, 1500);
+      const data = await response.json();
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      setWorkspaces(items);
+
+      if (items.length > 0) {
+        setActiveWorkspaceId(items[0].id);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load workspaces');
+    }
   };
 
-  const handleGenerateSummary = () => {
-    if (selectedDocuments.length === 0) {
-      alert('Please select at least one document');
-      return;
+  const fetchDocuments = async (workspaceId) => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/documents`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load documents');
+      }
+
+      const data = await response.json();
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data?.documents) ? data.documents : [];
+      setDocuments(items);
+      setSelectedDocuments([]);
+    } catch (err) {
+      setError(err.message || 'Failed to load documents');
+    }
+  };
+
+  const fetchConversations = async (workspaceId) => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_URL}/api/v1/conversations/${workspaceId}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load conversations');
+      }
+
+      const data = await response.json();
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      setConversations(items);
+
+      if (items.length > 0) {
+        setActiveConversation(items[0]);
+        fetchConversationMessages(workspaceId, items[0].id);
+      } else {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load conversations');
+    }
+  };
+
+  const fetchConversationMessages = async (workspaceId, conversationId) => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_URL}/api/v1/conversations/${workspaceId}/${conversationId}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load messages');
+      }
+
+      const data = await response.json();
+      setMessages(Array.isArray(data?.messages) ? data.messages : []);
+    } catch (err) {
+      setError(err.message || 'Failed to load messages');
+    }
+  };
+
+  const createConversation = async (workspaceId) => {
+    const response = await fetch(`${API_URL}/api/v1/conversations/${workspaceId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'Chat' }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create conversation');
     }
 
-    setLoading(true);
+    const conversation = await response.json();
+    setConversations((prev) => [conversation, ...prev]);
+    setActiveConversation(conversation);
+    return conversation;
+  };
 
-    // Mock: Simulate summary generation
-    setTimeout(() => {
-      const newSummary = {
-        id: summaries.length + 1,
-        title: `Summary of ${selectedDocuments.length} documents`,
-        status: 'completed',
-        summary_text: `[AI Service Placeholder]\n\nThis would generate a comprehensive summary by:\n• Extracting key points from selected documents\n• Identifying main themes and topics\n• Highlighting important dates, names, and decisions\n• Creating actionable insights\n\nInstructions: ${summaryInstructions || 'General summary'}\nDocuments: ${selectedDocuments.map((id) => documents.find((d) => d.id === id)?.name).join(', ')}`,
-        document_ids: selectedDocuments,
-        created_at: 'Just now',
-      };
-      setSummaries([newSummary, ...summaries]);
+  const handleSendMessage = async () => {
+    if (!input.trim() || !activeWorkspaceId) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      let conversation = activeConversation;
+      if (!conversation) {
+        conversation = await createConversation(activeWorkspaceId);
+      }
+
+      const response = await fetch(
+        `${API_URL}/api/v1/conversations/${activeWorkspaceId}/${conversation.id}/messages`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ content: input.trim() }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
+
+      const newMessage = await response.json();
+      setMessages((prev) => [...prev, newMessage]);
+      setInput('');
+
+      setTimeout(() => {
+        const aiMessage = {
+          id: `local-${Date.now()}`,
+          role: 'assistant',
+          content: `[AI Service Placeholder]\n\nAI responses are not yet integrated. Ask for a summary by saying: "Summarize the selected documents."\n\nSelected context: ${selectedDocuments.length} documents`,
+          sources: selectedDocuments
+            .map((id) => documents.find((doc) => doc.id === id)?.filename)
+            .filter(Boolean),
+          created_at: new Date().toISOString(),
+          client_only: true,
+        };
+        setMessages((prev) => [...prev, aiMessage]);
+        setLoading(false);
+      }, 900);
+    } catch (err) {
+      setError(err.message || 'Failed to send message');
       setLoading(false);
-      setSummaryInstructions('');
-      alert('Summary generated! (Mock)');
-    }, 2000);
+    }
   };
 
   const toggleDocumentSelection = (docId) => {
@@ -110,25 +201,24 @@ function AIAssistant() {
           <Bot size={28} className="ai-icon" />
           <h1>AI Assistant</h1>
         </div>
-        <div className="mode-toggle">
-          <button
-            className={`mode-btn ${mode === 'chat' ? 'active' : ''}`}
-            onClick={() => setMode('chat')}
-          >
-            Chat
-          </button>
-          <button
-            className={`mode-btn ${mode === 'summarize' ? 'active' : ''}`}
-            onClick={() => setMode('summarize')}
-          >
-            Summarize
-          </button>
-        </div>
       </div>
 
       <div className="ai-content">
         {/* Sidebar: Document Selection */}
         <div className="ai-sidebar">
+          {error && <div className="error-message">{error}</div>}
+          {!activeWorkspaceId && (
+            <div className="empty-state">
+              <AlertCircle size={24} />
+              <p>No workspace available yet.</p>
+            </div>
+          )}
+          {activeWorkspaceId && workspaces.length > 0 && (
+            <div className="selection-summary">
+              <CheckCircle size={16} />
+              Workspace: {workspaces.find((ws) => ws.id === activeWorkspaceId)?.name || 'Selected'}
+            </div>
+          )}
           <h3>Select Documents</h3>
           <p className="sidebar-description">Choose documents for context</p>
           <div className="document-list">
@@ -145,7 +235,7 @@ function AIAssistant() {
                   className="doc-checkbox"
                 />
                 <FileText size={16} />
-                <span className="doc-name">{doc.name}</span>
+                <span className="doc-name">{doc.filename || doc.name}</span>
               </div>
             ))}
           </div>
@@ -171,148 +261,87 @@ function AIAssistant() {
 
         {/* Main Area */}
         <div className="ai-main">
-          {mode === 'chat' ? (
-            <>
-              {/* Chat Messages */}
-              <div className="chat-area">
-                {messages.length === 0 ? (
-                  <div className="empty-chat">
-                    <Sparkles size={48} />
-                    <h2>Ask me anything about your documents</h2>
-                    <p>I can help you find information, summarize content, and answer questions based on your uploaded documents.</p>
-                    <div className="suggestions">
-                      <button onClick={() => setInput('What are the main requirements?')}>
-                        What are the main requirements?
-                      </button>
-                      <button onClick={() => setInput('Summarize the key decisions')}>
-                        Summarize the key decisions
-                      </button>
-                      <button onClick={() => setInput('What deadlines are mentioned?')}>
-                        What deadlines are mentioned?
-                      </button>
+          {/* Chat Messages */}
+          <div className="chat-area">
+            {messages.length === 0 ? (
+              <div className="empty-chat">
+                <Sparkles size={48} />
+                <h2>Ask me anything about your documents</h2>
+                <p>I can help you find information, summarize content, and answer questions based on your uploaded documents.</p>
+                <div className="suggestions">
+                  <button onClick={() => setInput('Summarize the selected documents')}>
+                    Summarize the selected documents
+                  </button>
+                  <button onClick={() => setInput('What are the main requirements?')}>
+                    What are the main requirements?
+                  </button>
+                  <button onClick={() => setInput('What deadlines are mentioned?')}>
+                    What deadlines are mentioned?
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="messages-container">
+                {messages.map((msg) => (
+                  <div key={msg.id} className={`message ${msg.role}`}>
+                    <div className="message-icon">
+                      {msg.role === 'user' ? '👤' : <Bot size={20} />}
+                    </div>
+                    <div className="message-content">
+                      <div className="message-text">{msg.content}</div>
+                      {msg.sources && msg.sources.length > 0 && (
+                        <div className="message-sources">
+                          <strong>Sources:</strong>
+                          {msg.sources.map((source, idx) => (
+                            <span key={idx} className="source-badge">
+                              {source}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="message-time">{msg.created_at}</div>
                     </div>
                   </div>
-                ) : (
-                  <div className="messages-container">
-                    {messages.map((msg) => (
-                      <div key={msg.id} className={`message ${msg.role}`}>
-                        <div className="message-icon">
-                          {msg.role === 'user' ? '👤' : <Bot size={20} />}
-                        </div>
-                        <div className="message-content">
-                          <div className="message-text">{msg.content}</div>
-                          {msg.sources && msg.sources.length > 0 && (
-                            <div className="message-sources">
-                              <strong>Sources:</strong>
-                              {msg.sources.map((source, idx) => (
-                                <span key={idx} className="source-badge">
-                                  {source}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          <div className="message-time">{msg.created_at}</div>
-                        </div>
+                ))}
+                {loading && (
+                  <div className="message assistant">
+                    <div className="message-icon">
+                      <Bot size={20} />
+                    </div>
+                    <div className="message-content">
+                      <div className="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
                       </div>
-                    ))}
-                    {loading && (
-                      <div className="message assistant">
-                        <div className="message-icon">
-                          <Bot size={20} />
-                        </div>
-                        <div className="message-content">
-                          <div className="typing-indicator">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    </div>
                   </div>
                 )}
               </div>
+            )}
+          </div>
 
-              {/* Chat Input */}
-              <div className="chat-input-area">
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                  placeholder="Ask a question about your documents..."
-                  className="chat-input"
-                  disabled={loading}
-                />
-                <button
-                  onClick={handleSendMessage}
-                  className="btn-send"
-                  disabled={loading || !input.trim()}
-                  title="Send message"
-                  aria-label="Send message"
-                >
-                  <Send size={18} />
-                </button>
-              </div>
-            </>
-          ) : (
-            /* Summarize Mode */
-            <div className="summarize-area">
-              <h2>Generate Summary</h2>
-              <p className="summarize-description">
-                Create AI-powered summaries of your selected documents. Customize the summary with specific instructions.
-              </p>
-
-              <div className="summarize-form">
-                <div className="form-group">
-                  <label htmlFor="summary-instructions">Instructions (optional)</label>
-                  <textarea
-                    id="summary-instructions"
-                    value={summaryInstructions}
-                    onChange={(e) => setSummaryInstructions(e.target.value)}
-                    placeholder="E.g., Focus on action items and deadlines..."
-                    className="summary-input"
-                    rows="4"
-                  />
-                </div>
-
-                <button
-                  onClick={handleGenerateSummary}
-                  className="btn-generate"
-                  disabled={loading || selectedDocuments.length === 0}
-                >
-                  <Sparkles size={18} />
-                  {loading ? 'Generating...' : 'Generate Summary'}
-                </button>
-              </div>
-
-              {/* Previous Summaries */}
-              <div className="summaries-section">
-                <h3>Previous Summaries</h3>
-                <div className="summaries-list">
-                  {summaries.length === 0 ? (
-                    <p className="empty-state">No summaries yet</p>
-                  ) : (
-                    summaries.map((summary) => (
-                      <div key={summary.id} className="summary-card">
-                        <div className="summary-header">
-                          <FileText size={16} />
-                          <h4>{summary.title}</h4>
-                          <span className={`status-badge ${summary.status}`}>
-                            {summary.status}
-                          </span>
-                        </div>
-                        {summary.summary_text && (
-                          <p className="summary-preview">{summary.summary_text.substring(0, 200)}...</p>
-                        )}
-                        <div className="summary-meta">{summary.created_at}</div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Chat Input */}
+          <div className="chat-input-area">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+              placeholder="Ask a question about your documents..."
+              className="chat-input"
+              disabled={loading}
+            />
+            <button
+              onClick={handleSendMessage}
+              className="btn-send"
+              disabled={loading || !input.trim()}
+              title="Send message"
+              aria-label="Send message"
+            >
+              <Send size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

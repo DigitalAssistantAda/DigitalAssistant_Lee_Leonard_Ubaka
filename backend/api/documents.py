@@ -97,7 +97,8 @@ async def upload_document(
             "filename": file.filename,
             "size_bytes": size_bytes,
             "workspace_id": workspace_id
-        }
+        },
+        workspace_id=workspace_id
     )
     
     # TODO: Trigger background job for processing
@@ -111,7 +112,7 @@ async def list_documents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Lists documents in a workspace (tenant-scoped)"""
+    """Lists documents in a workspace"""
     
     # Verify user has access to workspace
     try:
@@ -119,14 +120,9 @@ async def list_documents(
     except (PermissionDenied, NotFound) as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     
-    # Get documents - filtered by workspace and tenant
+    # Get documents - filtered by workspace
     documents = db.query(Document).filter(
-        (Document.workspace_id == workspace_id) &
-        # Verify workspace belongs to user's tenant
-        (db.query(WorkspaceMember.workspace_id).filter(
-            (WorkspaceMember.workspace_id == workspace_id) &
-            (WorkspaceMember.user_id == current_user.id)
-        ).exists())
+        Document.workspace_id == workspace_id
     ).order_by(Document.created_at.desc()).all()
     
     return DocumentListResponse(
@@ -175,7 +171,8 @@ async def update_document(
             "old_filename": old_filename,
             "new_filename": document.filename if request.filename else old_filename,
             "workspace_id": document.workspace_id
-        }
+        },
+        workspace_id=document.workspace_id
     )
     
     return DocumentResponse.model_validate(document)
@@ -202,7 +199,8 @@ async def download_document(
             "filename": document.filename,
             "size_bytes": document.size_bytes,
             "workspace_id": document.workspace_id
-        }
+        },
+        workspace_id=document.workspace_id
     )
     
     # TODO: Generate actual pre-signed URL from S3/MinIO
@@ -243,7 +241,8 @@ async def delete_document(
         metadata={
             "filename": filename,
             "workspace_id": workspace_id
-        }
+        },
+        workspace_id=workspace_id
     )
     
     return SuccessResponse()

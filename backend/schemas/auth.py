@@ -8,7 +8,6 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     username: str
     password: str
-    tenant_name: Optional[str] = None
 
     @field_validator("password")
     @classmethod
@@ -40,17 +39,7 @@ class UserResponse(BaseModel):
     id: int
     email: str
     username: str
-    tenant_id: int
     is_active: bool
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class TenantResponse(BaseModel):
-    id: int
-    name: str
     created_at: datetime
 
     class Config:
@@ -59,7 +48,6 @@ class TenantResponse(BaseModel):
 
 class RegisterResponse(BaseModel):
     user: UserResponse
-    tenant: TenantResponse
     access_token: str
     refresh_token: str
 
@@ -72,7 +60,6 @@ class LoginResponse(BaseModel):
 
 class MeResponse(BaseModel):
     user: UserResponse
-    tenant: TenantResponse
 
 
 class SuccessResponse(BaseModel):

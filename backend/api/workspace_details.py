@@ -100,7 +100,7 @@ async def get_workspace_sidebar(
     
     # Get recent activity in user's workspaces
     recent_activity = db.query(AuditLog).filter(
-        AuditLog.tenant_id == current_user.tenant_id
+        AuditLog.workspace_id.in_(workspace_ids)
     ).order_by(desc(AuditLog.created_at)).limit(8).all()
     
     activities = []

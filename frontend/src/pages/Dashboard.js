@@ -157,28 +157,23 @@ function Dashboard() {
     return icons[type] || <FileText size={14} aria-label="Activity" />;
   };
 
-  const getActivityColor = (status) => {
-    const colors = {
-      success: 'var(--status-success)',
-      pending: 'var(--status-warning)',
-      failed: 'var(--status-error)'
-    };
-    return colors[status] || 'var(--border-primary)';
+  const getActivityStatusClass = (status) => {
+    if (status === 'success') return 'status-success';
+    if (status === 'pending') return 'status-pending';
+    if (status === 'failed') return 'status-failed';
+    return 'status-neutral';
   };
 
-  const getPriorityColor = (priority) => {
-    const colors = {
-      high: 'var(--status-error)',
-      medium: 'var(--status-warning)',
-      low: 'var(--status-success)'
-    };
-    return colors[priority] || 'var(--text-secondary)';
+  const getPriorityClass = (priority) => {
+    if (!priority) return 'priority-neutral';
+    return `priority-${priority}`;
   };
 
-  const getDeadlineColor = (dueIn) => {
-    if (dueIn.includes('Overdue')) return 'var(--status-error)';
-    if (dueIn.includes('today') || dueIn.includes('tomorrow')) return 'var(--status-warning)';
-    return 'var(--status-success)';
+  const getDeadlineClass = (dueIn) => {
+    const value = (dueIn || '').toLowerCase();
+    if (value.includes('overdue')) return 'due-overdue';
+    if (value.includes('today') || value.includes('tomorrow')) return 'due-soon';
+    return 'due-normal';
   };
 
   const calendarDays = [
@@ -329,7 +324,7 @@ function Dashboard() {
                     <div key={index} className="issue-item">
                       <div className="issue-number">#{issue.number}</div>
                       <div className="issue-title">{issue.title}</div>
-                      <div className="issue-priority" style={{ color: getPriorityColor(issue.priority) }}>
+                      <div className={`issue-priority ${getPriorityClass(issue.priority)}`}>
                         {issue.priority}
                       </div>
                     </div>
@@ -358,7 +353,7 @@ function Dashboard() {
                   deadlines.map((deadline, index) => (
                     <div key={index} className="deadline-item">
                       <div className="deadline-title">{deadline.title}</div>
-                      <div className="deadline-due" style={{ color: getDeadlineColor(deadline.due_in) }}>
+                      <div className={`deadline-due ${getDeadlineClass(deadline.due_in)}`}>
                         {deadline.due_in}
                       </div>
                     </div>
@@ -373,28 +368,13 @@ function Dashboard() {
             <div className="bottom-section">
               <div className="activity-workspace">
                 <div className="workspace-header">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div className="activity-header">
                     <h2 className="workspace-title">Recent Activity</h2>
-                    <button 
-                      style={{ 
-                        background: 'transparent', 
-                        border: '1px solid var(--border-color)', 
-                        color: 'var(--text-secondary)', 
-                        padding: '0.5rem 1rem',
-                        cursor: 'pointer',
-                        fontSize: '0.85rem',
-                        fontFamily: 'var(--font-ui)'
-                      }}
-                    >
+                    <button className="activity-view-all">
                       View All
                     </button>
                   </div>
-                  <div style={{ 
-                    display: 'flex', 
-                    gap: '0.5rem', 
-                    marginBottom: '1.5rem',
-                    flexWrap: 'wrap'
-                  }}>
+                  <div className="activity-filters">
                     <button className={`filter-btn ${activityFilter === 'all' ? 'active' : ''}`} onClick={() => setActivityFilter('all')}>All</button>
                     <button className={`filter-btn ${activityFilter === 'documents' ? 'active' : ''}`} onClick={() => setActivityFilter('documents')}>Documents</button>
                     <button className={`filter-btn ${activityFilter === 'searches' ? 'active' : ''}`} onClick={() => setActivityFilter('searches')}>Searches</button>
@@ -406,10 +386,9 @@ function Dashboard() {
                   {filteredActivity.map((activity, index) => (
                     <div key={index} className="timeline-item">
                       <div 
-                        className="timeline-marker" 
-                        style={{ borderColor: getActivityColor(activity.status) }}
+                        className={`timeline-marker ${getActivityStatusClass(activity.status)}`}
                       >
-                        <span style={{ color: getActivityColor(activity.status) }}>
+                        <span className={`timeline-icon ${getActivityStatusClass(activity.status)}`}>
                           {getActivityIcon(activity.type)}
                         </span>
                       </div>

@@ -99,7 +99,7 @@
 .stat-card {
   padding: 1.5rem;
   border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   text-align: center;
   background: var(--bg-secondary, #f5f7fa);
 }
@@ -124,7 +124,7 @@
 .document-item {
   padding: 1rem;
   border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   background: white;
   transition: all 0.2s ease;
 }
@@ -153,7 +153,7 @@
 .member-item {
   padding: 1rem;
   border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -163,7 +163,7 @@
 .member-avatar {
   width: 40px;
   height: 40px;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   background: var(--accent-primary, #7c3aed);
   color: white;
   display: flex;
@@ -189,7 +189,7 @@
   margin-bottom: 2rem;
   padding: 1.5rem;
   background: var(--bg-secondary, #f5f7fa);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   min-height: 300px;
   max-height: 500px;
   overflow-y: auto;
@@ -200,13 +200,13 @@
   gap: 1rem;
   padding: 1rem;
   background: white;
-  border-radius: 0;
+  border-radius: var(--radius-base);
 }
 
 .message-avatar {
   width: 32px;
   height: 32px;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   background: var(--accent-primary, #7c3aed);
   color: white;
   display: flex;
@@ -247,7 +247,7 @@
   flex: 1;
   padding: 0.75rem;
   border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   font-family: inherit;
   font-size: 0.9rem;
 }
@@ -257,7 +257,7 @@
   background: var(--accent-primary, #7c3aed);
   color: white;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s ease;
@@ -287,7 +287,7 @@
 .setting-item {
   padding: 1rem;
   border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   margin-bottom: 1rem;
 }
 

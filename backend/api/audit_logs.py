@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.user import User
 from models.audit_log import AuditLog
+from models.workspace import WorkspaceMember, MemberStatus
 from schemas.audit_log import AuditLogResponse, AuditLogListResponse
 from utils.auth import get_current_user
 from utils.audit import get_audit_logs
@@ -20,16 +21,25 @@ async def list_audit_logs(
     object_type: str = Query(None),
     user_id: int = Query(None),
 ):
-    """
-    List audit logs for the current tenant (multi-tenant isolated).
-    
-    Shows all actions taken by any user in the organization.
-    Filters automatically to current tenant.
-    """
-    
+    """List audit logs for workspaces the user can access."""
+
+    workspace_ids = db.query(WorkspaceMember.workspace_id).filter(
+        WorkspaceMember.user_id == current_user.id,
+        WorkspaceMember.status == MemberStatus.ACTIVE
+    ).all()
+    workspace_ids = [row[0] for row in workspace_ids]
+
+    if not workspace_ids:
+        return AuditLogListResponse(
+            logs=[],
+            total=0,
+            limit=limit,
+            offset=offset
+        )
+
     logs, total_count = get_audit_logs(
         db=db,
-        tenant_id=current_user.tenant_id,
+        workspace_ids=workspace_ids,
         limit=limit,
         offset=offset,
         action_filter=f"%{action}%" if action else None,
@@ -51,11 +61,17 @@ async def get_audit_log(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get a specific audit log entry (tenant-scoped)"""
-    
+    """Get a specific audit log entry scoped to user's workspaces"""
+
+    workspace_ids = db.query(WorkspaceMember.workspace_id).filter(
+        WorkspaceMember.user_id == current_user.id,
+        WorkspaceMember.status == MemberStatus.ACTIVE
+    ).all()
+    workspace_ids = [row[0] for row in workspace_ids]
+
     log = db.query(AuditLog).filter(
-        (AuditLog.id == log_id) &
-        (AuditLog.tenant_id == current_user.tenant_id)
+        AuditLog.id == log_id,
+        AuditLog.workspace_id.in_(workspace_ids)
     ).first()
     
     if not log:
@@ -65,28 +81,3 @@ async def get_audit_log(
         )
     
     return AuditLogResponse.model_validate(log)
-    # Check if user is admin or owner
-    if workspace_id:
-        member = db.query(WorkspaceMember).filter(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == current_user.id,
-            WorkspaceMember.status == MemberStatus.ACTIVE
-        ).first()
-        
-        if not member or member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only workspace owners and admins can view audit logs"
-            )
-    
-    # Get tenant-level logs
-    query = db.query(AuditLog).filter(AuditLog.tenant_id == current_user.tenant_id)
-    
-    # TODO: Add filtering by workspace, action, object_type, etc.
-    # TODO: Add pagination
-    
-    logs = query.order_by(AuditLog.created_at.desc()).limit(100).all()
-    
-    return AuditLogListResponse(
-        items=[AuditLogResponse.model_validate(log) for log in logs]
-    )

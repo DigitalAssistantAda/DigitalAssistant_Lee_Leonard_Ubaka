@@ -1,33 +1,19 @@
-# Local Setup (Simple)
+# Setup
 
-This project runs locally without Docker.
+You can run this with Docker or without it.
 
-## 1) Backend (FastAPI)
+Docker (easiest)
+- Make sure Docker is installed and running.
+- Copy backend/.env.example to backend/.env and fill in the required values.
+- In the project root, run docker compose up --build.
+- Open the app at http://localhost:3000.
 
-1. Copy the env file:
-   - From: backend/.env.example
-   - To:   backend/.env
-2. Fill in required values in backend/.env:
-   - DATABASE_URL
-   - JWT_SECRET (generate a new one)
-   - Storage credentials (see R2_SETUP.md if using Cloudflare R2)
-3. Create and activate a Python virtual environment.
-4. Install dependencies:
-   - Use backend/requirements.txt
-5. Run the API server:
-   - `uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+No Docker (still supported)
+- Install Python and Node on your machine.
+- Copy backend/.env.example to backend/.env and fill in the required values.
+- Start the backend from the backend folder.
+- Start the frontend from the frontend folder.
+- Open the app at http://localhost:3000.
 
-## 2) Frontend (React)
-
-1. Go to frontend/
-2. Install dependencies:
-   - `npm install`
-3. Start the dev server:
-   - `npm start`
-4. Open http://localhost:3000
-
-## Notes
-
-- Docker is not required.
-- The backend runs locally; the frontend talks to it at http://localhost:8000.
+Notes
 - If storage is not configured, file upload will fail.

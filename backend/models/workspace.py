@@ -20,7 +20,7 @@ class Workspace(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False, index=True)
+    accent_color = Column(String(7), nullable=True)  # Hex color like #RRGGBB
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

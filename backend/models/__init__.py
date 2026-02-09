@@ -1,5 +1,4 @@
 from .user import User
-from .tenant import Tenant
 from .workspace import Workspace, WorkspaceMember
 from .document import Document, DocumentStatus
 from .document_chunk import DocumentChunk
@@ -8,10 +7,10 @@ from .audit_log import AuditLog
 from .task import Task, TaskType, TaskStatus, TaskPriority
 from .summary import Summary, SummaryStatus
 from .conversation import Conversation, AIMessage, MessageRole
+from .user_preference import UserPreference
 
 __all__ = [
     "User",
-    "Tenant",
     "Workspace",
     "WorkspaceMember",
     "Document",
@@ -28,4 +27,5 @@ __all__ = [
     "Conversation",
     "AIMessage",
     "MessageRole",
+    "UserPreference",
 ]

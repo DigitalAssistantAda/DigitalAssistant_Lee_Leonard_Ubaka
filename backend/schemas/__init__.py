@@ -6,13 +6,13 @@ from .search import *
 from .summary import *
 from .audit_log import *
 from .task import *
+from .user_preferences import *
 
 __all__ = [
     "RegisterRequest",
     "LoginRequest",
     "TokenResponse",
     "UserResponse",
-    "TenantResponse",
     "RegisterResponse",
     "LoginResponse",
     "MeResponse",
@@ -43,4 +43,6 @@ __all__ = [
     "TaskUpdate",
     "TaskResponse",
     "TaskListResponse",
+    "UserPreferencesResponse",
+    "UpdateUserPreferencesRequest",
 ]

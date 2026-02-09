@@ -28,8 +28,6 @@ def check_workspace_access(workspace_id: int, user: User, db: Session, required_
     if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     
-    if workspace.tenant_id != user.tenant_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     
     member = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
@@ -64,11 +62,10 @@ async def create_workspace(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Creates a new workspace within the tenant"""
+    """Creates a new workspace"""
     
     workspace = Workspace(
         name=request.name,
-        tenant_id=current_user.tenant_id,
         created_by=current_user.id
     )
     db.add(workspace)
@@ -85,7 +82,7 @@ async def create_workspace(
     db.commit()
     db.refresh(workspace)
     
-    create_audit_log(db, current_user, "workspace.created", "workspace", workspace.id)
+    create_audit_log(db, current_user, "workspace.created", "workspace", workspace.id, workspace_id=workspace.id)
     
     return WorkspaceResponse.model_validate(workspace)
 
@@ -99,8 +96,7 @@ async def list_workspaces(
     
     member_workspaces = db.query(Workspace).join(WorkspaceMember).filter(
         WorkspaceMember.user_id == current_user.id,
-        WorkspaceMember.status == MemberStatus.ACTIVE,
-        Workspace.tenant_id == current_user.tenant_id
+        WorkspaceMember.status == MemberStatus.ACTIVE
     ).all()
     
     # Enrich with counts
@@ -149,10 +145,12 @@ async def update_workspace(
     workspace = check_workspace_access(workspace_id, current_user, db, [WorkspaceRole.OWNER, WorkspaceRole.ADMIN])
     
     workspace.name = request.name
+    if "accent_color" in request.model_fields_set:
+        workspace.accent_color = request.accent_color
     db.commit()
     db.refresh(workspace)
     
-    create_audit_log(db, current_user, "workspace.updated", "workspace", workspace.id)
+    create_audit_log(db, current_user, "workspace.updated", "workspace", workspace.id, workspace_id=workspace.id)
     
     return WorkspaceResponse.model_validate(workspace)
 
@@ -172,7 +170,7 @@ async def delete_workspace(
     db.delete(workspace)
     db.commit()
     
-    create_audit_log(db, current_user, "workspace.deleted", "workspace", workspace_id)
+    create_audit_log(db, current_user, "workspace.deleted", "workspace", workspace_id, workspace_id=workspace_id)
     
     return SuccessResponse()
 
@@ -218,8 +216,6 @@ async def add_workspace_member(
     if not target_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     
-    if target_user.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not in same tenant")
     
     # Check if already a member
     existing = db.query(WorkspaceMember).filter(
@@ -240,7 +236,7 @@ async def add_workspace_member(
     db.commit()
     db.refresh(member)
     
-    create_audit_log(db, current_user, "workspace.member_added", "workspace_member", member.id)
+    create_audit_log(db, current_user, "workspace.member_added", "workspace_member", member.id, workspace_id=workspace_id)
     
     return build_member_response(member, target_user)
 
@@ -273,7 +269,7 @@ async def update_workspace_member(
     db.commit()
     db.refresh(member)
     
-    create_audit_log(db, current_user, "workspace.member_updated", "workspace_member", member.id)
+    create_audit_log(db, current_user, "workspace.member_updated", "workspace_member", member.id, workspace_id=workspace_id)
     
     updated_user = db.query(User).filter(User.id == member.user_id).first()
     return build_member_response(member, updated_user)
@@ -301,6 +297,6 @@ async def remove_workspace_member(
     db.delete(member)
     db.commit()
     
-    create_audit_log(db, current_user, "workspace.member_removed", "workspace_member", user_id)
+    create_audit_log(db, current_user, "workspace.member_removed", "workspace_member", user_id, workspace_id=workspace_id)
     
     return SuccessResponse()

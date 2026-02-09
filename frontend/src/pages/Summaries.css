@@ -1,0 +1,69 @@
+.summaries-page {
+  padding: 20px;
+}
+
+.summaries-error {
+  color: var(--status-danger);
+  padding: 10px;
+  margin-bottom: 20px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+.summaries-card {
+  margin-bottom: 30px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.summaries-field {
+  margin-bottom: 15px;
+}
+
+.summaries-input,
+.summaries-select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.summaries-button {
+  padding: 10px 20px;
+  cursor: pointer;
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  margin-right: 10px;
+}
+
+.summaries-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.summary-panel {
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+.summary-meta {
+  margin-bottom: 10px;
+}
+
+.summary-generated {
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.summary-content {
+  margin-top: 15px;
+  padding: 15px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  white-space: pre-wrap;
+}

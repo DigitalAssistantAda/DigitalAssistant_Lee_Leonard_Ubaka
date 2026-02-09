@@ -18,7 +18,8 @@ def create_audit_log(
     action: str,
     object_type: str,
     object_id: Optional[int] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
+    workspace_id: Optional[int] = None
 ) -> AuditLog:
     """
     Create an audit log entry for an action.
@@ -45,7 +46,7 @@ def create_audit_log(
         )
     """
     audit_log = AuditLog(
-        tenant_id=user.tenant_id,
+        workspace_id=workspace_id,
         actor_user_id=user.id,
         action=action,
         object_type=object_type,
@@ -110,7 +111,7 @@ def audit_action(action: str, object_type: str):
 
 def get_audit_logs(
     db: Session,
-    tenant_id: int,
+    workspace_ids: list[int],
     limit: int = 100,
     offset: int = 0,
     action_filter: Optional[str] = None,
@@ -122,7 +123,7 @@ def get_audit_logs(
     
     Args:
         db: Database session
-        tenant_id: Tenant to query logs for
+        workspace_ids: Workspaces to query logs for
         limit: Number of results to return
         offset: Number of results to skip
         action_filter: Filter by action name (e.g., 'document.%')
@@ -132,7 +133,7 @@ def get_audit_logs(
     Returns:
         Tuple of (logs, total_count)
     """
-    query = db.query(AuditLog).filter(AuditLog.tenant_id == tenant_id)
+    query = db.query(AuditLog).filter(AuditLog.workspace_id.in_(workspace_ids))
     
     if action_filter:
         query = query.filter(AuditLog.action.like(action_filter))

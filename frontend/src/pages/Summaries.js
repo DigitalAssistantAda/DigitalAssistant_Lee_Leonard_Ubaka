@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import './Summaries.css';
 
 function Summaries() {
   const [documents, setDocuments] = useState([]);
@@ -126,25 +127,25 @@ function Summaries() {
   };
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div className="summaries-page">
       <h1>Document Summaries</h1>
 
       {error && (
-        <div style={{ color: 'red', padding: '10px', marginBottom: '20px' }}>
+        <div className="summaries-error">
           Error: {error}
         </div>
       )}
 
-      <div style={{ marginBottom: '30px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
+      <div className="summaries-card">
         <h2>Generate Summary</h2>
         <form onSubmit={handleGenerateSummary}>
-          <div style={{ marginBottom: '15px' }}>
+          <div className="summaries-field">
             <label>Workspace:</label>
             <select
               value={selectedWorkspace}
               onChange={(e) => setSelectedWorkspace(e.target.value)}
               required
-              style={{ width: '100%', padding: '8px' }}
+              className="summaries-select"
             >
               <option value="">Select a workspace</option>
               {workspaces.map((ws) => (
@@ -152,14 +153,14 @@ function Summaries() {
               ))}
             </select>
           </div>
-          <div style={{ marginBottom: '15px' }}>
+          <div className="summaries-field">
             <label>Document:</label>
             <select
               value={selectedDocument}
               onChange={(e) => setSelectedDocument(e.target.value)}
               required
               disabled={!selectedWorkspace || documents.length === 0}
-              style={{ width: '100%', padding: '8px' }}
+              className="summaries-select"
             >
               <option value="">Select a document</option>
               {documents.map((doc) => (
@@ -170,7 +171,7 @@ function Summaries() {
           <button 
             type="submit" 
             disabled={generatingSummary || !selectedDocument}
-            style={{ padding: '10px 20px', cursor: 'pointer', marginRight: '10px' }}
+            className="summaries-button"
           >
             {generatingSummary ? 'Generating...' : 'Generate Summary'}
           </button>
@@ -179,7 +180,7 @@ function Summaries() {
               type="button"
               onClick={() => handleLoadSummary(selectedDocument)}
               disabled={loading}
-              style={{ padding: '10px 20px', cursor: 'pointer' }}
+              className="summaries-button"
             >
               {loading ? 'Loading...' : 'Load Existing Summary'}
             </button>
@@ -188,17 +189,17 @@ function Summaries() {
       </div>
 
       {summary && (
-        <div style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '8px', background: '#f9f9f9' }}>
+        <div className="summary-panel">
           <h2>Summary</h2>
-          <div style={{ marginBottom: '10px' }}>
+          <div className="summary-meta">
             <strong>Document:</strong> {summary.document_name || 'Unknown'}
           </div>
           {summary.created_at && (
-            <div style={{ marginBottom: '10px', color: '#666', fontSize: '14px' }}>
+            <div className="summary-generated">
               Generated: {new Date(summary.created_at).toLocaleString()}
             </div>
           )}
-          <div style={{ marginTop: '15px', padding: '15px', background: 'white', borderRadius: '4px', whiteSpace: 'pre-wrap' }}>
+          <div className="summary-content">
             {summary.summary_text || summary.content || 'No summary text available'}
           </div>
         </div>

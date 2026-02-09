@@ -47,11 +47,12 @@
 
 .modal {
   background: var(--bg-primary, #ffffff);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   padding: 2rem;
   max-width: 400px;
   width: 90%;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: none;
+  border: 1px solid var(--border-color, #e0e6ed);
 }
 
 .modal-header {
@@ -74,7 +75,7 @@
   color: var(--text-secondary, #6c757d);
   cursor: pointer;
   padding: 0.5rem;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   display: flex;
   align-items: center;
   transition: all 0.2s;
@@ -100,7 +101,7 @@
   width: 100%;
   padding: 0.75rem;
   border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   font-size: 1rem;
   font-family: inherit;
   background: var(--bg-primary, #ffffff);
@@ -123,7 +124,7 @@
   padding: 1rem 2rem;
   margin: 0;
   border: none;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -168,7 +169,7 @@
 .controls-left select {
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
+  border-radius: var(--radius-base);
   background: var(--bg-primary, #ffffff);
   color: var(--text-primary, #1a1f35);
   font-size: 0.9rem;
@@ -182,7 +183,7 @@
   background: var(--bg-primary, #ffffff);
   border: 1px solid var(--border-color, #e0e6ed);
   padding: 0.5rem 1rem;
-  border-radius: 0;
+  border-radius: var(--radius-base);
   min-width: 300px;
 }
 
@@ -209,11 +210,11 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(79, 70, 229, 0.05);
-  border: 1px solid var(--accent-primary, #4f46e5);
+  background: var(--accent-highlight);
+  border: 1px solid var(--accent-primary);
   padding: 1rem 2rem;
   margin: 0;
-  border-radius: 0;
+  border-radius: var(--radius-tight);
 }
 
 .bulk-info {
@@ -240,7 +241,7 @@
   font-family: inherit;
   font-size: 0.9rem;
   font-weight: 500;
-  border-radius: 0;
+  border-radius: var(--radius-tight);
   transition: all 0.2s;
   display: flex;
   align-items: center;
@@ -249,9 +250,9 @@
 }
 
 .action-btn.delete-btn:hover {
-  border-color: #dc3545;
-  background: rgba(220, 53, 69, 0.05);
-  color: #dc3545;
+  border-color: var(--status-danger);
+  background: color-mix(in srgb, var(--status-danger) 8%, transparent);
+  color: var(--status-danger);
 }
 
 /* List Container */
@@ -272,15 +273,15 @@
   grid-template-columns: 40px 1fr auto;
   align-items: center;
   padding: 1.5rem;
-  border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
-  background: var(--bg-primary, #ffffff);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-tight);
+  background: var(--bg-primary);
   transition: all 0.2s ease;
 }
 
 .workspace-row:hover {
-  border-color: var(--accent-primary, #7c3aed);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.1);
+  border-color: var(--accent-primary);
+  box-shadow: none;
 }
 
 .workspace-checkbox {
@@ -323,10 +324,10 @@
 /* Buttons */
 .btn {
   padding: 0.5rem 1rem;
-  border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: 0;
-  background: var(--bg-primary, #ffffff);
-  color: var(--text-primary, #1a1f35);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-tight);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
@@ -336,37 +337,37 @@
 }
 
 .btn:hover {
-  border-color: var(--accent-primary, #7c3aed);
-  background: var(--bg-secondary, #f5f7fa);
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
 }
 
 .btn-primary {
-  background: var(--accent-primary, #7c3aed);
+  background: var(--accent-primary);
   color: white;
-  border-color: var(--accent-primary, #7c3aed);
+  border-color: var(--accent-primary);
 }
 
 .btn-primary:hover {
-  background: var(--accent-dark, #6d28d9);
-  border-color: var(--accent-dark, #6d28d9);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .btn-secondary {
-  background: var(--bg-secondary, #f5f7fa);
-  color: var(--text-primary, #1a1f35);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .btn-secondary:hover {
-  background: var(--bg-tertiary, #e9ecef);
+  background: var(--bg-tertiary);
 }
 
 .btn-danger {
-  color: #ef4444;
-  border-color: #ef4444;
+  color: var(--status-danger);
+  border-color: var(--status-danger);
 }
 
 .btn-danger:hover {
-  background: #fee2e2;
+  background: color-mix(in srgb, var(--status-danger) 12%, transparent);
 }
 
 /* States */

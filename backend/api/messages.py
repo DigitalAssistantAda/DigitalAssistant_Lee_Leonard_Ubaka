@@ -82,7 +82,8 @@ async def send_message(
         action=AuditActions.MESSAGE_SENT,
         object_type="message",
         object_id=new_message.id,
-        metadata={"workspace_id": message_data.workspace_id}
+        metadata={"workspace_id": message_data.workspace_id},
+        workspace_id=message_data.workspace_id
     )
     
     return MessageResponse(

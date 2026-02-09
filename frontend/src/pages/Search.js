@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import './Search.css';
 
 function Search() {
   const [workspaces, setWorkspaces] = useState([]);
@@ -68,24 +69,24 @@ function Search() {
   };
 
   return (
-    <div style={{ padding: '20px' }}>
+    <div className="search-page">
       <h1>Search Documents</h1>
 
       {error && (
-        <div style={{ color: 'red', padding: '10px', marginBottom: '20px' }}>
+        <div className="search-error">
           Error: {error}
         </div>
       )}
 
-      <div style={{ marginBottom: '30px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
+      <div className="search-card">
         <form onSubmit={handleSearch}>
-          <div style={{ marginBottom: '15px' }}>
+          <div className="search-field">
             <label>Workspace:</label>
             <select
               value={selectedWorkspace}
               onChange={(e) => setSelectedWorkspace(e.target.value)}
               required
-              style={{ width: '100%', padding: '8px' }}
+              className="search-select"
             >
               <option value="">Select a workspace</option>
               {workspaces.map((ws) => (
@@ -93,7 +94,7 @@ function Search() {
               ))}
             </select>
           </div>
-          <div style={{ marginBottom: '15px' }}>
+          <div className="search-field">
             <label>Search Query:</label>
             <input
               type="text"
@@ -101,13 +102,13 @@ function Search() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Enter search terms..."
               required
-              style={{ width: '100%', padding: '8px' }}
+              className="search-input"
             />
           </div>
           <button 
             type="submit" 
             disabled={loading || !selectedWorkspace}
-            style={{ padding: '10px 20px', cursor: 'pointer' }}
+            className="search-button"
           >
             {loading ? 'Searching...' : 'Search'}
           </button>
@@ -117,18 +118,18 @@ function Search() {
       {searchResults.length > 0 && (
         <div>
           <h2>Search Results ({searchResults.length})</h2>
-          <div style={{ display: 'grid', gap: '15px' }}>
+          <div className="search-results-grid">
             {searchResults.map((result, index) => (
               <div 
                 key={index} 
-                style={{ padding: '15px', border: '1px solid #ddd', borderRadius: '8px' }}
+                className="search-result-card"
               >
                 <h3>{result.document_name || 'Untitled Document'}</h3>
-                <p style={{ color: '#666', fontSize: '14px' }}>
+                <p className="search-result-meta">
                   Relevance Score: {result.score ? result.score.toFixed(2) : 'N/A'}
                 </p>
                 {result.snippet && (
-                  <p style={{ marginTop: '10px', padding: '10px', background: '#f5f5f5', borderRadius: '4px' }}>
+                  <p className="search-result-snippet">
                     {result.snippet}
                   </p>
                 )}

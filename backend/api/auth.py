@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from models.user import User
-from models.tenant import Tenant
 from schemas.auth import (
     RegisterRequest,
     RegisterResponse,
@@ -11,7 +10,6 @@ from schemas.auth import (
     MeResponse,
     SuccessResponse,
     UserResponse,
-    TenantResponse,
 )
 from utils.auth import (
     verify_password,
@@ -33,7 +31,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register", response_model=RegisterResponse)
 async def register(request: RegisterRequest, request_context: Request, db: Session = Depends(get_db)):
-    """Register a new user and optionally create a new tenant"""
+    """Register a new user"""
     client_ip = request_context.client.host if request_context.client else "unknown"
     check_rate_limit(f"register:{client_ip}", limit=5, window_seconds=300)
     
@@ -47,26 +45,12 @@ async def register(request: RegisterRequest, request_context: Request, db: Sessi
             detail="User with this email or username already exists"
         )
     
-    # Create or use tenant
-    if request.tenant_name:
-        tenant = Tenant(name=request.tenant_name)
-        db.add(tenant)
-        db.flush()
-    else:
-        # Default tenant for testing purposes
-        tenant = db.query(Tenant).first()
-        if not tenant:
-            tenant = Tenant(name="Default Tenant")
-            db.add(tenant)
-            db.flush()
-    
     # Create user
     hashed_password = get_password_hash(request.password)
     user = User(
         email=request.email,
         username=request.username,
-        hashed_password=hashed_password,
-        tenant_id=tenant.id
+        hashed_password=hashed_password
     )
     db.add(user)
     db.commit()
@@ -88,7 +72,6 @@ async def register(request: RegisterRequest, request_context: Request, db: Sessi
     
     return RegisterResponse(
         user=UserResponse.model_validate(user),
-        tenant=TenantResponse.model_validate(tenant),
         access_token=access_token,
         refresh_token=refresh_token
     )
@@ -142,25 +125,6 @@ async def login(request: LoginRequest, request_context: Request, db: Session = D
 
 
 @router.post("/logout", response_model=SuccessResponse)
-async def logout(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """End the current user session"""
-    
-    # Create audit log
-    create_audit_log(
-        db,
-        current_user,
-        action=AuditActions.USER_LOGGED_OUT,
-        object_type="user",
-        object_id=current_user.id,
-        metadata={"email": current_user.email}
-    )
-    
-    return SuccessResponse()
-
-@router.post("/logout", response_model=SuccessResponse)
 async def logout(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """End the current user session"""
     
@@ -172,16 +136,8 @@ async def logout(current_user: User = Depends(get_current_user), db: Session = D
 
 @router.get("/me", response_model=MeResponse)
 async def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Returns the currently authenticated user and tenant context"""
-    
-    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-    if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found"
-        )
-    
+    """Returns the currently authenticated user"""
+
     return MeResponse(
-        user=UserResponse.model_validate(current_user),
-        tenant=TenantResponse.model_validate(tenant)
+        user=UserResponse.model_validate(current_user)
     )

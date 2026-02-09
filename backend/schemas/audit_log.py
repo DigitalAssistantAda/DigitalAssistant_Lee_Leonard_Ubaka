@@ -6,7 +6,7 @@ from datetime import datetime
 class AuditLogResponse(BaseModel):
     """Single audit log entry"""
     id: int
-    tenant_id: int
+    workspace_id: Optional[int] = None
     actor_user_id: int
     action: str
     object_type: str

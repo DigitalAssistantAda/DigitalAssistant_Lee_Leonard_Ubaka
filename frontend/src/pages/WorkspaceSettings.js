@@ -14,9 +14,18 @@ function WorkspaceSettings({ workspaceId, onClose }) {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
+  const [userAccent, setUserAccent] = useState('');
+  const [workspaceAccent, setWorkspaceAccent] = useState('');
+  const [savingAccent, setSavingAccent] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
+  const getDefaultAccent = () => {
+    const value = getComputedStyle(document.documentElement)
+      .getPropertyValue('--accent-primary')
+      .trim();
+    return value || '#8f2f5a';
+  };
 
   const resolvedWorkspaceId = useMemo(() => {
     const fromProp = Number(workspaceId);
@@ -46,6 +55,7 @@ function WorkspaceSettings({ workspaceId, onClose }) {
         const wsData = await wsResponse.json();
         setWorkspace(wsData);
         setNewName(wsData.name);
+        setWorkspaceAccent(wsData.accent_color || '');
       }
 
       // Fetch members
@@ -55,6 +65,14 @@ function WorkspaceSettings({ workspaceId, onClose }) {
       if (membersResponse.ok) {
         const membersData = await membersResponse.json();
         setMembers(membersData.items || []);
+      }
+
+      const preferencesResponse = await fetch(`${API_URL}/api/v1/users/preferences`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (preferencesResponse.ok) {
+        const preferencesData = await preferencesResponse.json();
+        setUserAccent(preferencesData.accent_color || '');
       }
     } catch (err) {
       setError('Failed to load workspace settings');
@@ -82,6 +100,63 @@ function WorkspaceSettings({ workspaceId, onClose }) {
     } catch (err) {
       setError('Failed to update workspace name');
       console.error(err);
+    }
+  };
+
+  const handleUpdateUserAccent = async () => {
+    try {
+      setSavingAccent(true);
+      const response = await fetch(`${API_URL}/api/v1/users/preferences`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ accent_color: userAccent || null }),
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setUserAccent(updated.accent_color || '');
+      } else {
+        const errData = await response.json();
+        setError(errData.detail || 'Failed to update accent color');
+      }
+    } catch (err) {
+      setError('Failed to update accent color');
+      console.error(err);
+    } finally {
+      setSavingAccent(false);
+    }
+  };
+
+  const handleUpdateWorkspaceAccent = async () => {
+    if (!workspace) return;
+    try {
+      setSavingAccent(true);
+      const response = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: workspace.name,
+          accent_color: workspaceAccent || null,
+        }),
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setWorkspace(updated);
+        setWorkspaceAccent(updated.accent_color || '');
+      } else {
+        const errData = await response.json();
+        setError(errData.detail || 'Failed to update workspace accent');
+      }
+    } catch (err) {
+      setError('Failed to update workspace accent');
+      console.error(err);
+    } finally {
+      setSavingAccent(false);
     }
   };
 
@@ -194,6 +269,53 @@ function WorkspaceSettings({ workspaceId, onClose }) {
                     <button onClick={() => setEditingName(true)} className="btn-edit">Edit</button>
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="settings-section">
+              <h3>Accent Colors</h3>
+              <div className="form-group">
+                <label htmlFor="user-accent">Personal Accent</label>
+                <div className="accent-row">
+                  <input
+                    id="user-accent"
+                    type="color"
+                    value={userAccent || getDefaultAccent()}
+                    onChange={(e) => setUserAccent(e.target.value)}
+                    className="accent-input"
+                    aria-label="Personal accent color"
+                  />
+                  <input
+                    type="text"
+                    value={userAccent || getDefaultAccent()}
+                    onChange={(e) => setUserAccent(e.target.value)}
+                    className="form-input accent-text"
+                    placeholder="#RRGGBB"
+                  />
+                  <button onClick={handleUpdateUserAccent} className="btn-save" disabled={savingAccent}>Save</button>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="workspace-accent">Workspace Accent (Owner/Admin)</label>
+                <div className="accent-row">
+                  <input
+                    id="workspace-accent"
+                    type="color"
+                    value={workspaceAccent || getDefaultAccent()}
+                    onChange={(e) => setWorkspaceAccent(e.target.value)}
+                    className="accent-input"
+                    aria-label="Workspace accent color"
+                  />
+                  <input
+                    type="text"
+                    value={workspaceAccent || getDefaultAccent()}
+                    onChange={(e) => setWorkspaceAccent(e.target.value)}
+                    className="form-input accent-text"
+                    placeholder="#RRGGBB"
+                  />
+                  <button onClick={handleUpdateWorkspaceAccent} className="btn-save" disabled={savingAccent}>Save</button>
+                </div>
               </div>
             </div>
 

@@ -167,11 +167,12 @@ async def get_dashboard_deadlines(
         Task.status != TaskStatus.COMPLETED.value
     ).order_by(Task.due_date).limit(limit).all()
     
+    now_utc = datetime.now(timezone.utc)
     deadlines_data = []
     for deadline in deadlines:
         # Calculate days until deadline
         if deadline.due_date:
-            days_until = (deadline.due_date - datetime.utcnow()).days
+            days_until = (deadline.due_date - now_utc).days
             if days_until < 0:
                 due_in = f"Overdue by {abs(days_until)} days"
             elif days_until == 0:

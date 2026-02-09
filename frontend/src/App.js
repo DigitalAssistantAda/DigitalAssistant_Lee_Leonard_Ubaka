@@ -14,6 +14,7 @@ import Documents from './pages/Documents';
 import Search from './pages/Search';
 import Summaries from './pages/Summaries';
 import AIAssistant from './pages/AIAssistant';
+import UserSettings from './pages/UserSettings';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -184,6 +185,10 @@ function App() {
           <Route 
             path="/ai-assistant" 
             element={user ? <AIAssistant /> : <Navigate to="/login" />} 
+          />
+          <Route
+            path="/settings"
+            element={user ? <UserSettings /> : <Navigate to="/login" />}
           />
         </Routes>
       </div>

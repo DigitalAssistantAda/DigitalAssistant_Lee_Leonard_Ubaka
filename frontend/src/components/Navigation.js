@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Bell, Settings, Moon, Sun, LogOut, Search, Sparkles } from 'lucide-react';
 import './Navigation.css';
 
@@ -7,6 +7,7 @@ function Navigation({ user, onLogout }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
 
   useEffect(() => {
@@ -74,10 +75,11 @@ function Navigation({ user, onLogout }) {
             >
               <Bell size={20} />
             </button>
-            <button 
-              className="nav-icon" 
+            <button
+              className="nav-icon"
               title="Settings"
               aria-label="Settings"
+              onClick={() => navigate('/settings')}
             >
               <Settings size={20} />
             </button>

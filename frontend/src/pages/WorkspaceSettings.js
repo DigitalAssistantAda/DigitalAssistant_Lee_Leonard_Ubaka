@@ -14,7 +14,6 @@ function WorkspaceSettings({ workspaceId, onClose }) {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
-  const [userAccent, setUserAccent] = useState('');
   const [workspaceAccent, setWorkspaceAccent] = useState('');
   const [savingAccent, setSavingAccent] = useState(false);
 
@@ -67,13 +66,6 @@ function WorkspaceSettings({ workspaceId, onClose }) {
         setMembers(membersData.items || []);
       }
 
-      const preferencesResponse = await fetch(`${API_URL}/api/v1/users/preferences`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (preferencesResponse.ok) {
-        const preferencesData = await preferencesResponse.json();
-        setUserAccent(preferencesData.accent_color || '');
-      }
     } catch (err) {
       setError('Failed to load workspace settings');
       console.error(err);
@@ -100,32 +92,6 @@ function WorkspaceSettings({ workspaceId, onClose }) {
     } catch (err) {
       setError('Failed to update workspace name');
       console.error(err);
-    }
-  };
-
-  const handleUpdateUserAccent = async () => {
-    try {
-      setSavingAccent(true);
-      const response = await fetch(`${API_URL}/api/v1/users/preferences`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ accent_color: userAccent || null }),
-      });
-      if (response.ok) {
-        const updated = await response.json();
-        setUserAccent(updated.accent_color || '');
-      } else {
-        const errData = await response.json();
-        setError(errData.detail || 'Failed to update accent color');
-      }
-    } catch (err) {
-      setError('Failed to update accent color');
-      console.error(err);
-    } finally {
-      setSavingAccent(false);
     }
   };
 
@@ -273,29 +239,7 @@ function WorkspaceSettings({ workspaceId, onClose }) {
             </div>
 
             <div className="settings-section">
-              <h3>Accent Colors</h3>
-              <div className="form-group">
-                <label htmlFor="user-accent">Personal Accent</label>
-                <div className="accent-row">
-                  <input
-                    id="user-accent"
-                    type="color"
-                    value={userAccent || getDefaultAccent()}
-                    onChange={(e) => setUserAccent(e.target.value)}
-                    className="accent-input"
-                    aria-label="Personal accent color"
-                  />
-                  <input
-                    type="text"
-                    value={userAccent || getDefaultAccent()}
-                    onChange={(e) => setUserAccent(e.target.value)}
-                    className="form-input accent-text"
-                    placeholder="#RRGGBB"
-                  />
-                  <button onClick={handleUpdateUserAccent} className="btn-save" disabled={savingAccent}>Save</button>
-                </div>
-              </div>
-
+              <h3>Accent Color</h3>
               <div className="form-group">
                 <label htmlFor="workspace-accent">Workspace Accent (Owner/Admin)</label>
                 <div className="accent-row">

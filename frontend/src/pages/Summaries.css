@@ -1,5 +1,5 @@
 .summaries-page {
-  padding: 20px;
+  padding: 2rem;
 }
 
 .summaries-error {
@@ -11,14 +11,14 @@
 }
 
 .summaries-card {
-  margin-bottom: 30px;
-  padding: 20px;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
 }
 
 .summaries-field {
-  margin-bottom: 15px;
+  margin-bottom: 1rem;
 }
 
 .summaries-input,
@@ -34,7 +34,7 @@
   padding: 10px 20px;
   cursor: pointer;
   background: var(--accent-primary);
-  color: white;
+  color: var(--accent-contrast);
   border: none;
   margin-right: 10px;
 }
@@ -45,7 +45,7 @@
 }
 
 .summary-panel {
-  padding: 20px;
+  padding: 1.5rem;
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
 }
@@ -57,12 +57,12 @@
 .summary-generated {
   margin-bottom: 10px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 0.85rem;
 }
 
 .summary-content {
   margin-top: 15px;
-  padding: 15px;
+  padding: 1rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   white-space: pre-wrap;

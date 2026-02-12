@@ -4,7 +4,7 @@ Authorization utilities - Permission checks and access control
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from models.user import User
-from models.workspace import WorkspaceMember, WorkspaceRole
+from models.workspace import WorkspaceMember, WorkspaceRole, MemberStatus
 from models.document import Document
 from typing import Optional
 
@@ -63,7 +63,7 @@ def check_workspace_access(
         (WorkspaceMember.user_id == user.id)
     ).first()
     
-    if not membership or membership.status != "active":
+    if not membership or membership.status != MemberStatus.ACTIVE:
         raise PermissionDenied("You don't have access to this workspace")
     
     # Check role requirement if specified

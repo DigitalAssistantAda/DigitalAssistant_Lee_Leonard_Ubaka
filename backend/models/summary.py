@@ -20,7 +20,12 @@ class Summary(Base):
     title = Column(String(500), nullable=True)
     instructions = Column(Text, nullable=True)  # Custom prompt/instructions from user
     summary_text = Column(Text, nullable=True)
-    status = Column(Enum(SummaryStatus), default=SummaryStatus.PENDING, nullable=False, index=True)
+    status = Column(
+        Enum(SummaryStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=SummaryStatus.PENDING,
+        nullable=False,
+        index=True,
+    )
     error_message = Column(Text, nullable=True)
     model_used = Column(String(100), nullable=True)  # e.g., "gpt-4", "claude-3"
     token_count = Column(Integer, nullable=True)

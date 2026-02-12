@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CheckCircle, FileText, Folder, Search, Upload, Eye, XCircle, AlertCircle, Clock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CheckCircle, FileText, Folder, Search, Upload, Eye, XCircle, AlertCircle, Clock, ArrowUpRight, Minus, ArrowDownRight } from 'lucide-react';
 import './Dashboard.css';
 
 function Dashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     workspaces: 0,
     documents: 0,
@@ -24,6 +26,28 @@ function Dashboard() {
   const [activityFilter, setActivityFilter] = useState('all');
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+  const monthIndexMap = {
+    January: 0,
+    February: 1,
+    March: 2,
+    April: 3,
+    May: 4,
+    June: 5,
+    July: 6,
+    August: 7,
+    September: 8,
+    October: 9,
+    November: 10,
+    December: 11,
+  };
+
+  const currentMonthInfo = useMemo(() => {
+    const [monthName, yearValue] = currentMonth.split(' ');
+    const monthIndex = monthIndexMap[monthName] ?? 0;
+    const year = Number.parseInt(yearValue, 10) || new Date().getFullYear();
+    return { monthIndex, year };
+  }, [currentMonth]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -81,7 +105,12 @@ function Dashboard() {
 
       if (issuesResponse.ok) {
         const issuesData = await issuesResponse.json();
-        setIssues(issuesData.items || []);
+        const items = issuesData.items || [];
+        setIssues(items);
+        setStats((prev) => ({
+          ...prev,
+          openTasks: items.length,
+        }));
       }
 
       // Fetch deadlines
@@ -93,7 +122,15 @@ function Dashboard() {
 
       if (deadlinesResponse.ok) {
         const deadlinesData = await deadlinesResponse.json();
-        setDeadlines(deadlinesData.items || []);
+        const items = deadlinesData.items || [];
+        const overdueCount = items.filter((deadline) =>
+          (deadline.due_in || '').toLowerCase().includes('overdue')
+        ).length;
+        setDeadlines(items);
+        setStats((prev) => ({
+          ...prev,
+          overdueTasks: overdueCount,
+        }));
       }
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
@@ -169,11 +206,37 @@ function Dashboard() {
     return `priority-${priority}`;
   };
 
+  const getPriorityIcon = (priority) => {
+    if (priority === 'high') return <ArrowUpRight size={14} aria-hidden="true" />;
+    if (priority === 'medium') return <Minus size={14} aria-hidden="true" />;
+    if (priority === 'low') return <ArrowDownRight size={14} aria-hidden="true" />;
+    return <Minus size={14} aria-hidden="true" />;
+  };
+
+  const getPriorityLabel = (priority) => {
+    if (priority === 'high') return 'P1';
+    if (priority === 'medium') return 'P2';
+    if (priority === 'low') return 'P3';
+    return 'P-';
+  };
+
   const getDeadlineClass = (dueIn) => {
     const value = (dueIn || '').toLowerCase();
     if (value.includes('overdue')) return 'due-overdue';
     if (value.includes('today') || value.includes('tomorrow')) return 'due-soon';
     return 'due-normal';
+  };
+
+  const handleIssueClick = (issue) => {
+    if (!issue?.workspace_id) return;
+    const issueId = issue?.id || issue?.number;
+    const suffix = issueId ? `?issueId=${issueId}` : '';
+    navigate(`/workspace/${issue.workspace_id}/issues${suffix}`);
+  };
+
+  const handleDeadlineClick = (deadline) => {
+    if (!deadline?.workspace_id) return;
+    navigate(`/workspace/${deadline.workspace_id}`);
   };
 
   const calendarDays = [
@@ -184,7 +247,26 @@ function Dashboard() {
     { day: 1, inactive: true, nextMonth: true }
   ];
 
-  const hasEvent = (day) => [5, 8, 15].includes(day);
+  const deadlinesByDay = useMemo(() => {
+    const grouped = new Map();
+    deadlines.forEach((deadline) => {
+      if (!deadline?.due_date) return;
+      const dueDate = new Date(deadline.due_date);
+      const dueYear = dueDate.getUTCFullYear();
+      const dueMonth = dueDate.getUTCMonth();
+      if (dueYear !== currentMonthInfo.year || dueMonth !== currentMonthInfo.monthIndex) return;
+      const dueDay = dueDate.getUTCDate();
+      if (!grouped.has(dueDay)) grouped.set(dueDay, []);
+      grouped.get(dueDay).push(deadline);
+    });
+    return grouped;
+  }, [deadlines, currentMonthInfo]);
+
+  const selectedDeadlines = useMemo(() => (
+    deadlinesByDay.get(selectedDay) || []
+  ), [deadlinesByDay, selectedDay]);
+
+  const hasEvent = (day) => deadlinesByDay.has(day);
 
   return (
     <div className="dashboard-container">
@@ -227,25 +309,65 @@ function Dashboard() {
               <div className="calendar-header">
                 <h2 className="calendar-title">Calendar</h2>
                 <div className="calendar-nav">
-                  <button>←</button>
-                  <button>{currentMonth}</button>
-                  <button>→</button>
+                  <button
+                    type="button"
+                    className="calendar-nav-btn"
+                    aria-label="Previous month"
+                    disabled
+                  >
+                    ←
+                  </button>
+                  <span className="calendar-month" aria-live="polite">
+                    {currentMonth}
+                  </span>
+                  <button
+                    type="button"
+                    className="calendar-nav-btn"
+                    aria-label="Next month"
+                    disabled
+                  >
+                    →
+                  </button>
                 </div>
               </div>
               <div className="calendar-grid">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                   <div key={day} className="calendar-day header">{day}</div>
                 ))}
-                {calendarDays.map((day, index) => (
-                  <div
-                    key={index}
-                    className={`calendar-day ${day.inactive ? 'inactive' : 'active'} ${day.today ? 'today' : ''} ${hasEvent(day.day) ? 'has-event' : ''}`}
-                    onClick={() => !day.inactive && setSelectedDay(day.day)}
-                  >
-                    {day.day}
-                  </div>
-                ))}
+                {calendarDays.map((day, index) => {
+                  const showEvent = !day.inactive && hasEvent(day.day);
+                  return (
+                    <div
+                      key={index}
+                      className={`calendar-day ${day.inactive ? 'inactive' : 'active'} ${day.today ? 'today' : ''} ${showEvent ? 'has-event' : ''}`}
+                      onClick={() => !day.inactive && setSelectedDay(day.day)}
+                    >
+                      <span className="calendar-day-number">{day.day}</span>
+                      {showEvent && <span className="calendar-event-dot" aria-label="Due items" />}
+                    </div>
+                  );
+                })}
               </div>
+              {selectedDeadlines.length > 0 && (
+                <div className="calendar-due-list" aria-live="polite">
+                  <div className="calendar-due-label">
+                    Due on {currentMonth.split(' ')[0]} {selectedDay}
+                  </div>
+                  {selectedDeadlines.map((deadline) => (
+                    <button
+                      key={deadline.id}
+                      type="button"
+                      className="calendar-due-item"
+                      onClick={() => handleDeadlineClick(deadline)}
+                      title={`View ${deadline.title}`}
+                      aria-label={`View ${deadline.title}`}
+                    >
+                      <span className="calendar-due-title">{deadline.title}</span>
+                      <span className="calendar-due-meta">{deadline.due_in}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -321,13 +443,35 @@ function Dashboard() {
                   </div>
                 ) : (
                   issues.map((issue, index) => (
-                    <div key={index} className="issue-item">
-                      <div className="issue-number">#{issue.number}</div>
-                      <div className="issue-title">{issue.title}</div>
-                      <div className={`issue-priority ${getPriorityClass(issue.priority)}`}>
-                        {issue.priority}
+                    <button
+                      key={index}
+                      type="button"
+                      className="issue-item"
+                      onClick={() => handleIssueClick(issue)}
+                      title="View issue details"
+                      aria-label={`View issue ${issue.number}`}
+                    >
+                      <span
+                        className="issue-meta-pill"
+                        title={`Issue #${issue.number}`}
+                        aria-label={`Issue number ${issue.number}`}
+                      >
+                        #{issue.number}
+                      </span>
+                      <div className="issue-main">
+                        <div className="issue-title">{issue.title}</div>
                       </div>
-                    </div>
+                      <div className="issue-pills">
+                        <span
+                          className={`issue-priority-pill ${getPriorityClass(issue.priority)}`}
+                          title={`Priority ${getPriorityLabel(issue.priority)}`}
+                          aria-label={`Priority ${getPriorityLabel(issue.priority)}`}
+                        >
+                          {getPriorityIcon(issue.priority)}
+                          <span className="issue-priority-label">{getPriorityLabel(issue.priority)}</span>
+                        </span>
+                      </div>
+                    </button>
                   ))
                 )}
               </div>
@@ -351,12 +495,23 @@ function Dashboard() {
                   </div>
                 ) : (
                   deadlines.map((deadline, index) => (
-                    <div key={index} className="deadline-item">
+                    <button
+                      key={index}
+                      type="button"
+                      className="deadline-item"
+                      onClick={() => handleDeadlineClick(deadline)}
+                      title="View deadline details"
+                      aria-label={`View deadline ${deadline.title}`}
+                    >
                       <div className="deadline-title">{deadline.title}</div>
-                      <div className={`deadline-due ${getDeadlineClass(deadline.due_in)}`}>
+                      <span
+                        className={`deadline-pill ${getDeadlineClass(deadline.due_in)}`}
+                        title={`Due ${deadline.due_in}`}
+                        aria-label={`Due ${deadline.due_in}`}
+                      >
                         {deadline.due_in}
-                      </div>
-                    </div>
+                      </span>
+                    </button>
                   ))
                 )}
               </div>

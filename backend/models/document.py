@@ -22,5 +22,9 @@ class Document(Base):
     mime_type = Column(String, nullable=False)
     size_bytes = Column(BigInteger, nullable=False)
     storage_uri = Column(String, nullable=False)  # s3://bucket/path or minio://path
-    status = Column(Enum(DocumentStatus), nullable=False, default=DocumentStatus.UPLOADED)
+    status = Column(
+        Enum(DocumentStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+        default=DocumentStatus.UPLOADED,
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

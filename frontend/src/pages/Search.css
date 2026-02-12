@@ -1,5 +1,5 @@
 .search-page {
-  padding: 20px;
+  padding: 2rem;
 }
 
 .search-error {
@@ -11,14 +11,14 @@
 }
 
 .search-card {
-  margin-bottom: 30px;
-  padding: 20px;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
 }
 
 .search-field {
-  margin-bottom: 15px;
+  margin-bottom: 1rem;
 }
 
 .search-input,
@@ -34,7 +34,7 @@
   padding: 10px 20px;
   cursor: pointer;
   background: var(--accent-primary);
-  color: white;
+  color: var(--accent-contrast);
   border: none;
 }
 
@@ -45,23 +45,23 @@
 
 .search-results-grid {
   display: grid;
-  gap: 15px;
+  gap: 1rem;
 }
 
 .search-result-card {
-  padding: 15px;
+  padding: 1rem;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
 }
 
 .search-result-meta {
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: 0.85rem;
 }
 
 .search-result-snippet {
   margin-top: 10px;
-  padding: 10px;
+  padding: 0.75rem;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
 }

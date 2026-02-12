@@ -39,6 +39,7 @@ class UserResponse(BaseModel):
     id: int
     email: str
     username: str
+    status_message: Optional[str] = None
     is_active: bool
     created_at: datetime
 

@@ -26,7 +26,10 @@ class AIMessage(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, index=True)
-    role = Column(Enum(MessageRole), nullable=False)
+    role = Column(
+        Enum(MessageRole, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+    )
     content = Column(Text, nullable=False)
     document_refs = Column(Text, nullable=True)  # JSON array of document IDs cited
     chunk_refs = Column(Text, nullable=True)  # JSON array of chunk IDs cited

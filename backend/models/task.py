@@ -30,9 +30,20 @@ class Task(Base):
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    type = Column(Enum(TaskType), nullable=False)  # "issue" or "deadline"
-    status = Column(Enum(TaskStatus), default=TaskStatus.OPEN, nullable=False, index=True)
-    priority = Column(Enum(TaskPriority), nullable=True)  # mainly for issues
+    type = Column(
+        Enum(TaskType, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+    )  # "issue" or "deadline"
+    status = Column(
+        Enum(TaskStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=TaskStatus.OPEN,
+        nullable=False,
+        index=True,
+    )
+    priority = Column(
+        Enum(TaskPriority, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=True,
+    )  # mainly for issues
     assigned_to = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     due_date = Column(DateTime(timezone=True), nullable=True, index=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)

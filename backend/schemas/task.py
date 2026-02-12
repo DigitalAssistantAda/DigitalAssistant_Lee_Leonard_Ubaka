@@ -10,6 +10,7 @@ class TaskCreate(BaseModel):
     status: Optional[str] = "open"
     priority: Optional[str] = None  # "low", "medium", "high"
     assigned_to: Optional[int] = None
+    assignees: Optional[List[int]] = None
     due_date: Optional[datetime] = None
 
 
@@ -19,6 +20,7 @@ class TaskUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     assigned_to: Optional[int] = None
+    assignees: Optional[List[int]] = None
     due_date: Optional[datetime] = None
 
 
@@ -31,6 +33,7 @@ class TaskResponse(BaseModel):
     status: str
     priority: Optional[str]
     assigned_to: Optional[int]
+    assignees: List[int] = []
     due_date: Optional[datetime]
     created_by: int
     created_at: datetime

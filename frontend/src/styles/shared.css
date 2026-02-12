@@ -68,7 +68,7 @@
     border-radius: var(--radius-base);
     color: var(--text-primary);
     font-size: 0.95rem;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-ui);
     transition: all 0.2s ease;
 }
 
@@ -92,6 +92,15 @@
     font-size: 0.9rem;
 }
 
+.error-list {
+    margin: 0;
+    padding-left: 1.2rem;
+}
+
+.error-list li + li {
+    margin-top: 0.35rem;
+}
+
 .success-message {
     background: var(--bg-tertiary);
     border: 1px solid var(--status-success);
@@ -104,14 +113,14 @@
 .btn-primary {
     padding: 0.875rem 1.5rem;
     background: var(--accent-primary);
-    color: white;
+    color: var(--accent-contrast);
     border: 1px solid var(--accent-primary);
     border-radius: var(--radius-base);
     font-size: 1rem;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-ui);
 }
 
 .btn-primary:hover {
@@ -139,7 +148,7 @@
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-ui);
 }
 
 .btn-secondary:hover {

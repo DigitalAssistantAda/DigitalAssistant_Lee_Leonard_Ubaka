@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, X, Search, Settings, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, X, Search, Sparkles, ArrowUpRight, MoreVertical } from 'lucide-react';
 import './Workspaces.css';
 
 function Workspaces() {
@@ -14,6 +14,7 @@ function Workspaces() {
   const [sortOrder, setSortOrder] = useState('recent');
   const [workspaceFilter, setWorkspaceFilter] = useState('all');
   const [selectedWorkspaces, setSelectedWorkspaces] = useState(new Set());
+  const [openMenuId, setOpenMenuId] = useState(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -136,6 +137,12 @@ function Workspaces() {
     setSelectedWorkspaces(newSelected);
   };
 
+  const toggleMenu = (id) => {
+    setOpenMenuId((prev) => (prev === id ? null : id));
+  };
+
+  const closeMenu = () => setOpenMenuId(null);
+
   const handleSelectAll = () => {
     if (selectedWorkspaces.size === filteredWorkspaces.length) {
       setSelectedWorkspaces(new Set());
@@ -163,6 +170,17 @@ function Workspaces() {
     });
   }, [workspaces, searchTerm, sortOrder, workspaceFilter]);
 
+  const workspaceTotals = useMemo(() => {
+    return workspaces.reduce(
+      (acc, workspace) => {
+        acc.documents += workspace.document_count ?? 0;
+        acc.members += workspace.member_count ?? 0;
+        return acc;
+      },
+      { documents: 0, members: 0 }
+    );
+  }, [workspaces]);
+
   const formatDate = (value) => {
     if (!value) return '—';
     const date = new Date(value);
@@ -175,20 +193,48 @@ function Workspaces() {
 
   return (
     <div className="workspaces-page">
-      <header className="workspaces-header">
-        <div className="header-content">
+      <header className="workspaces-hero">
+        <div className="hero-content">
+          <div className="hero-eyebrow">
+            <Sparkles size={16} />
+            <span>Workspace overview</span>
+          </div>
           <h1>Workspaces</h1>
-          <p>Manage your workspaces and documents</p>
+          <p>Track the spaces, documents, and teams powering your workspace.</p>
+          <div className="hero-stats">
+            <div className="hero-stat">
+              <span className="hero-stat-value">{workspaces.length}</span>
+              <span className="hero-stat-label">Workspaces</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-stat-value">{workspaceTotals.documents}</span>
+              <span className="hero-stat-label">Documents</span>
+            </div>
+            <div className="hero-stat">
+              <span className="hero-stat-value">{workspaceTotals.members}</span>
+              <span className="hero-stat-label">Members</span>
+            </div>
+          </div>
         </div>
-        <button 
-          className="btn btn-primary" 
-          onClick={() => setShowCreateForm(true)}
-          title="Create new workspace"
-          aria-label="Create new workspace"
-        >
-          <Plus size={18} />
-          New Workspace
-        </button>
+        <div className="hero-actions">
+          <button
+            className="btn btn-primary"
+            onClick={() => setShowCreateForm(true)}
+            title="Create new workspace"
+            aria-label="Create new workspace"
+          >
+            <Plus size={18} />
+            New Workspace
+          </button>
+          <button
+            className="btn btn-secondary"
+            onClick={() => fetchWorkspaces()}
+            title="Refresh workspaces"
+            aria-label="Refresh workspaces"
+          >
+            Refresh
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -304,8 +350,8 @@ function Workspaces() {
           <div className="workspace-grid">
             {filteredWorkspaces.map((workspace) => (
               <div key={workspace.id} className="workspace-row">
-                <div className="workspace-checkbox">
-                  <input 
+                <div className="workspace-row-select">
+                  <input
                     type="checkbox"
                     checked={selectedWorkspaces.has(workspace.id)}
                     onChange={() => handleCheckboxChange(workspace.id)}
@@ -313,38 +359,74 @@ function Workspaces() {
                     aria-label={`Select ${workspace.name}`}
                   />
                 </div>
-                <div className="workspace-info" onClick={() => navigateToWorkspace(workspace.id)}>
-                  <h3>{workspace.name}</h3>
-                  <div className="workspace-meta">
-                    <span>{workspace.document_count ?? 0} Documents</span>
-                    <span>{workspace.member_count ?? 0} Members</span>
-                    <span>Created {formatDate(workspace.created_at)}</span>
+                <div className="workspace-row-main" onClick={() => navigateToWorkspace(workspace.id)}>
+                  <div className="workspace-row-title">
+                    <div>
+                      <h3>{workspace.name}</h3>
+                      <span className="workspace-created">Created {formatDate(workspace.created_at)}</span>
+                    </div>
+                  </div>
+                  <div className="workspace-row-meta">
+                    <span>{workspace.document_count ?? 0} documents</span>
+                    <span>{workspace.member_count ?? 0} members</span>
+                    <span>Workspace #{workspace.id}</span>
                   </div>
                 </div>
-                <div className="workspace-actions">
-                  <button 
-                    className="btn btn-secondary"
-                    onClick={() => navigate(`/workspace/${workspace.id}/issues`)}
-                    title="View issues"
-                    aria-label={`View issues in ${workspace.name}`}
-                  >
-                    <AlertCircle size={16} /> Issues
-                  </button>
-                  <button 
-                    className="btn btn-secondary"
-                    onClick={() => navigate(`/workspace/${workspace.id}/settings`)}
-                    title="Workspace settings"
-                    aria-label={`Settings for ${workspace.name}`}
-                  >
-                    <Settings size={16} /> Settings
-                  </button>
-                  <button 
-                    className="btn btn-secondary"
+                <div className="workspace-row-actions">
+                  <div className="workspace-row-menu">
+                    <button
+                      type="button"
+                      className="btn btn-ghost menu-trigger"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleMenu(workspace.id);
+                      }}
+                      aria-label={`More actions for ${workspace.name}`}
+                      aria-expanded={openMenuId === workspace.id}
+                      aria-controls={`workspace-menu-${workspace.id}`}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {openMenuId === workspace.id && (
+                      <div
+                        className="workspace-menu"
+                        id={`workspace-menu-${workspace.id}`}
+                        role="menu"
+                      >
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="menu-item"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/workspace/${workspace.id}/issues`);
+                            closeMenu();
+                          }}
+                        >
+                          Issues
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="menu-item"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/workspace/${workspace.id}/settings`);
+                            closeMenu();
+                          }}
+                        >
+                          Settings
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="btn btn-primary workspace-open"
                     onClick={() => navigateToWorkspace(workspace.id)}
                     title="Open workspace"
                     aria-label={`Open ${workspace.name}`}
                   >
-                    Open
+                    <ArrowUpRight size={16} />
                   </button>
                 </div>
               </div>

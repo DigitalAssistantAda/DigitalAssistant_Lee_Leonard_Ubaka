@@ -33,6 +33,7 @@
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
+    grid-auto-rows: 1fr;
 }
 
 .dashboard-card {
@@ -43,6 +44,9 @@
     position: relative;
     overflow: hidden;
     transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    --dashboard-list-row: 52px;
 }
 
 /* User Profile Card */
@@ -70,7 +74,7 @@
     justify-content: center;
     font-size: 2rem;
     font-weight: 700;
-    color: white;
+    color: var(--accent-contrast);
     margin: 0 auto 1rem;
 }
 
@@ -87,30 +91,34 @@
     text-align: center;
     font-size: 0.85rem;
     color: var(--text-secondary);
-    margin-bottom: 1.5rem;
-    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 1rem;
 }
 
 .user-stats {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0;
 }
 
 .user-stat-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-base);
-    border: 1px solid var(--border-color);
+    padding: 0.7rem 0;
+    background: transparent;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
     transition: all 0.2s ease;
 }
 
+.user-stat-item:last-child {
+    border-bottom: none;
+}
+
 .user-stat-item:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--accent-primary);
+    background: transparent;
+    border-color: var(--border-color);
 }
 
 .user-stat-label {
@@ -121,16 +129,16 @@
 .user-stat-value {
     font-size: 0.85rem;
     color: var(--text-primary);
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    font-family: var(--font-ui);
 }
 
 .user-status {
     margin-top: 1rem;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--accent-primary);
-    border-radius: var(--radius-base);
+    padding: 0.85rem 0;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--border-color);
 }
 
 .user-status-label {
@@ -138,12 +146,12 @@
     color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.35rem;
 }
 
 .user-status-text {
     font-size: 0.9rem;
-    color: var(--text-primary);
+    color: var(--text-secondary);
     font-style: italic;
 }
 
@@ -152,7 +160,7 @@
 }
 
 .dashboard-card:hover {
-    border-color: var(--accent-primary);
+    border-color: var(--border-color);
     transform: none;
 }
 
@@ -174,14 +182,14 @@
 }
 
 .card-badge {
-    background: var(--bg-tertiary);
-    color: var(--accent-primary);
+    background: transparent;
+    color: var(--text-secondary);
     padding: 0.2rem 0.6rem;
-    border-radius: var(--radius-base);
+    border-radius: 999px;
     font-size: 0.75rem;
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-    border: 1px solid var(--border-color);
+    font-weight: 500;
+    font-family: var(--font-ui);
+    border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
@@ -190,30 +198,56 @@
 .card-content {
     color: var(--text-secondary);
     font-size: 0.95rem;
+    flex: 1;
+    min-height: 0;
 }
 
 /* Overview Card */
 .status-items {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0;
+    max-height: calc(var(--dashboard-list-row) * 4);
+    overflow: hidden;
+    padding-right: 0.25rem;
+    scrollbar-width: none;
+}
+
+.dashboard-card:hover .status-items {
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+.status-items::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.dashboard-card:hover .status-items::-webkit-scrollbar {
+    width: 8px;
 }
 
 .status-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-base);
-    border: 1px solid var(--border-color);
+    padding: 0.75rem 0;
+    min-height: var(--dashboard-list-row);
+    background: transparent;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
     transition: all 0.2s ease;
 }
 
+.status-item:last-child {
+    border-bottom: none;
+}
+
 .status-item:hover {
-    background: var(--bg-tertiary);
+    background: transparent;
     transform: none;
-    border-color: var(--status-success);
+    border-color: var(--border-color);
 }
 
 .status-item.overdue {
@@ -221,7 +255,7 @@
 }
 
 .status-item.overdue:hover {
-    border-color: var(--status-danger);
+    border-color: var(--border-color);
 }
 
 .status-label {
@@ -231,10 +265,10 @@
 }
 
 .status-count {
-    background: var(--bg-primary);
-    padding: 0.2rem 0.6rem;
+    background: var(--bg-secondary);
+    padding: 0.15rem 0.5rem;
     border-radius: var(--radius-base);
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-ui);
     font-size: 0.85rem;
     color: var(--status-success);
 }
@@ -247,23 +281,47 @@
 .accomplishment-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0;
+    max-height: calc(var(--dashboard-list-row) * 4);
+    overflow: hidden;
+    padding-right: 0.25rem;
+    scrollbar-width: none;
+}
+
+.dashboard-card:hover .accomplishment-list {
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+.accomplishment-list::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.dashboard-card:hover .accomplishment-list::-webkit-scrollbar {
+    width: 8px;
 }
 
 .accomplishment-item {
     display: flex;
     align-items: flex-start;
     gap: 0.75rem;
-    padding: 0.75rem;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-base);
-    border: 1px solid var(--border-color);
+    padding: 0.75rem 0;
+    background: transparent;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
     transition: all 0.2s ease;
+    min-height: var(--dashboard-list-row);
+}
+
+.accomplishment-item:last-child {
+    border-bottom: none;
 }
 
 .accomplishment-item:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--status-success);
+    background: transparent;
+    border-color: var(--border-color);
 }
 
 .accomplishment-icon {
@@ -297,34 +355,90 @@
 .issues-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0;
+    max-height: calc(var(--dashboard-list-row) * 4);
+    overflow: hidden;
+    padding-right: 0.25rem;
+    scrollbar-width: none;
+}
+
+.dashboard-card:hover .issues-list {
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+.issues-list::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.dashboard-card:hover .issues-list::-webkit-scrollbar {
+    width: 8px;
 }
 
 .issue-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.6rem;
 }
 
 .issue-item {
-    padding: 1rem;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-base);
-    border: 1px solid var(--border-color);
+    appearance: none;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 0;
+    background: transparent;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
     transition: all 0.2s ease;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    min-height: var(--dashboard-list-row);
+}
+
+.issue-item:last-child {
+    border-bottom: none;
+}
+
+.issue-main {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.issue-meta-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-family: var(--font-ui);
 }
 
 .issue-item:hover {
-    background: var(--bg-tertiary);
+    background: transparent;
     transform: none;
-    border-color: var(--accent-primary);
+    border-color: var(--border-color);
+}
+
+.issue-item:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 .issue-header {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.35rem;
 }
 
 .issue-number {
@@ -334,14 +448,54 @@
 }
 
 .issue-title {
-    color: var(--text-primary);
+    color: var(--text-secondary);
+    font-weight: 400;
+    font-size: 0.92rem;
+    line-height: 1.3;
+    min-width: 0;
+}
+
+.issue-pills {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.issue-priority-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    font-size: 0.75rem;
     font-weight: 500;
-    font-size: 0.95rem;
+    font-family: var(--font-ui);
+    color: var(--text-secondary);
+}
+
+.issue-priority-pill.priority-high {
+    color: var(--status-danger);
+    border-color: color-mix(in srgb, var(--status-danger) 40%, transparent);
+    background: color-mix(in srgb, var(--status-danger) 12%, transparent);
+}
+
+.issue-priority-pill.priority-medium {
+    color: var(--status-warning);
+    border-color: color-mix(in srgb, var(--status-warning) 40%, transparent);
+    background: color-mix(in srgb, var(--status-warning) 12%, transparent);
+}
+
+.issue-priority-pill.priority-low {
+    color: var(--status-success);
+    border-color: color-mix(in srgb, var(--status-success) 40%, transparent);
+    background: color-mix(in srgb, var(--status-success) 12%, transparent);
 }
 
 .issue-meta {
     display: flex;
-    gap: 1rem;
+    gap: 0.6rem;
     font-size: 0.8rem;
     color: var(--text-secondary);
 }
@@ -351,7 +505,7 @@
     font-weight: 600;
     font-family: 'JetBrains Mono', monospace;
     text-transform: uppercase;
-    padding: 0.25rem 0.5rem;
+    padding: 0.2rem 0.45rem;
     background: var(--bg-secondary);
     border-radius: var(--radius-base);
 }
@@ -376,36 +530,69 @@
 .deadlines-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0;
+    max-height: calc(var(--dashboard-list-row) * 4);
+    overflow: hidden;
+    padding-right: 0.25rem;
+    scrollbar-width: none;
+}
+
+.dashboard-card:hover .deadlines-list {
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+.deadlines-list::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+.dashboard-card:hover .deadlines-list::-webkit-scrollbar {
+    width: 8px;
 }
 
 .deadline-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.6rem;
 }
 
 .deadline-item {
+    appearance: none;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem;
-    background: var(--bg-tertiary);
-    border-radius: var(--radius-base);
-    border: 1px solid var(--border-color);
+    padding: 0.75rem 0;
+    background: transparent;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
     transition: all 0.2s ease;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    min-height: var(--dashboard-list-row);
+}
+
+.deadline-item:last-child {
+    border-bottom: none;
 }
 
 .deadline-item:hover {
-    background: var(--bg-tertiary);
+    background: transparent;
+}
+
+.deadline-item:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
 }
 
 .deadline-item.upcoming:hover {
-    border-color: var(--status-warning);
+    border-color: var(--border-color);
 }
 
 .deadline-item.overdue:hover {
-    border-color: var(--status-danger);
+    border-color: var(--border-color);
 }
 
 .deadline-info {
@@ -413,9 +600,11 @@
 }
 
 .deadline-title {
-    color: var(--text-primary);
-    font-weight: 500;
-    margin-bottom: 0.25rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+    font-size: 0.92rem;
+    line-height: 1.3;
+    margin-bottom: 0.15rem;
 }
 
 .deadline-date {
@@ -424,24 +613,35 @@
     font-family: 'JetBrains Mono', monospace;
 }
 
-.deadline-due {
-    font-size: 0.85rem;
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-    text-align: right;
+.deadline-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-family: var(--font-ui);
     margin-left: auto;
 }
 
-.deadline-due.due-overdue {
+.deadline-pill.due-overdue {
     color: var(--status-danger);
+    border-color: color-mix(in srgb, var(--status-danger) 40%, transparent);
+    background: color-mix(in srgb, var(--status-danger) 12%, transparent);
 }
 
-.deadline-due.due-soon {
+.deadline-pill.due-soon {
     color: var(--status-warning);
+    border-color: color-mix(in srgb, var(--status-warning) 40%, transparent);
+    background: color-mix(in srgb, var(--status-warning) 12%, transparent);
 }
 
-.deadline-due.due-normal {
+.deadline-pill.due-normal {
     color: var(--status-success);
+    border-color: color-mix(in srgb, var(--status-success) 40%, transparent);
+    background: color-mix(in srgb, var(--status-success) 12%, transparent);
 }
 
 .deadline-date {
@@ -482,46 +682,57 @@
     background: transparent;
     border: none;
     border-radius: var(--radius-base);
-    padding: 1.5rem;
+    padding: 1.25rem;
 }
 
 .calendar-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1rem;
+    gap: 1rem;
 }
 
 .calendar-title {
     font-size: 1.1rem;
     font-family: var(--font-display);
     font-weight: 600;
+    letter-spacing: 0.01em;
 }
 
 .calendar-nav {
     display: flex;
-    gap: 0.5rem;
+    gap: 0;
+    background: var(--bg-secondary);
+    border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+    border-radius: 999px;
+    padding: 1px;
 }
 
-.calendar-nav button {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
+.calendar-nav-btn {
+    background: transparent;
+    border: 1px solid transparent;
     color: var(--text-primary);
-    padding: 0.5rem 0.75rem;
-    border-radius: var(--radius-base);
-    cursor: pointer;
-    transition: all 0.2s ease;
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    cursor: default;
 }
 
-.calendar-nav button:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--accent-primary);
+.calendar-nav-btn:disabled {
+    opacity: 0.7;
+}
+
+.calendar-month {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    font-weight: 600;
 }
 
 .calendar-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    gap: 0.5rem;
+    gap: 0.3rem;
 }
 
 .calendar-day {
@@ -529,12 +740,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: var(--radius-base);
-    font-size: 0.9rem;
+    flex-direction: column;
+    gap: 0.2rem;
+    border-radius: calc(var(--radius-base) + 2px);
+    font-size: 0.85rem;
     font-weight: 500;
     transition: all 0.2s ease;
     cursor: pointer;
     border: 1px solid transparent;
+    background: transparent;
 }
 
 .calendar-day.header {
@@ -543,44 +757,94 @@
     font-size: 0.8rem;
     cursor: default;
     border: none;
+    background: transparent;
 }
 
 .calendar-day.inactive {
     color: var(--text-secondary);
     opacity: 0.4;
     border: none;
+    background: transparent;
 }
 
 .calendar-day.active {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-}
-
-.calendar-day.active:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--accent-primary);
+    background: var(--bg-secondary);
+    border: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
 }
 
 .calendar-day.today {
     background: var(--accent-primary);
-    color: white;
+    color: var(--accent-contrast);
     border: 1px solid var(--accent-primary);
+    font-weight: 600;
 }
 
 .calendar-day.has-event {
     position: relative;
 }
 
-.calendar-day.has-event::after {
-    content: '';
-    position: absolute;
-    bottom: 4px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 4px;
-    height: 4px;
+.calendar-day-number {
+    line-height: 1;
+}
+
+.calendar-event-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
     background: var(--status-success);
-    border-radius: var(--radius-base);
+}
+
+.calendar-due-list {
+    margin-top: 0.75rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.calendar-due-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 0.35rem;
+}
+
+.calendar-due-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.45rem 0;
+    border: none;
+    background: transparent;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
+    font-family: var(--font-ui);
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+}
+
+.calendar-due-item:last-child {
+    border-bottom: none;
+}
+
+.calendar-due-item:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent-primary) 45%, transparent);
+    outline-offset: 2px;
+    border-radius: var(--radius-tight);
+}
+
+.calendar-due-title {
+    font-size: 0.85rem;
+    color: var(--text-primary);
+}
+
+.calendar-due-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 /* Activity Timeline */
@@ -681,6 +945,7 @@
     font-size: 0.85rem;
     transition: all 0.2s ease;
     font-family: var(--font-ui);
+    border-radius: 999px;
 }
 
 .filter-btn:hover {
@@ -691,7 +956,7 @@
 .filter-btn.active {
     background: var(--accent-primary);
     border-color: var(--accent-primary);
-    color: white;
+    color: var(--accent-contrast);
 }
 
 /* Remove old activity styles */
@@ -776,7 +1041,7 @@
 
 .activity-item:hover {
     background: var(--bg-tertiary);
-    border-color: var(--accent-primary);
+    border-color: var(--border-color);
 }
 
 .activity-icon {
@@ -788,7 +1053,7 @@
     align-items: center;
     justify-content: center;
     font-weight: 600;
-    color: white;
+    color: var(--accent-contrast);
     flex-shrink: 0;
     font-size: 0.85rem;
 }

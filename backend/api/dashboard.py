@@ -9,6 +9,7 @@ from models.user import User
 from models.workspace import Workspace, WorkspaceMember, MemberStatus
 from models.document import Document
 from models.task import Task, TaskType, TaskStatus
+from models.task_assignee import TaskAssignee
 from models.audit_log import AuditLog
 from utils.auth import get_current_user
 from typing import Dict, Any, List
@@ -126,11 +127,14 @@ async def get_dashboard_issues(
     ).subquery()
     
     # Get recent open issues
-    issues = db.query(Task).filter(
+    issues = db.query(Task).outerjoin(
+        TaskAssignee, TaskAssignee.task_id == Task.id
+    ).filter(
         Task.workspace_id.in_(user_workspace_ids),
-        Task.type == TaskType.ISSUE.value,
-        Task.status.in_([TaskStatus.OPEN.value, TaskStatus.IN_PROGRESS.value])
-    ).order_by(desc(Task.created_at)).limit(limit).all()
+        Task.type == TaskType.ISSUE,
+        Task.status.in_([TaskStatus.OPEN, TaskStatus.IN_PROGRESS]),
+        ((TaskAssignee.user_id == current_user.id) | (Task.assigned_to == current_user.id)),
+    ).distinct().order_by(desc(Task.created_at)).limit(limit).all()
     
     issues_data = []
     for issue in issues:
@@ -163,8 +167,8 @@ async def get_dashboard_deadlines(
     # Get upcoming deadlines (not completed, ordered by due_date)
     deadlines = db.query(Task).filter(
         Task.workspace_id.in_(user_workspace_ids),
-        Task.type == TaskType.DEADLINE.value,
-        Task.status != TaskStatus.COMPLETED.value
+        Task.type == TaskType.DEADLINE,
+        Task.status != TaskStatus.COMPLETED
     ).order_by(Task.due_date).limit(limit).all()
     
     now_utc = datetime.now(timezone.utc)

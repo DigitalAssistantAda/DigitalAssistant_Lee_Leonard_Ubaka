@@ -49,33 +49,36 @@
 
 .nav-pill {
   display: inline-flex;
-  gap: 4px;
-  padding: 2px;
+  gap: 6px;
+  padding: 0;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-base);
+  border: none;
+  border-radius: 999px;
 }
 
-.nav-link {
+.nav-bar .nav-link {
   text-decoration: none;
   color: var(--text-secondary);
   font-size: 0.9rem;
   height: var(--nav-item-height);
   padding: 0 14px;
-  border-radius: var(--radius-base);
+  border-radius: 999px;
+  border: 1px solid transparent;
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
 }
 
-.nav-link:hover {
+.nav-bar .nav-link:hover {
   color: var(--text-primary);
   background: var(--bg-tertiary);
+  border-color: color-mix(in srgb, var(--border-color) 55%, transparent);
 }
 
-.nav-link.active {
+.nav-bar .nav-link.active {
   color: var(--accent-primary);
   background: var(--accent-highlight);
+  border-color: color-mix(in srgb, var(--accent-primary) 30%, transparent);
   box-shadow: none;
   font-weight: 600;
 }

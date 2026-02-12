@@ -10,7 +10,7 @@ function Login({ onLogin }) {
     email: '',
     password: '',
   });
-  const [error, setError] = useState(null);
+  const [errorMessages, setErrorMessages] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -22,9 +22,26 @@ function Login({ onLogin }) {
     });
   };
 
+  const buildRegisterErrors = (errorData) => {
+    const detail = errorData?.detail;
+    if (Array.isArray(detail)) {
+      return detail.map((item) => {
+        const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : null;
+        if (field === 'email') return `Email: ${item.msg}`;
+        if (field === 'username') return `Username: ${item.msg}`;
+        if (field === 'password') return item.msg;
+        return item.msg || 'Invalid registration data.';
+      });
+    }
+    if (typeof detail === 'string' && detail.trim()) {
+      return [detail];
+    }
+    return ['Registration failed. Please check your details and try again.'];
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
+    setErrorMessages([]);
     setLoading(true);
 
     try {
@@ -42,8 +59,14 @@ function Login({ onLogin }) {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Authentication failed');
+        const errorData = await response.json().catch(() => null);
+        if (isRegister) {
+          setErrorMessages(buildRegisterErrors(errorData));
+        } else {
+          setErrorMessages([errorData?.detail || 'Authentication failed']);
+        }
+        setLoading(false);
+        return;
       }
 
       const data = await response.json();
@@ -51,7 +74,7 @@ function Login({ onLogin }) {
       localStorage.setItem('user', JSON.stringify(data.user));
       onLogin(data);
     } catch (err) {
-      setError(err.message);
+      setErrorMessages([err.message || 'Authentication failed']);
     } finally {
       setLoading(false);
     }
@@ -110,9 +133,17 @@ function Login({ onLogin }) {
           />
         </div>
 
-        {error && (
+        {errorMessages.length > 0 && (
           <div className="error-message">
-            {error}
+            {errorMessages.length === 1 ? (
+              errorMessages[0]
+            ) : (
+              <ul className="error-list">
+                {errorMessages.map((message) => (
+                  <li key={message}>{message}</li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

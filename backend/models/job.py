@@ -22,8 +22,15 @@ class Job(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
-    job_type = Column(Enum(JobType), nullable=False)
-    status = Column(Enum(JobStatus), nullable=False, default=JobStatus.PENDING)
+    job_type = Column(
+        Enum(JobType, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+    )
+    status = Column(
+        Enum(JobStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+        default=JobStatus.PENDING,
+    )
     attempts = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

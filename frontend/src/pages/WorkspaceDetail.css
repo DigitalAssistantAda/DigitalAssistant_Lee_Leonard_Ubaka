@@ -18,7 +18,7 @@
 .back-btn {
   background: none;
   border: none;
-  color: var(--accent-primary, #7c3aed);
+  color: var(--accent-primary);
   font-size: 1rem;
   cursor: pointer;
   padding: 0;
@@ -27,7 +27,7 @@
 }
 
 .back-btn:hover {
-  color: var(--accent-dark, #6d28d9);
+  color: var(--accent-hover);
 }
 
 .header-content {
@@ -101,13 +101,13 @@
   border: 1px solid var(--border-color, #e0e6ed);
   border-radius: var(--radius-base);
   text-align: center;
-  background: var(--bg-secondary, #f5f7fa);
+  background: var(--bg-secondary);
 }
 
 .stat-card h3 {
   margin: 0;
   font-size: 1.8rem;
-  color: var(--accent-primary, #7c3aed);
+  color: var(--accent-primary);
 }
 
 .stat-card p {
@@ -125,7 +125,7 @@
   padding: 1rem;
   border: 1px solid var(--border-color, #e0e6ed);
   border-radius: var(--radius-base);
-  background: white;
+  background: var(--bg-secondary);
   transition: all 0.2s ease;
 }
 
@@ -157,7 +157,7 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  background: white;
+  background: var(--bg-secondary);
 }
 
 .member-avatar {
@@ -165,7 +165,7 @@
   height: 40px;
   border-radius: var(--radius-base);
   background: var(--accent-primary, #7c3aed);
-  color: white;
+  color: var(--accent-contrast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -188,7 +188,7 @@
   gap: 1rem;
   margin-bottom: 2rem;
   padding: 1.5rem;
-  background: var(--bg-secondary, #f5f7fa);
+  background: var(--bg-secondary);
   border-radius: var(--radius-base);
   min-height: 300px;
   max-height: 500px;
@@ -199,7 +199,7 @@
   display: flex;
   gap: 1rem;
   padding: 1rem;
-  background: white;
+  background: var(--bg-secondary);
   border-radius: var(--radius-base);
 }
 
@@ -208,7 +208,7 @@
   height: 32px;
   border-radius: var(--radius-base);
   background: var(--accent-primary, #7c3aed);
-  color: white;
+  color: var(--accent-contrast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -255,7 +255,7 @@
 .message-form button {
   padding: 0.75rem 1.5rem;
   background: var(--accent-primary, #7c3aed);
-  color: white;
+  color: var(--accent-contrast);
   border: none;
   border-radius: var(--radius-base);
   cursor: pointer;
@@ -265,7 +265,7 @@
 }
 
 .message-form button:hover:not(:disabled) {
-  background: var(--accent-dark, #6d28d9);
+  background: var(--accent-hover);
 }
 
 .message-form button:disabled {

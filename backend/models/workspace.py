@@ -32,7 +32,15 @@ class WorkspaceMember(Base):
     id = Column(Integer, primary_key=True, index=True)
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    role = Column(Enum(WorkspaceRole), nullable=False, default=WorkspaceRole.MEMBER)
-    status = Column(Enum(MemberStatus), nullable=False, default=MemberStatus.ACTIVE)
+    role = Column(
+        Enum(WorkspaceRole, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+        default=WorkspaceRole.MEMBER,
+    )
+    status = Column(
+        Enum(MemberStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+        default=MemberStatus.ACTIVE,
+    )
     joined_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

@@ -7,6 +7,7 @@ from .summary import *
 from .audit_log import *
 from .task import *
 from .user_preferences import *
+from .user import *
 
 __all__ = [
     "RegisterRequest",
@@ -45,4 +46,5 @@ __all__ = [
     "TaskListResponse",
     "UserPreferencesResponse",
     "UpdateUserPreferencesRequest",
+    "UpdateUserRequest",
 ]

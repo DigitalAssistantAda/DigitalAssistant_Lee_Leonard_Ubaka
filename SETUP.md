@@ -1,19 +1,19 @@
-# Setup
+# Setup (Docker Desktop only)
 
-You can run this with Docker or without it.
+These instructions are Docker-only and written for macOS.
 
-Docker (easiest)
-- Make sure Docker is installed and running.
-- Copy backend/.env.example to backend/.env and fill in the required values.
-- In the project root, run docker compose up --build.
-- Open the app at http://localhost:3000.
+Prerequisites
+- Install Docker Desktop: https://www.docker.com/products/docker-desktop/.
+- Launch Docker Desktop and wait until it reports "Docker Desktop is running".
 
-No Docker (still supported)
-- Install Python and Node on your machine.
-- Copy backend/.env.example to backend/.env and fill in the required values.
-- Start the backend from the backend folder.
-- Start the frontend from the frontend folder.
-- Open the app at http://localhost:3000.
+Steps
+1. From the project root, create the backend env file:
+	- Copy backend/.env.example to backend/.env.
+	- Fill in all required values in backend/.env.
+2. In the project root, build and start the stack:
+	- Run: docker compose up --build
+3. Open the app:
+	- http://localhost:3000
 
 Notes
-- If storage is not configured, file upload will fail.
+- If storage is not configured in backend/.env, file upload will fail.

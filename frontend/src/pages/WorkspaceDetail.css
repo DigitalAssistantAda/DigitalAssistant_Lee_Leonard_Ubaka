@@ -78,8 +78,8 @@
 }
 
 .tab.active {
-  color: var(--accent-primary, #7c3aed);
-  border-bottom-color: var(--accent-primary, #7c3aed);
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
 }
 
 /* Tab Content */
@@ -130,8 +130,8 @@
 }
 
 .document-item:hover {
-  border-color: var(--accent-primary, #7c3aed);
-  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.1);
+  border-color: var(--accent-primary);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .doc-name {
@@ -164,7 +164,7 @@
   width: 40px;
   height: 40px;
   border-radius: var(--radius-base);
-  background: var(--accent-primary, #7c3aed);
+  background: var(--accent-primary);
   color: var(--accent-contrast);
   display: flex;
   align-items: center;
@@ -207,7 +207,7 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-base);
-  background: var(--accent-primary, #7c3aed);
+  background: var(--accent-primary);
   color: var(--accent-contrast);
   display: flex;
   align-items: center;
@@ -254,7 +254,7 @@
 
 .message-form button {
   padding: 0.75rem 1.5rem;
-  background: var(--accent-primary, #7c3aed);
+  background: var(--accent-primary);
   color: var(--accent-contrast);
   border: none;
   border-radius: var(--radius-base);

@@ -126,7 +126,7 @@
 
 .settings-input:focus {
   outline: none;
-  border-color: var(--accent-primary, #4f46e5);
+  border-color: var(--accent-primary);
   box-shadow: none;
 }
 
@@ -169,8 +169,8 @@
 .accent-save {
   padding: 0.7rem 1.5rem;
   border-radius: var(--radius-base);
-  border: 1px solid var(--accent-primary, #4f46e5);
-  background: var(--accent-primary, #4f46e5);
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-primary);
   color: var(--accent-contrast);
   font-weight: 600;
   cursor: pointer;

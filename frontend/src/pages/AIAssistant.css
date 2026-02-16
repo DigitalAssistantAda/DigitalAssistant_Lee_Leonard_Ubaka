@@ -122,7 +122,7 @@
 
 .document-item.selected {
   border-color: var(--accent-primary);
-  background: rgba(79, 70, 229, 0.1);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .doc-checkbox {
@@ -154,7 +154,7 @@
   display: flex;
   gap: 0.75rem;
   padding: 1rem;
-  background: rgba(79, 70, 229, 0.1);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   border: 1px solid var(--accent-primary);
   border-radius: var(--radius-base);
   margin-top: auto;
@@ -242,7 +242,7 @@
 
 .suggestions button:hover {
   border-color: var(--accent-primary);
-  background: rgba(79, 70, 229, 0.1);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .messages-container {
@@ -386,7 +386,7 @@
 .chat-input:focus {
   outline: none;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .btn-send {
@@ -467,7 +467,7 @@
 .summary-input:focus {
   outline: none;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .btn-generate {

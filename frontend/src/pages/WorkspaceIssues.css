@@ -71,7 +71,8 @@
   align-items: center;
 }
 
-.issue-search input {
+.issue-search input,
+.issue-search select {
   padding: 0.45rem 0.75rem;
   border-radius: 999px;
   border: 1px solid var(--border-color);
@@ -82,7 +83,8 @@
   font-family: var(--font-ui);
 }
 
-.issue-search input:focus {
+.issue-search input:focus,
+.issue-search select:focus {
   outline: none;
   border-color: var(--accent-primary);
 }

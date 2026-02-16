@@ -18,6 +18,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const [editingIssue, setEditingIssue] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIssueId, setSelectedIssueId] = useState(null);
+  const [workspaces, setWorkspaces] = useState([]);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -97,6 +98,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     }
     fetchIssues();
     fetchMembers();
+    fetchWorkspaces();
   }, [resolvedWorkspaceId, API_URL, token, assignmentScope, currentUserId, taskType]);
 
   useEffect(() => {
@@ -192,6 +194,21 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       }
     } catch (err) {
       console.error('Failed to load members', err);
+    }
+  };
+
+  const fetchWorkspaces = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/workspaces`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        setWorkspaces(items);
+      }
+    } catch (err) {
+      console.error('Failed to load workspaces', err);
     }
   };
 
@@ -431,6 +448,20 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
 
       {/* Status Filter */}
       <div className="filter-controls">
+        <div className="issue-search">
+          <select
+            value={resolvedWorkspaceId || ''}
+            onChange={(e) => navigate(`/workspace/${e.target.value}/issues`)}
+            aria-label="Filter by workspace"
+            title="Filter by workspace"
+          >
+            {workspaces.map((workspace) => (
+              <option key={workspace.id} value={workspace.id}>
+                {workspace.name}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="scope-controls">
           <button
             className={`filter-btn ${taskType === 'issue' ? 'active' : ''}`}

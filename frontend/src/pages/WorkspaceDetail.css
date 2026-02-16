@@ -8,7 +8,7 @@
 
 /* Header */
 .detail-header {
-  padding: 1.5rem 2rem;
+  padding: 1.25rem 2rem;
   border-bottom: 1px solid var(--border-color, #e0e6ed);
   display: flex;
   gap: 1rem;
@@ -49,7 +49,107 @@
 .detail-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 1.75rem 2rem 2.5rem;
+}
+
+.detail-layout {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-right: 1px solid var(--border-color, #e0e6ed);
+  padding-right: 1.25rem;
+}
+
+.detail-nav-item {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0.6rem 0.5rem;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  align-items: center;
+  border-radius: var(--radius-base);
+  font-family: inherit;
+  color: var(--text-primary, #1a1f35);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.detail-nav-item:hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent);
+}
+
+.detail-nav-item.active {
+  background: transparent;
+  color: var(--accent-primary);
+  box-shadow: none;
+}
+
+.detail-nav-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color, #e0e6ed);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary, #1a1f35);
+}
+
+.detail-nav-item.active .detail-nav-icon {
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 25%, transparent);
+  color: var(--accent-primary);
+}
+
+.detail-nav-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.detail-nav-count {
+  min-width: 28px;
+  height: 22px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #6c757d);
+  font-weight: 500;
+}
+
+ 
+.documents-list .document-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.documents-list .doc-meta {
+  text-align: right;
+}
+
+.detail-nav-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-primary);
 }
 
 /* Tabs */
@@ -182,6 +282,49 @@
   font-size: 0.85rem;
 }
 
+.member-invite {
+  margin: 0 0 1.5rem 0;
+}
+
+.member-invite-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.member-invite-row input,
+.member-invite-row select {
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-base);
+  border: 1px solid var(--border-color, #e0e6ed);
+  background: var(--bg-secondary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.member-invite-row button {
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-base);
+  border: 1px solid var(--border-color, #e0e6ed);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.member-invite-row button:hover {
+  background: var(--bg-secondary);
+}
+
+.invite-message {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #6c757d);
+}
+
 /* Discussion Tab */
 .messages-container {
   display: grid;
@@ -306,6 +449,28 @@
   color: var(--text-primary, #1a1f35);
 }
 
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.settings-actions button {
+  padding: 0.65rem 1.2rem;
+  border-radius: var(--radius-base);
+  border: 1px solid var(--border-color, #e0e6ed);
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.settings-actions button:hover {
+  background: var(--bg-secondary);
+}
+
+
 /* Empty State */
 .empty-message {
   padding: 2rem;
@@ -329,6 +494,17 @@
   .detail-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-sidebar {
+    border-right: none;
+    padding-right: 0;
+    border-bottom: 1px solid var(--border-color, #e0e6ed);
+    padding-bottom: 1rem;
   }
 
   .detail-tabs {

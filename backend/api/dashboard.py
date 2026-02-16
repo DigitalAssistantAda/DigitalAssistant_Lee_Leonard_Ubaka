@@ -60,7 +60,8 @@ async def get_dashboard_stats(
         "recent_activity_count": recent_activity_count,
         "member_since": current_user.created_at.strftime("%B %Y"),
         "email": current_user.email,
-        "username": current_user.username or current_user.email.split('@')[0]
+        "username": current_user.username or current_user.email.split('@')[0],
+        "status_message": current_user.status_message
     }
 
 

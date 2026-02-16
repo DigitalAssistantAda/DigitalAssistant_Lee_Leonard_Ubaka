@@ -80,7 +80,7 @@ function Dashboard() {
           username: statsData.username,
           email: statsData.email,
           joinedDate: statsData.member_since,
-          status: 'Working on capstone project'
+          status: statsData.status_message || ''
         });
       }
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, X, Search, Sparkles, ArrowUpRight, MoreVertical, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, X, Search, Sparkles, ArrowUpRight, MoreVertical } from 'lucide-react';
 import './Workspaces.css';
 
 function Workspaces() {
@@ -390,14 +390,6 @@ function Workspaces() {
                       </div>
                     </div>
                     <div className="workspace-row-actions">
-                      <button
-                        className="btn btn-ghost workspace-issues"
-                        onClick={() => navigate(`/workspace/${workspace.id}/issues`)}
-                        title="View workspace issues"
-                        aria-label={`View issues for ${workspace.name}`}
-                      >
-                        <AlertCircle size={16} />
-                      </button>
                       <div className="workspace-row-menu">
                         <button
                           type="button"
@@ -446,7 +438,7 @@ function Workspaces() {
                         )}
                       </div>
                       <button
-                        className="btn btn-primary workspace-open"
+                        className="btn btn-ghost workspace-open"
                         onClick={() => navigateToWorkspace(workspace.id)}
                         title="Open workspace"
                         aria-label={`Open ${workspace.name}`}

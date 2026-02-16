@@ -386,6 +386,7 @@
   padding: 1.1rem 0;
   border-bottom: 1px solid var(--border-color);
   gap: 1rem;
+  transition: background 0.2s ease;
 }
 
 .workspace-row:last-child {
@@ -400,6 +401,10 @@
 .workspace-row:hover .workspace-row-select,
 .workspace-row:focus-within .workspace-row-select {
   opacity: 1;
+}
+
+.workspace-row:hover {
+  background: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
 }
 
 .workspace-row-select input[type="checkbox"] {
@@ -487,15 +492,7 @@
 .workspace-row-actions {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-}
-
-.workspace-issues {
-  color: var(--text-secondary, #6c757d);
-}
-
-.workspace-issues:hover {
-  color: var(--text-primary, #1a1f35);
+  gap: 0.35rem;
 }
 
 .workspace-row-menu {
@@ -503,18 +500,19 @@
 }
 
 .menu-trigger {
-  padding: 0.35rem 0.45rem;
+  padding: 0.35rem 0.4rem;
 }
 
 .workspace-row-actions .btn-ghost {
   border-color: transparent;
   background: transparent;
-  padding: 0.4rem 0.45rem;
+  padding: 0.35rem 0.4rem;
+  border-radius: 10px;
 }
 
 .workspace-row-actions .btn-ghost:hover {
   border-color: transparent;
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
 }
 
 .workspace-menu {
@@ -548,14 +546,16 @@
 }
 
 .workspace-open {
-  background: var(--bg-secondary);
+  background: transparent;
   color: var(--text-primary);
   border-color: transparent;
-  padding: 0.4rem 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 10px;
 }
 
 .workspace-open:hover {
-  background: var(--bg-tertiary);
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+  color: var(--text-primary);
   border-color: transparent;
 }
 
@@ -606,13 +606,13 @@
   background: transparent;
   border-color: transparent;
   color: var(--text-secondary);
-  padding: 0.45rem 0.55rem;
+  padding: 0.35rem 0.45rem;
 }
 
 .btn-ghost:hover {
-  border-color: var(--border-color);
+  border-color: transparent;
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
 }
 
 .btn-danger {

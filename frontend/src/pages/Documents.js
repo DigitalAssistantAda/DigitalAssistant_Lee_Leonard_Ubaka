@@ -24,6 +24,8 @@ function Documents() {
   const [folderDocuments, setFolderDocuments] = useState([]);
   const [sortBy, setSortBy] = useState('lastOpened');
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -114,16 +116,54 @@ function Documents() {
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Failed to upload document');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to upload document');
+      }
 
       setUploadFile(null);
       setShowUploadModal(false);
+      setSuccessMessage('Document uploaded successfully!');
+      setTimeout(() => setSuccessMessage(null), 3000);
       fetchDocuments();
     } catch (err) {
       setError(err.message);
     } finally {
       setUploading(false);
     }
+  };
+
+  // Drag and drop handlers
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      setUploadFile(files[0]);
+    }
+  };
+
+  const handleFileInputClick = () => {
+    fileInputRef.current?.click();
   };
 
     const handleCreateContainer = async (e) => {
@@ -826,17 +866,34 @@ function Documents() {
 
               <div className="form-group">
                 <label htmlFor="file-input">File</label>
-                <div className="file-upload-area">
+                <div 
+                  className={`file-upload-area ${isDragging ? 'dragging' : ''}`}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                  onClick={handleFileInputClick}
+                >
                   <Upload size={24} />
-                  <p className="upload-text">Click to browse or drag and drop</p>
+                  <p className="upload-text">
+                    {isDragging ? 'Drop file here' : 'Click to browse or drag and drop'}
+                  </p>
+                  <p className="upload-hint">PDF, TXT, DOCX, DOC (max 50MB)</p>
                   <input
+                    ref={fileInputRef}
                     type="file"
                     id="file-input"
                     onChange={(e) => setUploadFile(e.target.files[0])}
+                    accept=".pdf,.txt,.docx,.doc"
+                    style={{ display: 'none' }}
                     required
                   />
                 </div>
-                {uploadFile && <div className="selected-file">{uploadFile.name}</div>}
+                {uploadFile && (
+                  <div className="selected-file">
+                    📄 {uploadFile.name} ({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)
+                  </div>
+                )}
               </div>
 
               <div className="form-group">

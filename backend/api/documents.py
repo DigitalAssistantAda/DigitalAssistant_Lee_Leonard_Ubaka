@@ -20,6 +20,8 @@ from utils.authorization import (
     NotFound,
 )
 from utils.audit import create_audit_log, AuditActions
+from utils.storage import storage
+from config import settings
 
 router = APIRouter(tags=["Documents"])
 
@@ -68,9 +70,20 @@ async def upload_document(
             detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB"
         )
     
-    # TODO: Actually upload to storage (S3/MinIO)
-    # For now, just create a placeholder storage path
+    # Upload to storage (S3/MinIO)
     storage_path = f"workspaces/{workspace_id}/documents/{file.filename}"
+    try:
+        storage_uri = await storage.upload(
+            bucket=settings.storage_bucket,
+            path=storage_path,
+            data=content,
+            content_type=file.content_type
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload document to storage: {str(e)}"
+        )
     
     # Create document record
     document = Document(
@@ -79,7 +92,7 @@ async def upload_document(
         filename=file.filename,
         mime_type=file.content_type,
         size_bytes=size_bytes,
-        storage_uri=storage_path,
+        storage_uri=storage_uri,
         status=DocumentStatus.UPLOADED
     )
     db.add(document)

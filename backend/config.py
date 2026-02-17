@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     redis_url: str = os.getenv("REDIS_URL", "redis://redis:6379")
     
     # File Storage Settings - Object Storage (MinIO for dev, S3/R2 for prod)
-    storage_type: str = "minio"  # "minio", "s3", or "r2" (all use S3 API)
-    storage_bucket: str = "documents"
+    storage_type: str = os.getenv("STORAGE_TYPE", "minio")  # "minio", "s3", or "r2" (all use S3 API)
+    storage_bucket: str = os.getenv("STORAGE_BUCKET", "documents")
     
     # MinIO Settings (for local development)
     minio_url: str = "http://minio:9000"
@@ -40,10 +40,10 @@ class Settings(BaseSettings):
     
     # S3/R2 Settings (for production and team development)
     # For R2: set storage_type="s3" and use R2 endpoint as s3_endpoint_url
-    s3_endpoint_url: str = os.getenv("S3_ENDPOINT_URL", "")  # R2: https://<account-id>.r2.cloudflarestorage.com
+    s3_endpoint_url: str = ""  # R2: https://<account-id>.r2.cloudflarestorage.com
     s3_region: str = "auto"  # R2 uses "auto", AWS uses region like "us-east-1"
-    s3_access_key: str = os.getenv("S3_ACCESS_KEY", "")
-    s3_secret_key: str = os.getenv("S3_SECRET_KEY", "")
+    s3_access_key_id: str = ""  # AWS Access Key ID
+    s3_secret_access_key: str = ""  # AWS Secret Access Key
     
     # Environment
     environment: str = "development"

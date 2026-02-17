@@ -4,8 +4,6 @@ File storage abstraction layer - supports MinIO (dev) and S3 (prod)
 from abc import ABC, abstractmethod
 from config import settings
 import boto3
-from minio import Minio
-from minio.error import S3Error
 import io
 
 
@@ -32,6 +30,13 @@ class MinIOBackend(StorageBackend):
     """MinIO object storage backend (local development)"""
     
     def __init__(self):
+        try:
+            from minio import Minio
+            from minio.error import S3Error
+        except ImportError:
+            raise ImportError("minio package is required for MinIO backend. Install with: pip install minio")
+        
+        self.S3Error = S3Error
         self.client = Minio(
             settings.minio_url.replace("http://", ""),
             access_key=settings.minio_access_key,
@@ -45,7 +50,7 @@ class MinIOBackend(StorageBackend):
         try:
             if not self.client.bucket_exists(settings.storage_bucket):
                 self.client.make_bucket(settings.storage_bucket)
-        except S3Error as e:
+        except self.S3Error as e:
             print(f"Error checking/creating bucket: {e}")
     
     async def upload(self, bucket: str, path: str, data: bytes, content_type: str) -> str:
@@ -59,7 +64,7 @@ class MinIOBackend(StorageBackend):
                 content_type=content_type
             )
             return f"minio://{bucket}/{path}"
-        except S3Error as e:
+        except self.S3Error as e:
             raise Exception(f"MinIO upload failed: {e}")
     
     async def download(self, bucket: str, path: str) -> bytes:
@@ -67,7 +72,7 @@ class MinIOBackend(StorageBackend):
         try:
             response = self.client.get_object(bucket, path)
             return response.read()
-        except S3Error as e:
+        except self.S3Error as e:
             raise Exception(f"MinIO download failed: {e}")
     
     async def delete(self, bucket: str, path: str) -> bool:
@@ -75,7 +80,7 @@ class MinIOBackend(StorageBackend):
         try:
             self.client.remove_object(bucket, path)
             return True
-        except S3Error as e:
+        except self.S3Error as e:
             raise Exception(f"MinIO delete failed: {e}")
 
 
@@ -86,8 +91,8 @@ class S3Backend(StorageBackend):
         # Support both AWS S3 and Cloudflare R2 (S3-compatible)
         client_config = {
             "region_name": settings.s3_region,
-            "aws_access_key_id": settings.s3_access_key,
-            "aws_secret_access_key": settings.s3_secret_key
+            "aws_access_key_id": settings.s3_access_key_id,
+            "aws_secret_access_key": settings.s3_secret_access_key
         }
         
         # Add custom endpoint for R2 or S3-compatible services

@@ -96,6 +96,3 @@ temp/
 *.tmp
 R2_SETUP.md
 CODEBASE_GUIDE.md
-
-# Migrations 
-backend/migrations/

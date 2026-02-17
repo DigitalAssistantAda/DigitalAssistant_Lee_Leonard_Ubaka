@@ -21,8 +21,16 @@ class Settings(BaseSettings):
         "postgresql://postgres:postgres@db:5432/digitalassistant"
     )
     
+    # JWT Authentication
+    jwt_secret: str = os.getenv("JWT_SECRET", "dev-secret-key-change-in-production")
+    jwt_algorithm: str = "HS256"
+    jwt_expiration: int = 3600
+    
+    # Redis Settings (for background jobs)
+    redis_url: str = os.getenv("REDIS_URL", "redis://redis:6379")
+    
     # File Storage Settings - Object Storage (MinIO for dev, S3/R2 for prod)
-    storage_type: str = "s3"  # "minio", "s3", or "r2" (all use S3 API)
+    storage_type: str = "minio"  # "minio", "s3", or "r2" (all use S3 API)
     storage_bucket: str = "documents"
     
     # MinIO Settings (for local development)

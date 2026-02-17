@@ -6,6 +6,7 @@ from .jobs import router as jobs_router
 from .search import router as search_router
 from .summaries import router as summaries_router
 from .audit_logs import router as audit_logs_router
+from .containers import router as containers_router
 
 __all__ = [
     "auth_router",
@@ -16,4 +17,5 @@ __all__ = [
     "search_router",
     "summaries_router",
     "audit_logs_router",
+    "containers_router",
 ]

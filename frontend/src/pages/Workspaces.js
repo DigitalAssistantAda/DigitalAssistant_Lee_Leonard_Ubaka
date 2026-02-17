@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, X, Search, Sparkles, ArrowUpRight, MoreVertical } from 'lucide-react';
+import { Plus, Trash2, X, Search, ArrowUpRight, MoreVertical } from 'lucide-react';
 import './Workspaces.css';
 
 function Workspaces() {

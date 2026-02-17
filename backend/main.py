@@ -8,6 +8,7 @@ from api import (
     auth_router,
     users_router,
     workspaces_router,
+    containers_router,
     documents_router,
     jobs_router,
     search_router,
@@ -70,6 +71,7 @@ async def health():
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
+app.include_router(containers_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")

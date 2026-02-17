@@ -49,8 +49,9 @@ function Navigation({ user, onLogout }) {
                 Workspace
               </Link>
               <Link to="/ai-assistant" className={`nav-link ${isActive('/ai-assistant') ? 'active' : ''}`}>
+                Chat with Ada 
+
                 <Sparkles size={14} className="nav-sparkle-icon" />
-                AI Assistant
               </Link>
             </div>
           )}

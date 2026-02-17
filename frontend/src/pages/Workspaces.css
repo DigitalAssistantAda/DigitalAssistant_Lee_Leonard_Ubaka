@@ -24,13 +24,16 @@
 }
 
 .sidebar-card {
-  background: var(--bg-secondary, #ffffff);
-  border: 1px solid var(--border-color, #e0e6ed);
+  background: color-mix(in srgb, var(--bg-primary, #ffffff) 85%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color, #e0e6ed) 70%, transparent);
   border-radius: var(--radius-base);
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(6px) saturate(120%);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
 }
 
 .sidebar-card-header {

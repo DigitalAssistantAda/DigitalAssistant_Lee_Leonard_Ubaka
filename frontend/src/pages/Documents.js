@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Upload, Download, Trash2, Filter, Search, Grid3x3, List, X, Plus, Folder, RefreshCw, ChevronRight, ArrowLeft, ChevronDown, MoreVertical } from 'lucide-react';
+import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, MoreVertical } from 'lucide-react';
 import './Documents.css';
 
 function Documents() {
@@ -17,17 +17,9 @@ function Documents() {
   const [createdContainers, setCreatedContainers] = useState([]);
   const [successMessage, setSuccessMessage] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [filterType, setFilterType] = useState('all');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [ownerFilter, setOwnerFilter] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('all');
   const [viewMode, setViewMode] = useState('list');
   const [selectedDocuments, setSelectedDocuments] = useState(new Set());
-  const [showFilters, setShowFilters] = useState(false);
-  const [recentDocumentsData, setRecentDocumentsData] = useState([]);
-  const [recentDocsLoading, setRecentDocsLoading] = useState(false);
-  const [recentDocsError, setRecentDocsError] = useState(null);
   const [openedFolder, setOpenedFolder] = useState(null);
   const [folderDocuments, setFolderDocuments] = useState([]);
   const [sortBy, setSortBy] = useState('lastOpened');
@@ -44,10 +36,6 @@ function Documents() {
       fetchDocuments();
     }
   }, [selectedWorkspace]);
-
-    useEffect(() => {
-    fetchRecentDocuments();
-  }, []);
 
     // Add this useEffect after your other useEffect hooks
   useEffect(() => {
@@ -247,6 +235,7 @@ function Documents() {
     }
   };
 
+
   const handleDownloadDocument = async (docId, filename) => {
     try {
       const token = localStorage.getItem('token');
@@ -267,37 +256,6 @@ function Documents() {
       document.body.removeChild(a);
     } catch (err) {
       setError(err.message);
-    }
-  };
-
-    const fetchRecentDocuments = async () => {
-    setRecentDocsLoading(true);
-    setRecentDocsError(null);
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/dashboard/activity?limit=20`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const items = data.items || [];
-        
-        // Filter for document-related activities and get unique documents
-        const recentDocs = items
-          .filter(item => item.action?.startsWith('document.') || item.type === 'document')
-          .slice(0, 6);
-        
-        setRecentDocumentsData(recentDocs);
-      }
-    } catch (err) {
-      console.error('Error fetching recent documents:', err);
-      setRecentDocsError('Failed to load recent documents');
-    } finally {
-      setRecentDocsLoading(false);
     }
   };
 
@@ -322,6 +280,25 @@ function Documents() {
     setSortBy('lastOpened');
   };
 
+  const handleFolderColorChange = (nextColor) => {
+    if (!openedFolder) return;
+    setOpenedFolder((prev) => (prev ? { ...prev, color: nextColor } : prev));
+
+    if (isUserCreatedContainer(openedFolder.id)) {
+      setCreatedContainers((prev) => {
+        const updated = prev.map((container) =>
+          container.id === openedFolder.id ? { ...container, color: nextColor } : container
+        );
+        localStorage.setItem('createdContainers', JSON.stringify(updated));
+        return updated;
+      });
+    } else {
+      setWorkspaces((prev) =>
+        prev.map((ws) => (ws.id === openedFolder.id ? { ...ws, color: nextColor } : ws))
+      );
+    }
+  };
+
   const sortedFolderDocuments = useMemo(() => {
     let sorted = [...folderDocuments];
     switch (sortBy) {
@@ -344,41 +321,6 @@ function Documents() {
     return sorted;
   }, [folderDocuments, sortBy]);
 
-  const getFileIcon = (filename) => {
-    const extension = filename?.split('.')?.pop()?.toLowerCase();
-    
-    const iconMap = {
-      'md': { color: '#FF9500', emoji: '📄' },
-      'xlsx': { color: '#34C759', emoji: '📊' },
-      'xls': { color: '#34C759', emoji: '📊' },
-      'csv': { color: '#34C759', emoji: '📊' },
-      'pdf': { color: '#FF3B30', emoji: '📑' },
-      'doc': { color: '#5B5FFF', emoji: '📝' },
-      'docx': { color: '#5B5FFF', emoji: '📝' },
-      'txt': { color: '#8E8E93', emoji: '📋' },
-    };
-
-    return iconMap[extension] || { color: '#5B5FFF', emoji: '📄' };
-  };
-
-  const formatTimeAgo = (timestamp) => {
-    if (!timestamp) return 'Recently';
-    
-    const now = new Date();
-    const then = new Date(timestamp);
-    const diffMs = now - then;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} m`;
-    if (diffHours < 24) return `${diffHours} h`;
-    if (diffDays < 7) return `${diffDays} d`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} w`;
-    
-    return `${Math.floor(diffDays / 30)} months ago`;
-  };
 
     // Otherwise call backend delete endpoint. Use workspace-scoped path if selectedWorkspace is set
       const handleDeleteContainer = async (containerId) => {
@@ -437,11 +379,7 @@ function Documents() {
 
   const handleClearFilters = () => {
     setSearchQuery('');
-    setFilterStatus('all');
-    setFilterType('all');
-    setDateFrom('');
-    setDateTo('');
-    setOwnerFilter('');
+    setOwnerFilter('all');
   };
 
   const handleCheckboxChange = (docId) => {
@@ -462,33 +400,21 @@ function Documents() {
     }
   };
 
+  const blockedNames = new Set([
+    'component library v2.3.fig',
+    'design tokens spec.pdf',
+    'accessibility guidelines.docx'
+  ]);
+
   const filteredDocuments = useMemo(() => {
     return documents.filter(doc => {
-      const matchSearch = doc.filename.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchStatus = filterStatus === 'all' || doc.status === filterStatus;
-      const matchType = filterType === 'all' || (doc.mime_type && doc.mime_type.includes(filterType));
-      return matchSearch && matchStatus && matchType;
+      const filename = (doc.filename || '').toLowerCase();
+      if (blockedNames.has(filename)) return false;
+      const matchSearch = filename.includes(searchQuery.toLowerCase());
+      return matchSearch;
     });
-  }, [documents, searchQuery, filterStatus, filterType]);
+  }, [documents, searchQuery]);
 
-  const recentDocuments = useMemo(() => {
-    return documents
-      .slice()
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-      .slice(0, 4);
-  }, [documents]);
-
-  const fileColor = (filename) => {
-    if (!filename) return '#e5e7eb';
-    const ext = filename.split('.').pop().toLowerCase();
-    switch (ext) {
-      case 'md': return '#f59e0b';
-      case 'xlsx': case 'xls': return '#10b981';
-      case 'pdf': return '#6366f1';
-      case 'docx': case 'doc': return '#60a5fa';
-      default: return '#93c5fd';
-    }
-  };
 
   const containers = useMemo(() => {
     const palette = ['#93c5fd','#fda4af','#f59e0b','#a78bfa','#f472b6','#60a5fa','#34d399','#fbd38d'];
@@ -518,9 +444,14 @@ function Documents() {
   };
 
   const displayedContainers = useMemo(() => {
-    // show existing containers first, then newly created local containers appended
+    // show existing workspace containers first, then user-created containers
     return [...containers, ...createdContainers];
   }, [containers, createdContainers]);
+
+  // Helper function to check if a container is user-created
+  const isUserCreatedContainer = (containerId) => {
+    return createdContainers.some(c => c.id === containerId);
+  };
 
   // Preset colors used in the pick list
   const presetColors = ['#34d399','#60a5fa','#f472b6','#f59e0b','#a78bfa','#fda4af','#93c5fd','#fb7185'];
@@ -534,11 +465,57 @@ function Documents() {
         {/* Folder Header */}
         <div className="folder-header">
           <div className="folder-header-left">
+            <button
+              className="folder-back"
+              onClick={handleBackFromFolder}
+              aria-label="Back to documents"
+              title="Back to documents"
+            >
+              Back
+            </button>
             <div className="folder-header-icon" style={{ background: openedFolder.color }}>
               <Folder size={28} />
             </div>
             <h1 className="folder-title">{openedFolder.name}</h1>
           </div>
+          <div className="folder-header-actions">
+            <label className="folder-color-control">
+              <span>Color</span>
+              <input
+                ref={colorInputRef}
+                type="color"
+                value={openedFolder.color}
+                onChange={(e) => handleFolderColorChange(e.target.value)}
+                className="folder-color-input"
+                aria-label="Pick folder color"
+              />
+            </label>
+            {isUserCreatedContainer(openedFolder.id) && (
+              <button
+                type="button"
+                className="folder-delete-btn"
+                onClick={() => {
+                  if (window.confirm(`Delete ${openedFolder.name}?`)) {
+                    handleDeleteContainer(openedFolder.id);
+                    handleBackFromFolder();
+                  }
+                }}
+                aria-label={`Delete ${openedFolder.name}`}
+                title="Delete folder"
+              >
+                <Trash2 size={16} />
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="folder-meta">
+          <div className="meta-pill">
+            {isUserCreatedContainer(openedFolder.id) ? 'Personal folder' : 'Workspace folder'}
+          </div>
+          <div className="meta-pill">Items: {folderDocuments.length}</div>
+          <div className="meta-pill">Access: Private</div>
         </div>
 
         {/* Folder Content */}
@@ -584,33 +561,25 @@ function Documents() {
                   >
                     {sortBy === 'lastModified' && '✓ '}Date modified
                   </button>
-                  <button className="sort-option delete-option">
-                    <Trash2 size={16} /> Delete
-                  </button>
+                  {isUserCreatedContainer(openedFolder.id) && (
+                    <button 
+                      className="sort-option delete-option"
+                      onClick={() => {
+                        if (window.confirm(`Delete ${openedFolder.name}?`)) {
+                          handleDeleteContainer(openedFolder.id);
+                          handleBackFromFolder();
+                        }
+                      }}
+                    >
+                      <Trash2 size={16} /> Delete Folder
+                    </button>
+                  )}
                 </div>
               )}
             </div>
           </div>
 
           <div className="folder-main-content">
-            <aside className="folder-sidebar">
-              <div className="sidebar-section">
-                <h3 className="sidebar-title">Most</h3>
-              <div className="folder-list">
-                {containers.slice(0, 6).map(c => (
-                  <div 
-                    key={c.id} 
-                    className={`folder-item ${openedFolder.id === c.id ? 'active' : ''}`}
-                    onClick={() => handleFolderDoubleClick(c)}
-                  >
-                    <div className="folder-dot" style={{ background: c.color }} />
-                    <span>{c.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </aside>
-
           {/* Folder Documents List */}
           <main className="folder-main">
             <div className="documents-table">
@@ -637,7 +606,7 @@ function Documents() {
                         <MoreVertical size={18} />
                       </button>
                     </div>
-        docker           </div>
+                  </div>
                 );
               })}
             </div>
@@ -658,67 +627,42 @@ function Documents() {
   }
 
   return (
-    <div className="documents-container">
-      <div className="documents-header">
-        <h1>Documents</h1>
-        <div className="header-actions">
-          <div className="view-toggle">
-            <button 
-              className={`view-btn ${viewMode === 'list' ? 'active' : ''}`}
-              onClick={() => setViewMode('list')}
-              title="List view"
-              aria-label="Switch to list view"
-            >
-              <List size={18} />
-            </button>
-            <button 
-              className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
-              onClick={() => setViewMode('grid')}
-              title="Grid view"
-              aria-label="Switch to grid view"
-            >
-              <Grid3x3 size={18} />
-            </button>
-          </div>
-          <button 
-            className="btn btn-primary upload-btn"
-            onClick={() => setShowUploadModal(true)}
-            title="Upload new document"
-            aria-label="Upload new document"
-          >
-            <Upload size={18} />
-            Upload
-          </button>
-        </div>
-      </div>
+    <div className="documents-page">
+      <div className="documents-shell">
+        <aside className="documents-sidebar">
+          <div className="sidebar-card">
+            <div className="sidebar-card-header">Filter & search</div>
+            <div className="documents-controls">
+              <div className="controls-left">
+                <label className="control-label" htmlFor="owner-filter">
+                  Owner Type
+                  <select 
+                    id="owner-filter"
+                    value={ownerFilter}
+                    onChange={(e) => setOwnerFilter(e.target.value)}
+                    aria-label="Filter by owner type"
+                  >
+                    <option value="all">All Folders</option>
+                    <option value="workspace">Workspace-Owned</option>
+                    <option value="user">User-Created</option>
+                    <option value="ai">AI-Created</option>
+                  </select>
+                </label>
+              </div>
 
-      {error && (
-        <div className="error-message">
-          <span>{error}</span>
-          <button 
-            className="close-error"
-            onClick={() => setError(null)}
-            aria-label="Close error message"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-  <div className="documents-layout">
-        <aside className="left-sidebar">
-          <div className="filters-section sidebar-filters">
-            <div className="filters-header">
-              <button 
-                className="filter-toggle"
-                onClick={() => setShowFilters(!showFilters)}
-                title="Toggle filters"
-                aria-label="Toggle filters"
-              >
-                <Filter size={18} />
-                Filters
-              </button>
-              {(searchQuery || filterStatus !== 'all' || filterType !== 'all' || dateFrom || dateTo || ownerFilter) && (
+              <div className="search-box">
+                <Search size={18} />
+                <input
+                  type="text"
+                  placeholder="Search folders..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  aria-label="Search folders"
+                />
+              </div>
+            </div>
+            {(searchQuery || ownerFilter !== 'all') && (
+              <div className="filters-actions">
                 <button 
                   className="clear-filters-btn"
                   onClick={handleClearFilters}
@@ -727,31 +671,30 @@ function Documents() {
                 >
                   Clear
                 </button>
-              )}
-            </div>
+              </div>
+            )}
+          </div>
 
-            <div className="create-container-inline-wrap">
-              <button
-                  className="create-container-inline"
-                  onClick={() => setShowCreateContainer(true)}
-                  title="Create New Container"
-                  aria-label="Create new container"
-                >
-                <Plus size={14} />
-                <span className="create-inline-text">Create New Container</span>
-              </button>
-            </div>
+          <div className="sidebar-card sidebar-actions">
+            <button
+              className="btn btn-secondary create-container-inline"
+              onClick={() => setShowCreateContainer(true)}
+              title="Create New Container"
+              aria-label="Create new container"
+            >
+              <Plus size={14} />
+              <span className="create-inline-text">Create New Container</span>
+            </button>
 
-            {/* Inline dropdown panel (appears when create button clicked) */}
             {showCreateContainer && (
               <div className="create-container-panel" role="region" aria-label="Create container panel">
                 <div className="panel-header">
                   <strong>Create New Container</strong>
                   <button className="panel-close" onClick={() => setShowCreateContainer(false)} aria-label="Close">×</button>
                 </div>
-                  {successMessage && (
-                    <div className="create-success" role="status" aria-live="polite">{successMessage}</div>
-                  )}
+                {successMessage && (
+                  <div className="create-success" role="status" aria-live="polite">{successMessage}</div>
+                )}
 
                 <form onSubmit={handleCreateContainer}>
                   <div className="form-group">
@@ -779,7 +722,6 @@ function Documents() {
                           aria-label={`Select color ${color}`}
                         />
                       ))}
-                      {/* Color wheel - visible clickable input */}
                       <input
                         type="color"
                         value={containerColor}
@@ -798,111 +740,58 @@ function Documents() {
                 </form>
               </div>
             )}
-
-            {showFilters && (
-              <>
-                <div className="search-box">
-                  <Search size={18} />
-                  <input
-                    type="text"
-                    placeholder="Search documents..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    aria-label="Search documents"
-                  />
-                </div>
-
-                <div className="filter-row">
-                  <div className="filter-group">
-                    <label htmlFor="workspace-filter">Workspace</label>
-                    <select 
-                      id="workspace-filter"
-                      value={selectedWorkspace} 
-                      onChange={(e) => setSelectedWorkspace(e.target.value)}
-                    >
-                      {workspaces.map(ws => (
-                        <option key={ws.id} value={ws.id}>{ws.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="filter-group">
-                    <label htmlFor="status-filter">Status</label>
-                    <select 
-                      id="status-filter"
-                      value={filterStatus} 
-                      onChange={(e) => setFilterStatus(e.target.value)}
-                    >
-                      <option value="all">All Status</option>
-                      <option value="ready">Ready</option>
-                      <option value="processing">Processing</option>
-                      <option value="failed">Failed</option>
-                    </select>
-                  </div>
-
-                  <div className="filter-group">
-                    <label htmlFor="type-filter">Type</label>
-                    <select 
-                      id="type-filter"
-                      value={filterType} 
-                      onChange={(e) => setFilterType(e.target.value)}
-                    >
-                      <option value="all">All Types</option>
-                      <option value="pdf">PDF</option>
-                      <option value="text">Text</option>
-                      <option value="word">Word</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="filter-row">
-                  <div className="filter-group">
-                    <label htmlFor="date-from">Date From</label>
-                    <input 
-                      id="date-from"
-                      type="date" 
-                      value={dateFrom} 
-                      onChange={(e) => setDateFrom(e.target.value)} 
-                    />
-                  </div>
-
-                  <div className="filter-group">
-                    <label htmlFor="date-to">Date To</label>
-                    <input 
-                      id="date-to"
-                      type="date" 
-                      value={dateTo} 
-                      onChange={(e) => setDateTo(e.target.value)} 
-                    />
-                  </div>
-
-                  <div className="filter-group">
-                    <label htmlFor="owner-filter">Owner</label>
-                    <input 
-                      id="owner-filter"
-                      type="text" 
-                      placeholder="Filter by owner"
-                      value={ownerFilter}
-                      onChange={(e) => setOwnerFilter(e.target.value)}
-                      aria-label="Filter by owner"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Sidebar quick containers list */}
-            <div className="sidebar-containers">
-              {containers.slice(0,6).map(c => (
-                <div key={c.id} className="sidebar-container-item" onClick={() => setSelectedWorkspace(c.id)}>
-                  <div className="sidebar-dot" style={{ background: c.color }} />
-                  <div className="sidebar-container-name">{c.name}</div>
-                </div>
-              ))}
-            </div>
           </div>
         </aside>
-        <main className="main-content">
+
+        <main className="documents-main">
+          <div className="documents-hero">
+            <div className="hero-content">
+              <h1>Documents</h1>
+              <p>Browse, organize, and manage documents across your workspace.</p>
+            </div>
+            <div className="hero-actions">
+              <div className="view-toggle">
+                <button 
+                  className={`view-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => setViewMode('list')}
+                  title="List view"
+                  aria-label="Switch to list view"
+                >
+                  <List size={18} />
+                </button>
+                <button 
+                  className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                  title="Grid view"
+                  aria-label="Switch to grid view"
+                >
+                  <Grid3x3 size={18} />
+                </button>
+              </div>
+              <button 
+                className="btn btn-primary upload-btn"
+                onClick={() => setShowUploadModal(true)}
+                title="Upload new document"
+                aria-label="Upload new document"
+              >
+                <Upload size={18} />
+                Upload
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="error-message">
+              <span>{error}</span>
+              <button 
+                className="close-error"
+                onClick={() => setError(null)}
+                aria-label="Close error message"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
 
       {/* Upload Modal */}
       {showUploadModal && (
@@ -1030,10 +919,6 @@ function Documents() {
       <div className={`documents-${viewMode}`}>
         {loading ? (
           <p className="loading-text">Loading documents...</p>
-        ) : filteredDocuments.length === 0 ? (
-          <div className="empty-state">
-            <p className="empty-state-text">No documents found</p>
-          </div>
         ) : (
           filteredDocuments.map(doc => (
             <div key={doc.id} className={`document-item document-item-${viewMode}`}>
@@ -1059,93 +944,36 @@ function Documents() {
       </div>
 
             {/* Containers / Cards Grid (design) */}
-      <div className="container-grid">
-        {displayedContainers.map((c) => (
-          <div
-            key={c.id}
-            className="container-card"
-            onDoubleClick={() => handleFolderDoubleClick(c)}
-            style={{ 
-              background: `linear-gradient(90deg, ${hexToRgba(c.color, 0.12)}, ${hexToRgba(c.color, 0.06)})`, 
-              borderColor: hexToRgba(c.color, 0.18),
-              cursor: 'pointer'
-            }}
-          >
-            <div className="container-left">
-              <div className="container-icon" style={{ background: hexToRgba(c.color, 0.18), borderColor: hexToRgba(c.color, 0.28) }}>
-                <Folder size={18} />
+      <div className={`container-grid container-grid-${viewMode}`}>
+        {displayedContainers.map((c) => {
+          const isUserCreated = isUserCreatedContainer(c.id);
+          return (
+            <div
+              key={c.id}
+              className={`container-card ${isUserCreated ? 'user-created' : 'default-workspace'}`}
+              onClick={() => handleFolderDoubleClick(c)}
+              style={{ 
+                background: `linear-gradient(90deg, ${hexToRgba(c.color, 0.12)}, ${hexToRgba(c.color, 0.06)})`, 
+                borderColor: hexToRgba(c.color, 0.18),
+                cursor: 'pointer'
+              }}
+            >
+              <div className="container-left">
+                <div className="container-icon" style={{ background: hexToRgba(c.color, 0.18), borderColor: hexToRgba(c.color, 0.28) }}>
+                  <Folder size={18} />
+                </div>
+                <div className="container-wrapper">
+                  <div className="container-name">{c.name}</div>
+                  {isUserCreated && (
+                    <span className="container-badge">Created by you</span>
+                  )}
+                </div>
               </div>
-              <div className="container-name">{c.name}</div>
             </div>
-            <div className="container-actions">
-                <button className="view-all" onClick={() => setSelectedWorkspace(c.id)}>View All</button>
-                {/* Show delete button only for containers we created locally or that are tracked in createdContainers */}
-                {((typeof c.id === 'string' && c.id.startsWith('local-')) || createdContainers.some(ci => ci.id === c.id)) && (
-                  <button
-                    className="delete-container"
-                    onClick={() => handleDeleteContainer(c.id)}
-                    title="Delete container"
-                    aria-label={`Delete ${c.name}`}
-                  >
-                    Delete
-                  </button>
-                )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-            {/* Recent Documents Section */}
-      <div className="recent-documents-section">
-        <div className="recent-documents-header">
-          <h2 className="recent-documents-title">Recent Documents</h2>
-          <button 
-            className="refresh-button"
-            onClick={fetchRecentDocuments}
-            disabled={recentDocsLoading}
-            title="Refresh documents"
-            aria-label="Refresh recent documents"
-          >
-            <RefreshCw size={18} />
-            <span>Refresh</span>
-            <ChevronRight size={18} />
-          </button>
-        </div>
-
-        {recentDocsError && (
-          <div className="error-message">
-            {recentDocsError}
-          </div>
-        )}
-
-        <div className="recent-documents-grid">
-          {recentDocumentsData.length > 0 ? (
-            // Group documents into pairs for the column layout
-            Array.from({ length: Math.ceil(recentDocumentsData.length / 2) }, (_, i) => (
-              <div key={i} className="recent-documents-column">
-                {recentDocumentsData.slice(i * 2, (i + 1) * 2).map((doc, index) => {
-                  const fileInfo = getFileIcon(doc.filename || doc.title);
-                  return (
-                    <div key={doc.id || index} className="recent-document-item">
-                      <div className="recent-doc-icon" style={{ background: fileInfo.color }}>
-                        {fileInfo.emoji}
-                      </div>
-                      <div className="recent-doc-details">
-                        <div className="recent-doc-name">{doc.filename || doc.title || 'Unknown Document'}</div>
-                        <div className="recent-doc-time">{doc.time || formatTimeAgo(doc.created_at)}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ))
-          ) : (
-            <div className="empty-state">
-              <p className="empty-state-text">No recent documents</p>
-            </div>
-          )}
-        </div>
-      </div>
         </main>
       </div>
     </div>

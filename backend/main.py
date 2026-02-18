@@ -14,11 +14,14 @@ from api import (
     search_router,
     summaries_router,
     audit_logs_router,
+    embeddings_router,
+    webhooks_router,
 )
 from api.dashboard import router as dashboard_router
 from api.messages import router as messages_router
 from api.tasks import router as tasks_router
 from api.conversations import router as conversations_router
+from api.embeddings import router as embeddings_router
 
 app = FastAPI(
     title="Digital Assistant API",
@@ -80,4 +83,6 @@ app.include_router(audit_logs_router, prefix="/api/v1")
 app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(messages_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
+app.include_router(embeddings_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
+app.include_router(webhooks_router)

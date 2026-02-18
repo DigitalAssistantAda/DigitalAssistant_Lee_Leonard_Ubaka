@@ -4,7 +4,7 @@
   color: var(--text-primary, #1a1f35);
   font-family: var(--font-ui);
   padding: 2.5rem 2rem 3rem;
-  max-width: 1600px;
+  max-width: 1320px;
   margin: 0 auto;
   text-align: left;
 }

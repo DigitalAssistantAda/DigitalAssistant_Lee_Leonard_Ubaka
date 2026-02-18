@@ -3,6 +3,9 @@ from .workspace import Workspace, WorkspaceMember
 from .document import Document, DocumentStatus
 from .document_chunk import DocumentChunk
 from .chunk_embedding import ChunkEmbedding
+from .document_duplicate import DocumentDuplicate, DuplicateStatus
+from .embedding_job import EmbeddingJob, EmbeddingJobStatus
+from .document_hint import DocumentHint
 from .audit_log import AuditLog
 from .task import Task, TaskType, TaskStatus, TaskPriority
 from .task_assignee import TaskAssignee
@@ -18,6 +21,11 @@ __all__ = [
     "DocumentStatus",
     "DocumentChunk",
     "ChunkEmbedding",
+    "DocumentDuplicate",
+    "DuplicateStatus",
+    "EmbeddingJob",
+    "EmbeddingJobStatus",
+    "DocumentHint",
     "AuditLog",
     "Task",
     "TaskType",

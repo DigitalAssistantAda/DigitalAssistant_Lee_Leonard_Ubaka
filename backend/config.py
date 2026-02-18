@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
     
+    # Embeddings Settings - Using Voyage AI (privacy-first, high quality)
+    embedding_service: str = os.getenv("EMBEDDING_SERVICE", "voyage")  # "voyage"
+    voyage_api_key: str = os.getenv("VOYAGE_API_KEY", "")
+    voyage_model: str = os.getenv("VOYAGE_MODEL", "voyage-2")  # Or "voyage-large-2-instruct"
+    embedding_dimensions: int = 1024  # voyage-2 uses 1024 dims
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

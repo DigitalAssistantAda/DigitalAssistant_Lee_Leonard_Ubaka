@@ -7,6 +7,8 @@ from .search import router as search_router
 from .summaries import router as summaries_router
 from .audit_logs import router as audit_logs_router
 from .containers import router as containers_router
+from .embeddings import router as embeddings_router
+from .webhooks import router as webhooks_router
 
 __all__ = [
     "auth_router",
@@ -18,4 +20,6 @@ __all__ = [
     "summaries_router",
     "audit_logs_router",
     "containers_router",
+    "embeddings_router",
+    "webhooks_router",
 ]

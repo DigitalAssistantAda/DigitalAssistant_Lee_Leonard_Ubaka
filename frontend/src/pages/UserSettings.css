@@ -4,7 +4,7 @@
   background: var(--bg-primary, #ffffff);
   color: var(--text-primary, #2b2b33);
   padding: 2.5rem 2rem;
-  max-width: 1600px;
+  max-width: 1320px;
   margin: 0 auto;
   text-align: left;
 }

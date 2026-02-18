@@ -22,6 +22,7 @@ from utils.authorization import (
 from utils.audit import create_audit_log, AuditActions
 from utils.storage import storage
 from config import settings
+from tasks.embeddings import process_document_embeddings
 
 router = APIRouter(tags=["Documents"])
 
@@ -114,7 +115,8 @@ async def upload_document(
         workspace_id=workspace_id
     )
     
-    # TODO: Trigger background job for processing
+    # Trigger embedding job asynchronously
+    process_document_embeddings.delay(document.id, current_user.id)
     
     return DocumentResponse.model_validate(document)
 

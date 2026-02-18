@@ -6,6 +6,7 @@
   z-index: 1000;
   padding: 12px 20px;
   pointer-events: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .nav-bar {
@@ -13,15 +14,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  max-width: 1200px;
+  max-width: 1320px;
   margin: 0 auto;
   width: 100%;
   pointer-events: auto;
   height: var(--nav-pill-height);
   padding: 6px 14px;
-  background: var(--nav-glass-bg);
-  border: 1px solid var(--nav-glass-border);
-  border-radius: var(--radius-base);
+  background: transparent;
+  border: none;
+  border-radius: 0;
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -63,22 +64,22 @@
   height: var(--nav-item-height);
   padding: 0 14px;
   border-radius: 999px;
-  border: 1px solid transparent;
+  border: none;
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
+  gap: 6px;
 }
 
 .nav-bar .nav-link:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border-color: color-mix(in srgb, var(--border-color) 55%, transparent);
+  background: transparent;
 }
 
 .nav-bar .nav-link.active {
   color: var(--accent-primary);
-  background: var(--accent-highlight);
-  border-color: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border: none;
   box-shadow: none;
   font-weight: 600;
 }
@@ -87,12 +88,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-base);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
   height: var(--nav-item-height);
-  padding: 0 10px;
-  min-width: 220px;
+  padding: 0 4px;
+  min-width: 200px;
 }
 
 .nav-search input {
@@ -123,12 +124,15 @@
   width: var(--nav-item-height);
   padding: 0;
   border-radius: var(--radius-base);
-  transition: all 0.2s ease;
+  transition: color 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .nav-icon:hover {
   color: var(--text-primary);
-  background: var(--bg-tertiary);
+  background: transparent;
 }
 
 .nav-icon.danger {

@@ -6,6 +6,7 @@ import './Navigation.css';
 function Navigation({ user, onLogout }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -58,17 +59,27 @@ function Navigation({ user, onLogout }) {
         </div>
         {user && (
           <div className="nav-right">
-            <div className="nav-search">
-              <Search size={16} className="nav-search-icon" />
-              <input 
-                type="text" 
-                placeholder="Search..." 
-                className="nav-search-input"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                aria-label="Search"
-              />
-            </div>
+            {searchOpen && (
+              <div className="nav-search">
+                <input 
+                  type="text" 
+                  placeholder="Search..." 
+                  className="nav-search-input"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  aria-label="Search"
+                  autoFocus
+                />
+              </div>
+            )}
+            <button
+              className="nav-icon"
+              title="Search"
+              aria-label="Search"
+              onClick={() => setSearchOpen(!searchOpen)}
+            >
+              <Search size={20} />
+            </button>
             <button 
               className="nav-icon" 
               title="Notifications"

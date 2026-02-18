@@ -4,6 +4,8 @@
   min-height: 100vh;
   background: var(--bg-primary, #ffffff);
   color: var(--text-primary, #1a1f35);
+  max-width: 1320px;
+  margin: 0 auto;
 }
 
 /* Header */

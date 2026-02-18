@@ -26,6 +26,9 @@ function Documents() {
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
+  const [uploadFiles, setUploadFiles] = useState([]); // Changed from uploadFile to uploadFiles (array)
+  const [uploadProgress, setUploadProgress] = useState({}); // Track progress per file
+  const [dragOver, setDragOver] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -98,140 +101,171 @@ function Documents() {
     }
   };
 
+  // Replace handleFileUpload function with this enhanced version
   const handleFileUpload = async (e) => {
-    e.preventDefault();
-    if (!uploadFile || !selectedWorkspace) return;
+  e.preventDefault();
+  if (uploadFiles.length === 0 || !selectedWorkspace) return;
 
-    setUploading(true);
-    setError(null);
+  setUploading(true);
+  setError(null);
 
-    try {
-      const token = localStorage.getItem('token');
-      const formData = new FormData();
-      formData.append('file', uploadFile);
+  try {
+    const token = localStorage.getItem('token');
+    const uploadPromises = uploadFiles.map(async (file, index) => {
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
 
-      const response = await fetch(`${API_URL}/api/v1/workspaces/${selectedWorkspace}/documents`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
+        const response = await fetch(
+          `${API_URL}/api/v1/workspaces/${selectedWorkspace}/documents`,
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          }
+        );
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Failed to upload document');
+        if (!response.ok) throw new Error(`Failed to upload ${file.name}`);
+
+        // Update progress for this file
+        setUploadProgress(prev => ({
+          ...prev,
+          [file.name]: 100
+        }));
+
+        return response.json();
+      } catch (err) {
+        setError(`Error uploading ${file.name}: ${err.message}`);
+        return null;
       }
+    });
 
-      setUploadFile(null);
-      setShowUploadModal(false);
-      setSuccessMessage('Document uploaded successfully!');
-      setTimeout(() => setSuccessMessage(null), 3000);
-      fetchDocuments();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setUploading(false);
+    await Promise.all(uploadPromises);
+    setUploadFiles([]);
+    setUploadProgress({});
+    setShowUploadModal(false);
+    fetchDocuments();
+  } catch (err) {
+    setError(err.message);
+  } finally {
+    setUploading(false);
+  }
+};
+
+  // Drag and drop handlers - UPDATED
+const handleDragEnter = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setDragOver(true);
+};
+
+const handleDragLeave = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setDragOver(false);
+};
+
+const handleDragOver = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setDragOver(true); // Keep drag-over state active
+};
+
+const handleDrop = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setDragOver(false);
+
+  const items = e.dataTransfer.items;
+  const files = [];
+
+  if (items) {
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file') {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
+      }
     }
-  };
-
-  // Drag and drop handlers
-  const handleDragEnter = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    const files = e.dataTransfer.files;
-    if (files && files.length > 0) {
-      setUploadFile(files[0]);
+  } else {
+    const fileList = e.dataTransfer.files;
+    for (let i = 0; i < fileList.length; i++) {
+      files.push(fileList[i]);
     }
-  };
+  }
 
-  const handleFileInputClick = () => {
-    fileInputRef.current?.click();
-  };
+  setUploadFiles(files); // Set multiple files instead of single file
+};
 
-    const handleCreateContainer = async (e) => {
-    e.preventDefault();
-    if (!containerName) {
-      setError('Please enter a container name');
-      return;
-    }
+const handleFileInputClick = () => {
+  fileInputRef.current?.click();
+};
 
-    // Build the endpoint URL
-    const createUrl = selectedWorkspace
-      ? `${API_URL}/api/v1/workspaces/${selectedWorkspace}/containers`
-      : `${API_URL}/api/v1/containers`;
+const handleCreateContainer = async (e) => {
+  e.preventDefault();
+  if (!containerName) {
+    setError('Please enter a container name');
+    return;
+  }
 
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(createUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ name: containerName, color: containerColor }),
-      });
+  // Build the endpoint URL
+  const createUrl = selectedWorkspace
+    ? `${API_URL}/api/v1/workspaces/${selectedWorkspace}/containers`
+    : `${API_URL}/api/v1/containers`;
 
-      let created = null;
-      let serverErr = null;
-      if (response.ok) {
-        try {
-          const data = await response.json().catch(() => null);
-          created = data?.item || data?.container || data || null;
-        } catch (err) {
-          created = null;
-        }
-      } else {
-        const text = await response.text().catch(() => null);
-        serverErr = text || `Server returned ${response.status}`;
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(createUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ name: containerName, color: containerColor }),
+    });
+
+    let created = null;
+    let serverErr = null;
+    if (response.ok) {
+      try {
+        const data = await response.json().catch(() => null);
+        created = data?.item || data?.container || data || null;
+      } catch (err) {
         created = null;
-        if (response.status === 401 || (typeof serverErr === 'string' && serverErr.toLowerCase().includes('could not validate'))) {
-          serverErr = 'Authentication required — please sign in to persist containers. Container created locally.';
-        }
       }
-
-      if (created && created.id) {
-        const newContainer = { id: created.id, name: created.name || containerName, color: created.color || containerColor };
-        setCreatedContainers(prev => [...prev, newContainer]);
-        // Save to localStorage
-        localStorage.setItem('createdContainers', JSON.stringify([...createdContainers, newContainer]));
-      } else {
-        const placeholder = { id: `local-${Date.now()}`, name: containerName, color: containerColor };
-        setCreatedContainers(prev => [...prev, placeholder]);
-        // Save to localStorage
-        localStorage.setItem('createdContainers', JSON.stringify([...createdContainers, placeholder]));
-        if (serverErr) {
-          setError(serverErr);
-        }
+    } else {
+      const text = await response.text().catch(() => null);
+      serverErr = text || `Server returned ${response.status}`;
+      created = null;
+      if (response.status === 401 || (typeof serverErr === 'string' && serverErr.toLowerCase().includes('could not validate'))) {
+        serverErr = 'Authentication required — please sign in to persist containers. Container created locally.';
       }
-
-      setContainerName('');
-      setContainerColor('#f59e0b');
-      setShowCreateContainer(false);
-
-      setSuccessMessage('Container created');
-      setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err) {
-      setError(err.message || 'Failed to create container');
     }
-  };
+
+    if (created && created.id) {
+      const newContainer = { id: created.id, name: created.name || containerName, color: created.color || containerColor };
+      setCreatedContainers(prev => [...prev, newContainer]);
+      // Save to localStorage
+      localStorage.setItem('createdContainers', JSON.stringify([...createdContainers, newContainer]));
+    } else {
+      const placeholder = { id: `local-${Date.now()}`, name: containerName, color: containerColor };
+      setCreatedContainers(prev => [...prev, placeholder]);
+      // Save to localStorage
+      localStorage.setItem('createdContainers', JSON.stringify([...createdContainers, placeholder]));
+      if (serverErr) {
+        setError(serverErr);
+      }
+    }
+
+    setContainerName('');
+    setContainerColor('#f59e0b');
+    setShowCreateContainer(false);
+
+    setSuccessMessage('Container created');
+    setTimeout(() => setSuccessMessage(null), 3000);
+  } catch (err) {
+    setError(err.message || 'Failed to create container');
+  }
+};
 
   const handleDeleteDocument = async (docId) => {
     if (!window.confirm('Delete this document?')) return;
@@ -439,6 +473,12 @@ function Documents() {
       setSelectedDocuments(new Set(filteredDocuments.map(doc => doc.id)));
     }
   };
+
+  const handleClearUploadForm = () => {
+  setUploadFiles([]);
+  setUploadProgress({});
+  setError(null);
+};
 
   const blockedNames = new Set([
     'component library v2.3.fig',
@@ -839,9 +879,14 @@ function Documents() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Upload Document</h2>
-              <button 
+                            <button 
                 className="modal-close" 
-                onClick={() => setShowUploadModal(false)}
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setUploadFiles([]);
+                  setUploadProgress({});
+                  setError(null);
+                }}
                 title="Close dialog"
                 aria-label="Close dialog"
               >
@@ -883,15 +928,55 @@ function Documents() {
                     ref={fileInputRef}
                     type="file"
                     id="file-input"
-                    onChange={(e) => setUploadFile(e.target.files[0])}
+                    onChange={(e) => {
+                      const newFiles = Array.from(e.target.files);
+                      const combined = [...uploadFiles, ...newFiles];
+                      if (combined.length > 5) {
+                        setError('You can only upload a maximum of 5 documents at once');
+                        setUploadFiles(combined.slice(0, 5));
+                      } else {
+                        setError(null);
+                        setUploadFiles(combined);
+                      }
+                    }}
                     accept=".pdf,.txt,.docx,.doc"
+                    webkitdirectory=""
+                    mozdirectory=""
+                    multiple
                     style={{ display: 'none' }}
                     required
                   />
                 </div>
-                {uploadFile && (
-                  <div className="selected-file">
-                    📄 {uploadFile.name} ({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)
+                {uploadFiles.length > 0 && (
+                  <div className="selected-files">
+                    <div className="selected-files-header">
+                      <h4>Selected Files ({uploadFiles.length}/5):</h4>
+                      {uploadFiles.length === 5 && (
+                        <span className="limit-reached-badge">Limit reached</span>
+                      )}
+                    </div>
+                    <ul>
+                      {uploadFiles.map((file, idx) => (
+                        <li key={idx} className="file-item">
+                          <span>{file.name}</span>
+                          <span className="file-size">
+                            {(file.size / 1024 / 1024).toFixed(2)} MB
+                          </span>
+                          <button
+                            type="button"
+                            className="remove-file-btn"
+                            onClick={() => {
+                              const newFiles = uploadFiles.filter((_, i) => i !== idx);
+                              setUploadFiles(newFiles);
+                            }}
+                            title="Remove file"
+                            aria-label={`Remove ${file.name}`}
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
@@ -909,7 +994,9 @@ function Documents() {
                 <button 
                   type="button" 
                   className="btn btn-secondary"
-                  onClick={() => setShowUploadModal(false)}
+                  onClick={() => {
+                    setShowUploadModal(false);
+                  }}
                   disabled={uploading}
                 >
                   Cancel
@@ -917,9 +1004,9 @@ function Documents() {
                 <button 
                   type="submit" 
                   className="btn btn-primary"
-                  disabled={!uploadFile || !selectedWorkspace || uploading}
+                  disabled={uploadFiles.length === 0 || !selectedWorkspace || uploading}
                 >
-                  {uploading ? 'Uploading...' : 'Upload'}
+                  {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/5)`}
                 </button>
               </div>
             </form>

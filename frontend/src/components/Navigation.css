@@ -7,6 +7,9 @@
   padding: 12px 20px;
   pointer-events: none;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .nav-bar {
@@ -79,7 +82,7 @@
 .nav-bar .nav-link.active {
   color: var(--accent-primary);
   background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
   box-shadow: none;
   font-weight: 600;
 }

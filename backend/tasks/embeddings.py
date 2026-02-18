@@ -6,7 +6,6 @@ Uses local Ollama for embeddings (free, private, no API costs)
 from celery import shared_task
 from celery.utils.log import get_task_logger
 from typing import List
-import json
 import asyncio
 from datetime import datetime
 
@@ -18,7 +17,7 @@ from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
 from models.document_duplicate import DocumentDuplicate, DuplicateStatus
 from models.document_hint import DocumentHint
 from utils.embeddings import embeddings_service
-from utils.storage import get_storage_backend
+from utils.text_extraction import extract_text_from_storage
 from sqlalchemy.orm import Session
 
 logger = get_task_logger(__name__)
@@ -76,8 +75,8 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         
         logger.info(f"Starting embedding job for document {document_id}")
         
-        # Step 1: Extract text (assuming already done during upload, fetch from storage)
-        text = _run_async(_extract_text(document, db))
+        # Step 1: Extract text from storage
+        text = _run_async(extract_text_from_storage(document))
         if not text:
             raise ValueError(f"No extractable text found in document {document_id}")
         
@@ -89,7 +88,7 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         logger.info(f"Created {len(chunks)} chunks for document {document_id}")
         
         # Step 3: Generate embeddings for all chunks
-        embeddings = _run_async(embeddings_service.generate_batch_embeddings(chunks))
+        embeddings = embeddings_service.generate_batch_embeddings(chunks)
         
         # Step 4: Store chunks and embeddings in database
         chunk_embeddings = []
@@ -173,18 +172,6 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
     
     finally:
         db.close()
-
-
-async def _extract_text(document: Document, db: Session) -> str:
-    """Extract text from document (stub - implement based on file type)"""
-    # This is a placeholder - real implementation would:
-    # 1. Download from storage (S3/MinIO)
-    # 2. Parse based on mime_type (PDF, DOCX, TXT, etc.)
-    # 3. Return extracted text
-    
-    logger.info(f"Would extract text from {document.filename}")
-    # For now, return empty - this will be implemented separately
-    return ""
 
 
 def _chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str]:

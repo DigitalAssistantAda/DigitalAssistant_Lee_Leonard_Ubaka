@@ -16,7 +16,7 @@ from models.document_hint import DocumentHint
 from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
 from utils.embeddings import embeddings_service
 
-router = APIRouter(prefix="/api/v1/embeddings", tags=["Embeddings & AI Features"])
+router = APIRouter(prefix="/embeddings", tags=["Embeddings & AI Features"])
 
 
 # ============= Pydantic Models =============
@@ -85,7 +85,7 @@ async def check_duplicate(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    require_workspace_access(doc.workspace_id, current_user, db)
+    check_workspace_access(current_user, doc.workspace_id, db)
     
     try:
         # Check for existing duplicate record
@@ -135,7 +135,7 @@ async def get_document_hints(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    require_workspace_access(doc.workspace_id, current_user, db)
+    check_workspace_access(current_user, doc.workspace_id, db)
     
     hints = db.query(DocumentHint).filter(
         DocumentHint.document_id == document_id,
@@ -160,7 +160,7 @@ async def acknowledge_hint(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    require_workspace_access(doc.workspace_id, current_user, db)
+    check_workspace_access(current_user, doc.workspace_id, db)
     
     hint = db.query(DocumentHint).filter(
         DocumentHint.id == hint_id,
@@ -192,7 +192,7 @@ async def dismiss_hint(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    require_workspace_access(doc.workspace_id, current_user, db)
+    check_workspace_access(current_user, doc.workspace_id, db)
     
     hint = db.query(DocumentHint).filter(
         DocumentHint.id == hint_id,
@@ -223,7 +223,7 @@ async def get_embedding_job_status(
     # Check workspace access via document
     from models.document import Document
     doc = db.query(Document).filter(Document.id == job.document_id).first()
-    require_workspace_access(doc.workspace_id, current_user, db)
+    check_workspace_access(current_user, doc.workspace_id, db)
     
     return job
 
@@ -252,7 +252,7 @@ async def find_similar_documents(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    require_workspace_access(doc.workspace_id, current_user, db)
+    check_workspace_access(current_user, doc.workspace_id, db)
     
     # Get first embedding from document
     first_chunk = db.query(DocumentChunk).filter(
@@ -321,7 +321,7 @@ async def get_document_embedding_job(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     
-    require_workspace_access(doc.workspace_id, current_user, db)
+    check_workspace_access(current_user, doc.workspace_id, db)
     
     job = db.query(EmbeddingJob).filter(
         EmbeddingJob.document_id == document_id

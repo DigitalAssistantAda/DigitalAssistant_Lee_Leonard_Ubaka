@@ -14,6 +14,16 @@ Steps
 	- Run: docker compose up --build
 3. Open the app:
 	- http://localhost:3000
+4. Open n8n:
+	- http://localhost:5678
+	- Default credentials: N8N_BASIC_AUTH_USER / N8N_BASIC_AUTH_PASSWORD (defaults: n8n / n8n)
 
 Notes
 - If storage is not configured in backend/.env, file upload will fail.
+- To trigger embeddings via n8n, set these in backend/.env:
+	- N8N_EMBEDDINGS_TRIGGER_URL=http://localhost:5678/webhook/<your-trigger-id>
+	- N8N_WEBHOOK_SECRET=<shared-secret-for-backend-webhook>
+- Configure your n8n workflow to call:
+	- POST http://backend:8000/api/v1/webhooks/embeddings/process
+	- Header: X-Webhook-Secret: <N8N_WEBHOOK_SECRET>
+	- Body: {"document_id": <id>, "workspace_id": <id>, "triggered_by": <user_id>}

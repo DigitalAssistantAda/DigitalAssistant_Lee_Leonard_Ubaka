@@ -1,6 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
+import os
+import re
+import uuid
+import logging
+import requests
+from starlette.concurrency import run_in_threadpool
 from database import get_db
 from models.user import User
 from models.document import Document, DocumentStatus
@@ -26,6 +32,8 @@ from tasks.embeddings import process_document_embeddings
 
 router = APIRouter(tags=["Documents"])
 
+logger = logging.getLogger(__name__)
+
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 ALLOWED_MIME_TYPES = [
     "application/pdf",
@@ -33,6 +41,39 @@ ALLOWED_MIME_TYPES = [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/msword",
 ]
+
+
+def _sanitize_filename(filename: str) -> str:
+    base = os.path.basename(filename or "upload")
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", base)
+    return safe or "upload"
+
+
+def _parse_storage_uri(storage_uri: str) -> tuple[str, str]:
+    try:
+        scheme_split = storage_uri.split("://", 1)
+        path_part = scheme_split[1] if len(scheme_split) == 2 else scheme_split[0]
+        bucket, path = path_part.split("/", 1)
+        return bucket, path
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid storage URI for document"
+        )
+
+
+def _post_n8n_embedding_trigger(payload: dict) -> None:
+    if not settings.n8n_embeddings_trigger_url:
+        return
+    response = requests.post(
+        settings.n8n_embeddings_trigger_url,
+        json=payload,
+        timeout=10
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"n8n trigger failed with {response.status_code}: {response.text}"
+        )
 
 
 @router.post("/workspaces/{workspace_id}/documents", response_model=DocumentResponse)
@@ -72,7 +113,9 @@ async def upload_document(
         )
     
     # Upload to storage (S3/MinIO)
-    storage_path = f"workspaces/{workspace_id}/documents/{file.filename}"
+    safe_name = _sanitize_filename(file.filename)
+    unique_name = f"{uuid.uuid4().hex}_{safe_name}"
+    storage_path = f"workspaces/{workspace_id}/documents/{unique_name}"
     try:
         storage_uri = await storage.upload(
             bucket=settings.storage_bucket,
@@ -97,7 +140,17 @@ async def upload_document(
         status=DocumentStatus.UPLOADED
     )
     db.add(document)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        try:
+            await storage.delete(bucket=settings.storage_bucket, path=storage_path)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save document metadata"
+        )
     db.refresh(document)
     
     # Log the upload action
@@ -114,9 +167,22 @@ async def upload_document(
         },
         workspace_id=workspace_id
     )
-    
-    # Trigger embedding job asynchronously
-    process_document_embeddings.delay(document.id, current_user.id)
+
+    # Trigger embedding workflow
+    if settings.n8n_embeddings_trigger_url:
+        try:
+            await run_in_threadpool(
+                _post_n8n_embedding_trigger,
+                {
+                    "document_id": document.id,
+                    "workspace_id": workspace_id,
+                    "triggered_by": current_user.id,
+                },
+            )
+        except Exception as exc:
+            logger.warning("n8n embedding trigger failed: %s", exc)
+    else:
+        process_document_embeddings.delay(document.id, current_user.id)
     
     return DocumentResponse.model_validate(document)
 
@@ -137,7 +203,8 @@ async def list_documents(
     
     # Get documents - filtered by workspace
     documents = db.query(Document).filter(
-        Document.workspace_id == workspace_id
+        Document.workspace_id == workspace_id,
+        Document.status != DocumentStatus.DELETED
     ).order_by(Document.created_at.desc()).all()
     
     return DocumentListResponse(
@@ -153,7 +220,9 @@ async def get_document(
 ):
     """Retrieves document metadata"""
     
-    document = check_document_access(document_id, current_user, db)
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return DocumentResponse.model_validate(document)
 
 
@@ -166,7 +235,9 @@ async def update_document(
 ):
     """Updates document metadata"""
     
-    document = check_document_access(document_id, current_user, db)
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
     old_filename = document.filename
     if request.filename:
@@ -201,7 +272,9 @@ async def download_document(
 ):
     """Downloads a document or returns a pre-signed URL"""
     
-    document = check_document_access(document_id, current_user, db)
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
     # Log the download action
     create_audit_log(
@@ -236,7 +309,9 @@ async def delete_document(
 ):
     """Deletes a document (soft delete via status change)"""
     
-    document = check_document_access(document_id, current_user, db)
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        return SuccessResponse()
     
     # Get document details for audit log before deletion
     workspace_id = document.workspace_id
@@ -245,6 +320,14 @@ async def delete_document(
     # Soft delete: mark as deleted instead of hard delete
     document.status = DocumentStatus.DELETED
     db.commit()
+    bucket, path = _parse_storage_uri(document.storage_uri)
+    try:
+        await storage.delete(bucket=bucket, path=path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete document from storage: {str(e)}"
+        )
     
     # Log the deletion action with structured metadata
     create_audit_log(

@@ -31,6 +31,25 @@ services:
       timeout: 5s
       retries: 5
 
+  n8n:
+    image: n8nio/n8n:1.59.1
+    container_name: digitalassistant-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678
+      - N8N_EDITOR_BASE_URL=http://localhost:5678
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-n8n}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-n8n}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - app-network
+
   backend:
     build:
       context: ./backend
@@ -97,3 +116,4 @@ networks:
 
 volumes:
   postgres_data:
+  n8n_data:

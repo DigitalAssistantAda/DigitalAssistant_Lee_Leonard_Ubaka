@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     voyage_api_key: str = os.getenv("VOYAGE_API_KEY", "")
     voyage_model: str = os.getenv("VOYAGE_MODEL", "voyage-2")  # Or "voyage-large-2-instruct"
     embedding_dimensions: int = 1024  # voyage-2 uses 1024 dims
+
+    # n8n Integration
+    n8n_embeddings_trigger_url: str = os.getenv("N8N_EMBEDDINGS_TRIGGER_URL", "")
+    n8n_webhook_secret: str = os.getenv("N8N_WEBHOOK_SECRET", "")
     
     class Config:
         env_file = ".env"

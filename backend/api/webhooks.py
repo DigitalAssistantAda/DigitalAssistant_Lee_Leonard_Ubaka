@@ -2,12 +2,14 @@
 n8n Integration Endpoints
 Allows n8n workflows to interact with Ada's embedding and document processing system
 """
-from fastapi import APIRouter, HTTPException, Header, status
+from fastapi import APIRouter, HTTPException, Header, status, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
 from tasks.embeddings import process_document_embeddings
+from config import settings
+from models.document import Document
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["n8n Integration"])
 
@@ -34,6 +36,7 @@ class WebhookResponse(BaseModel):
 async def trigger_embedding_webhook(
     request: EmbeddingWebhookRequest,
     x_webhook_secret: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
 ):
     """
     Webhook endpoint for n8n to trigger document embedding jobs
@@ -53,9 +56,16 @@ async def trigger_embedding_webhook(
         Celery task ID for tracking job progress
     """
     
-    # Optional: Validate webhook secret if configured
-    # if x_webhook_secret != settings.n8n_webhook_secret:
-    #     raise HTTPException(status_code=403, detail="Invalid webhook secret")
+    # Validate webhook secret if configured
+    if settings.n8n_webhook_secret and x_webhook_secret != settings.n8n_webhook_secret:
+        raise HTTPException(status_code=403, detail="Invalid webhook secret")
+
+    document = db.query(Document).filter(Document.id == request.document_id).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if document.workspace_id != request.workspace_id:
+        raise HTTPException(status_code=400, detail="Workspace mismatch for document")
     
     try:
         # Trigger async embedding task

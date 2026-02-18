@@ -28,7 +28,6 @@ function Documents() {
   const fileInputRef = useRef(null);
   const [uploadFiles, setUploadFiles] = useState([]); // Changed from uploadFile to uploadFiles (array)
   const [uploadProgress, setUploadProgress] = useState({}); // Track progress per file
-  const [dragOver, setDragOver] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -156,25 +155,25 @@ function Documents() {
 const handleDragEnter = (e) => {
   e.preventDefault();
   e.stopPropagation();
-  setDragOver(true);
+  setIsDragging(true);
 };
 
 const handleDragLeave = (e) => {
   e.preventDefault();
   e.stopPropagation();
-  setDragOver(false);
+  setIsDragging(false);
 };
 
 const handleDragOver = (e) => {
   e.preventDefault();
   e.stopPropagation();
-  setDragOver(true); // Keep drag-over state active
+  setIsDragging(true);
 };
 
 const handleDrop = (e) => {
   e.preventDefault();
   e.stopPropagation();
-  setDragOver(false);
+  setIsDragging(false);
 
   const items = e.dataTransfer.items;
   const files = [];
@@ -193,7 +192,14 @@ const handleDrop = (e) => {
     }
   }
 
-  setUploadFiles(files); // Set multiple files instead of single file
+  const combined = [...uploadFiles, ...files];
+  if (combined.length > 5) {
+    setError('You can only upload a maximum of 5 documents at once');
+    setUploadFiles(combined.slice(0, 5));
+  } else {
+    setError(null);
+    setUploadFiles(combined);
+  }
 };
 
 const handleFileInputClick = () => {
@@ -940,11 +946,9 @@ const handleCreateContainer = async (e) => {
                       }
                     }}
                     accept=".pdf,.txt,.docx,.doc"
-                    webkitdirectory=""
-                    mozdirectory=""
                     multiple
                     style={{ display: 'none' }}
-                    required
+                    required={uploadFiles.length === 0}
                   />
                 </div>
                 {uploadFiles.length > 0 && (

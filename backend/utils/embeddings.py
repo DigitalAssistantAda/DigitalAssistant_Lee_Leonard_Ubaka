@@ -165,12 +165,12 @@ class EmbeddingsService:
             stmt = text("""
                 SELECT 
                     dc.document_id,
-                    1 - (ce.embedding <=> CAST(:query_embedding AS vector)) as similarity
+                    1 - (CAST(ce.embedding AS vector) <=> CAST(:query_embedding AS vector)) as similarity
                 FROM chunk_embeddings ce
                 JOIN document_chunks dc ON ce.chunk_id = dc.id
                 JOIN documents d ON dc.document_id = d.id
                 WHERE d.workspace_id = :workspace_id
-                    AND 1 - (ce.embedding <=> CAST(:query_embedding AS vector)) > :threshold
+                    AND 1 - (CAST(ce.embedding AS vector) <=> CAST(:query_embedding AS vector)) > :threshold
                     AND ce.model_name = :model_name
                 ORDER BY similarity DESC
                 LIMIT :limit

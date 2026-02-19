@@ -3,7 +3,6 @@ Celery tasks for embeddings and document processing
 Handles async embedding generation, deduplication, and AI hint generation
 Uses local Ollama for embeddings (free, private, no API costs)
 """
-from celery import shared_task
 from celery.utils.log import get_task_logger
 from typing import List
 import asyncio
@@ -19,6 +18,7 @@ from models.document_hint import DocumentHint
 from utils.embeddings import embeddings_service
 from utils.text_extraction import extract_text_from_storage
 from sqlalchemy.orm import Session
+from celery_app import celery_app
 
 logger = get_task_logger(__name__)
 
@@ -38,7 +38,7 @@ def _run_async(coro):
     return loop.run_until_complete(coro)
 
 
-@shared_task(bind=True, max_retries=3)
+@celery_app.task(bind=True, max_retries=3)
 def process_document_embeddings(self, document_id: int, triggered_by_user_id: int = None) -> dict:
     """
     Main task: Extract text from document, chunk it, and generate embeddings

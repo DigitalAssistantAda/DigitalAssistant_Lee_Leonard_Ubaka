@@ -10,6 +10,13 @@ from starlette.concurrency import run_in_threadpool
 from database import get_db
 from models.user import User
 from models.document import Document, DocumentStatus
+from models.document_chunk import DocumentChunk
+from models.chunk_embedding import ChunkEmbedding
+from models.document_hint import DocumentHint
+from models.document_duplicate import DocumentDuplicate
+from models.summary import Summary
+from models.job import Job
+from models.embedding_job import EmbeddingJob
 from models.workspace import WorkspaceMember, MemberStatus
 from schemas.document import (
     DocumentResponse,
@@ -307,28 +314,67 @@ async def delete_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Deletes a document (soft delete via status change)"""
+    """Permanently deletes a document and associated data"""
     
     document = check_document_access(current_user, document_id, db)
-    if document.status == DocumentStatus.DELETED:
-        return SuccessResponse()
-    
+
     # Get document details for audit log before deletion
     workspace_id = document.workspace_id
     filename = document.filename
-    
-    # Soft delete: mark as deleted instead of hard delete
-    document.status = DocumentStatus.DELETED
-    db.commit()
+
     bucket, path = _parse_storage_uri(document.storage_uri)
+
     try:
+        chunk_ids = [row[0] for row in db.query(DocumentChunk.id).filter(
+            DocumentChunk.document_id == document_id
+        ).all()]
+
+        if chunk_ids:
+            db.query(ChunkEmbedding).filter(
+                ChunkEmbedding.chunk_id.in_(chunk_ids)
+            ).delete(synchronize_session=False)
+
+        db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document_id
+        ).delete(synchronize_session=False)
+
+        db.query(DocumentHint).filter(
+            DocumentHint.document_id == document_id
+        ).delete(synchronize_session=False)
+
+        db.query(Job).filter(
+            Job.document_id == document_id
+        ).delete(synchronize_session=False)
+
+        db.query(EmbeddingJob).filter(
+            EmbeddingJob.document_id == document_id
+        ).delete(synchronize_session=False)
+
+        db.query(Summary).filter(
+            Summary.document_id == document_id
+        ).update({Summary.document_id: None}, synchronize_session=False)
+
+        db.query(DocumentDuplicate).filter(
+            DocumentDuplicate.duplicate_of_id == document_id
+        ).update({DocumentDuplicate.duplicate_of_id: None}, synchronize_session=False)
+
+        db.query(DocumentDuplicate).filter(
+            DocumentDuplicate.document_id == document_id
+        ).delete(synchronize_session=False)
+
+        db.delete(document)
+        db.flush()
+
         await storage.delete(bucket=bucket, path=path)
+
+        db.commit()
     except Exception as e:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete document from storage: {str(e)}"
+            detail=f"Failed to permanently delete document: {str(e)}"
         )
-    
+
     # Log the deletion action with structured metadata
     create_audit_log(
         db,

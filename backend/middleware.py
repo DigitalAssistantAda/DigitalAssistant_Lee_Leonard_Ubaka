@@ -23,6 +23,7 @@ async def authorization_middleware(request: Request, call_next):
         "/api/v1/auth/login",
         "/api/v1/auth/register",
         "/api/v1/auth/callback",
+        "/api/v1/webhooks/embeddings/process",
         "/docs",
         "/openapi.json",
         "/favicon.ico",

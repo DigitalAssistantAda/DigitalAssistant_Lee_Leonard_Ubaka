@@ -79,6 +79,7 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         text = _run_async(extract_text_from_storage(document))
         if not text:
             raise ValueError(f"No extractable text found in document {document_id}")
+        logger.info(f"Extracted text for document {document_id} (chars={len(text)})")
         
         # Step 2: Chunk the text
         chunks = _chunk_text(text, chunk_size=500, overlap=100)
@@ -86,41 +87,62 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
             raise ValueError("Text chunking produced no chunks")
         
         logger.info(f"Created {len(chunks)} chunks for document {document_id}")
-        
-        # Step 3: Generate embeddings for all chunks
-        embeddings = embeddings_service.generate_batch_embeddings(chunks)
-        
-        # Step 4: Store chunks and embeddings in database
-        chunk_embeddings = []
-        for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
-            # Create chunk record
-            chunk = DocumentChunk(
-                document_id=document_id,
-                chunk_index=i,
-                text=chunk_text,
-                token_count=len(chunk_text.split())  # Rough estimate
-            )
-            db.add(chunk)
-            db.flush()  # Get chunk ID
-            
-            # Create embedding record
-            chunk_emb = ChunkEmbedding(
-                chunk_id=chunk.id,
-                model_name=embeddings_service.model_name,
-                embedding=embedding
-            )
-            db.add(chunk_emb)
-            chunk_embeddings.append(chunk_emb)
-        
+        job.total_chunks = len(chunks)
+        job.chunks_processed = 0
         db.commit()
         
-        logger.info(f"Stored {len(chunk_embeddings)} embeddings for document {document_id}")
+        # Step 3/4: Generate and store embeddings in batches
+        batch_size = 25
+        embeddings_generated = 0
+        first_embedding = None
+
+        for start_index in range(0, len(chunks), batch_size):
+            end_index = min(start_index + batch_size, len(chunks))
+            batch_chunks = chunks[start_index:end_index]
+            logger.info(
+                "Generating embeddings for document %s chunks %s-%s",
+                document_id,
+                start_index,
+                end_index - 1,
+            )
+
+            batch_embeddings = embeddings_service.generate_batch_embeddings(batch_chunks)
+
+            for offset, (chunk_text, embedding) in enumerate(zip(batch_chunks, batch_embeddings)):
+                chunk_index = start_index + offset
+
+                chunk = DocumentChunk(
+                    document_id=document_id,
+                    chunk_index=chunk_index,
+                    text=chunk_text,
+                    token_count=len(chunk_text.split())
+                )
+                db.add(chunk)
+                db.flush()
+
+                chunk_emb = ChunkEmbedding(
+                    chunk_id=chunk.id,
+                    model_name=embeddings_service.model_name,
+                    embedding=embedding
+                )
+                db.add(chunk_emb)
+
+                if first_embedding is None:
+                    first_embedding = embedding
+
+                embeddings_generated += 1
+
+            job.chunks_processed = embeddings_generated
+            db.commit()
+
+        logger.info(f"Stored {embeddings_generated} embeddings for document {document_id}")
         
         # Step 5: Check for duplicates
-        _run_async(_check_and_flag_duplicates(document, embeddings, db))
+        if first_embedding is not None:
+            _check_and_flag_duplicates(document, first_embedding, db)
         
         # Step 6: Generate AI hints/suggestions
-        _run_async(_generate_hints(document_id, chunks, db))
+        _generate_hints(document_id, chunks, db)
         
         # Update job status
         job.status = EmbeddingJobStatus.COMPLETE
@@ -139,11 +161,11 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
             "document_id": document_id,
             "status": "success",
             "chunks_processed": len(chunks),
-            "embeddings_generated": len(chunk_embeddings),
+            "embeddings_generated": embeddings_generated,
         }
     
     except Exception as e:
-        logger.error(f"Error processing document {document_id}: {str(e)}")
+        logger.exception(f"Error processing document {document_id}: {str(e)}")
         
         # Update job with error
         job = db.query(EmbeddingJob).filter(EmbeddingJob.document_id == document_id).first()
@@ -189,57 +211,70 @@ def _chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[st
     if not text:
         return []
     
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than 0")
+
+    if overlap < 0:
+        overlap = 0
+
+    if overlap >= chunk_size:
+        overlap = max(0, chunk_size // 5)
+
     chunks = []
     start = 0
-    
-    while start < len(text):
+    text_length = len(text)
+
+    while start < text_length:
         # Find end of chunk
-        end = min(start + chunk_size, len(text))
+        end = min(start + chunk_size, text_length)
         
         # If not at end of text, try to break at sentence boundary
-        if end < len(text):
+        if end < text_length:
             # Look for last period, comma, or newline
             for delimiter in ['. ', ', ', '\n']:
                 last_delim = text.rfind(delimiter, start, end)
                 if last_delim > start:
                     end = last_delim + len(delimiter)
                     break
-        
-        chunks.append(text[start:end].strip())
-        
-        # Move start position with overlap
-        start = end - overlap
+
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+
+        if end >= text_length:
+            break
+
+        next_start = end - overlap
+        if next_start <= start:
+            next_start = end
+        start = next_start
     
     return [chunk for chunk in chunks if chunk]  # Remove empty chunks
 
 
-async def _check_and_flag_duplicates(document: Document, embeddings: List[List[float]], db: Session) -> None:
+def _check_and_flag_duplicates(document: Document, first_embedding: List[float], db: Session) -> None:
     """Check new document against existing ones and flag duplicates"""
-    
-    # For each embedding, find similar documents
-    for embedding in embeddings[:1]:  # Just check first chunk for now
-        is_duplicate, dup_doc_id, similarity = await embeddings_service.check_duplicate(
-            embedding,
-            document.workspace_id,
-            similarity_threshold=0.95,
-            db=db
+    is_duplicate, dup_doc_id, similarity = embeddings_service.check_duplicate(
+        first_embedding,
+        document.workspace_id,
+        similarity_threshold=0.95,
+        db=db
+    )
+
+    if is_duplicate:
+        logger.warning(f"Document {document.id} is duplicate of {dup_doc_id} (similarity: {similarity})")
+
+        dup_record = DocumentDuplicate(
+            document_id=document.id,
+            duplicate_of_id=dup_doc_id,
+            similarity_score=similarity,
+            status=DuplicateStatus.FLAGGED
         )
-        
-        if is_duplicate:
-            logger.warning(f"Document {document.id} is duplicate of {dup_doc_id} (similarity: {similarity})")
-            
-            # Create duplicate record
-            dup_record = DocumentDuplicate(
-                document_id=document.id,
-                duplicate_of_id=dup_doc_id,
-                similarity_score=similarity,
-                status=DuplicateStatus.FLAGGED
-            )
-            db.add(dup_record)
-            db.commit()
+        db.add(dup_record)
+        db.commit()
 
 
-async def _generate_hints(document_id: int, chunks: List[str], db: Session) -> None:
+def _generate_hints(document_id: int, chunks: List[str], db: Session) -> None:
     """Generate AI hints based on document content (stub)"""
     
     # This is a placeholder - would use LLM to analyze chunks

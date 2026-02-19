@@ -89,7 +89,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A celery_app worker --loglevel=info --pool=solo --concurrency=1
+    command: celery -A celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=20
 
   frontend:
     build:

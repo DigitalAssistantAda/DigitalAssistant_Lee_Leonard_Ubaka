@@ -381,6 +381,14 @@ function App() {
             element={user ? <Documents /> : <Navigate to="/login" />} 
           />
           <Route 
+            path="/documents/:containerId" 
+            element={user ? <Documents /> : <Navigate to="/login" />} 
+          />
+          <Route 
+            path="/documents/:containerId/:documentId" 
+            element={user ? <Documents /> : <Navigate to="/login" />} 
+          />
+          <Route 
             path="/search" 
             element={user ? <Search /> : <Navigate to="/login" />} 
           />

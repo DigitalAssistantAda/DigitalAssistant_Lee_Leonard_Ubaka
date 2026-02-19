@@ -271,7 +271,7 @@ async def find_similar_documents(
         raise HTTPException(status_code=400, detail="Document has no embeddings")
     
     try:
-        similar_docs = await embeddings_service.find_similar_embeddings(
+        similar_docs = embeddings_service.find_similar_embeddings(
             embedding.embedding,
             doc.workspace_id,
             limit=limit + 1,  # +1 to exclude the document itself

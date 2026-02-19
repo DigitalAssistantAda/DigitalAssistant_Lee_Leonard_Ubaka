@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, MoreVertical } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 import './Documents.css';
 
 function Documents() {
+  const navigate = useNavigate();
+  const { containerId: containerIdParam } = useParams();
   const [documents, setDocuments] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
+  const [dbContainers, setDbContainers] = useState([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -22,6 +26,7 @@ function Documents() {
   const [selectedDocuments, setSelectedDocuments] = useState(new Set());
   const [openedFolder, setOpenedFolder] = useState(null);
   const [folderDocuments, setFolderDocuments] = useState([]);
+  const [folderSearchQuery, setFolderSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('lastOpened');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -30,16 +35,22 @@ function Documents() {
   const [uploadProgress, setUploadProgress] = useState({}); // Track progress per file
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-  useEffect(() => {
-    fetchWorkspaces();
+  const currentUserId = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const id = parsed?.id ?? parsed?.user_id ?? null;
+      return id == null ? null : Number(id);
+    } catch {
+      return null;
+    }
   }, []);
 
   useEffect(() => {
-    if (selectedWorkspace) {
-      fetchDocuments();
-    }
-  }, [selectedWorkspace]);
+    fetchWorkspaces();
+    fetchContainers();
+  }, []);
 
     // Add this useEffect after your other useEffect hooks
   useEffect(() => {
@@ -47,7 +58,14 @@ function Documents() {
     const savedContainers = localStorage.getItem('createdContainers');
     if (savedContainers) {
       try {
-        setCreatedContainers(JSON.parse(savedContainers));
+        const parsed = JSON.parse(savedContainers);
+        const normalized = Array.isArray(parsed)
+          ? parsed.map((container) => ({
+              ...container,
+              type: container?.type || 'user',
+            }))
+          : [];
+        setCreatedContainers(normalized);
       } catch (err) {
         console.error('Error loading saved containers:', err);
       }
@@ -65,7 +83,7 @@ function Documents() {
         const data = await response.json();
         const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
         setWorkspaces(items);
-        if (items.length > 0 && !selectedWorkspace) {
+        if (!containerIdParam && items.length > 0 && !selectedWorkspace) {
           setSelectedWorkspace(items[0].id);
         }
       }
@@ -75,21 +93,34 @@ function Documents() {
     }
   };
 
+  const fetchContainers = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/v1/containers`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) throw new Error('Failed to load containers');
+
+      const data = await response.json();
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      const normalized = items.map((container) => ({
+        ...container,
+        type: container?.type || null,
+      }));
+      setDbContainers(normalized);
+    } catch (err) {
+      setError(err.message || 'Failed to load containers');
+    }
+  };
+
   const fetchDocuments = async () => {
     if (!selectedWorkspace) return;
     setLoading(true);
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/workspaces/${selectedWorkspace}/documents`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch documents');
-
-      const data = await response.json();
-      const items = Array.isArray(data?.documents) ? data.documents : Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      const items = await fetchDocumentsForWorkspace(selectedWorkspace);
       setDocuments(items);
       setSelectedDocuments(new Set());
     } catch (err) {
@@ -100,9 +131,46 @@ function Documents() {
     }
   };
 
+  const fetchDocumentsForWorkspace = async (workspaceId) => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/documents`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) throw new Error('Failed to fetch documents');
+
+    const data = await response.json();
+    return Array.isArray(data?.documents)
+      ? data.documents
+      : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data)
+      ? data
+      : [];
+  };
+
+  const fetchDocumentsForContainer = async (containerId) => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_URL}/api/v1/containers/${containerId}/documents`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) throw new Error('Failed to fetch container documents');
+
+    const data = await response.json();
+    return Array.isArray(data?.documents)
+      ? data.documents
+      : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data)
+      ? data
+      : [];
+  };
+
   const handleFileUpload = async (e) => {
   e.preventDefault();
-  if (uploadFiles.length === 0 || !selectedWorkspace) return;
+  const targetWorkspaceId = openedFolder?.workspace_id || selectedWorkspace;
+  if (uploadFiles.length === 0 || !targetWorkspaceId) return;
 
   setUploading(true);
   setError(null);
@@ -113,9 +181,12 @@ function Documents() {
       try {
         const formData = new FormData();
         formData.append('file', file);
+        if (openedFolder?.id) {
+          formData.append('container_id', String(openedFolder.id));
+        }
 
         const response = await fetch(
-          `${API_URL}/api/v1/workspaces/${selectedWorkspace}/documents`,
+          `${API_URL}/api/v1/workspaces/${targetWorkspaceId}/documents`,
           {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },
@@ -146,18 +217,10 @@ function Documents() {
     setTimeout(() => setSuccessMessage(null), 3000);
     
     // Only refresh the folder view if the user has it open
-    if (openedFolder && openedFolder.id === selectedWorkspace) {
-      // Re-fetch documents and filter for the opened folder
-      const token = localStorage.getItem('token');
+    if (openedFolder?.id) {
       try {
-        const response = await fetch(`${API_URL}/api/v1/workspaces/${selectedWorkspace}/documents`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const items = Array.isArray(data?.documents) ? data.documents : Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-          setFolderDocuments(items);
-        }
+        const items = await fetchDocumentsForContainer(openedFolder.id);
+        setFolderDocuments(items);
       } catch (err) {
         console.error('Error refreshing folder:', err);
       }
@@ -233,10 +296,8 @@ const handleCreateContainer = async (e) => {
     return;
   }
 
-  // Build the endpoint URL
-  const createUrl = selectedWorkspace
-    ? `${API_URL}/api/v1/workspaces/${selectedWorkspace}/containers`
-    : `${API_URL}/api/v1/containers`;
+  const createUrl = `${API_URL}/api/v1/containers`;
+  const scopedWorkspaceId = openedFolder?.workspace_id || null;
 
   try {
     const token = localStorage.getItem('token');
@@ -246,7 +307,11 @@ const handleCreateContainer = async (e) => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ name: containerName, color: containerColor }),
+      body: JSON.stringify({
+        name: containerName,
+        color: containerColor,
+        workspace_id: scopedWorkspaceId ? Number(scopedWorkspaceId) : null,
+      }),
     });
 
     let created = null;
@@ -268,12 +333,23 @@ const handleCreateContainer = async (e) => {
     }
 
     if (created && created.id) {
-      const newContainer = { id: created.id, name: created.name || containerName, color: created.color || containerColor };
+      const rawType = String(created?.type || created?.owner_type || created?.created_by_type || 'user').toLowerCase();
+      const normalizedType = rawType.includes('ai') ? 'ai' : rawType.includes('workspace') ? 'workspace' : 'user';
+      const newContainer = {
+        id: created.id,
+        name: created.name || containerName,
+        color: created.color || containerColor,
+        workspace_id: created.workspace_id ?? (scopedWorkspaceId ? Number(scopedWorkspaceId) : null),
+        created_by: created.created_by,
+        created_at: created.created_at,
+        type: normalizedType,
+      };
+      setDbContainers(prev => [...prev, newContainer]);
       setCreatedContainers(prev => [...prev, newContainer]);
       // Save to localStorage
       localStorage.setItem('createdContainers', JSON.stringify([...createdContainers, newContainer]));
     } else {
-      const placeholder = { id: `local-${Date.now()}`, name: containerName, color: containerColor };
+      const placeholder = { id: `local-${Date.now()}`, name: containerName, color: containerColor, type: 'user' };
       setCreatedContainers(prev => [...prev, placeholder]);
       // Save to localStorage
       localStorage.setItem('createdContainers', JSON.stringify([...createdContainers, placeholder]));
@@ -361,16 +437,26 @@ const handleCreateContainer = async (e) => {
 
   // Open folder and load actual documents for this workspace
   const handleFolderDoubleClick = (folder) => {
-    setOpenedFolder(folder);
-    // Filter real documents from the documents state that match this workspace
-    const workspaceDocs = documents.filter(doc => doc.workspace_id === folder.id);
-    setFolderDocuments(workspaceDocs);
+    navigate(`/documents/${folder.id}`);
   };
 
   const handleBackFromFolder = () => {
     setOpenedFolder(null);
     setFolderDocuments([]);
+    setFolderSearchQuery('');
+    setSelectedDocuments(new Set());
     setSortBy('lastOpened');
+    navigate('/documents');
+  };
+
+  const handleWorkspaceSelect = (value) => {
+    const nextWorkspaceId = Number(value);
+    if (!Number.isFinite(nextWorkspaceId) || nextWorkspaceId <= 0) {
+      setSelectedWorkspace('');
+      return;
+    }
+
+    setSelectedWorkspace(nextWorkspaceId);
   };
 
   // ADD THESE TWO FUNCTIONS HERE:
@@ -450,23 +536,31 @@ const handleCreateContainer = async (e) => {
     if (!openedFolder) return;
     setOpenedFolder((prev) => (prev ? { ...prev, color: nextColor } : prev));
 
-    if (isUserCreatedContainer(openedFolder.id)) {
-      setCreatedContainers((prev) => {
-        const updated = prev.map((container) =>
-          container.id === openedFolder.id ? { ...container, color: nextColor } : container
-        );
-        localStorage.setItem('createdContainers', JSON.stringify(updated));
-        return updated;
-      });
-    } else {
-      setWorkspaces((prev) =>
-        prev.map((ws) => (ws.id === openedFolder.id ? { ...ws, color: nextColor } : ws))
+    setDbContainers((prev) =>
+      prev.map((container) =>
+        Number(container.id) === Number(openedFolder.id)
+          ? { ...container, color: nextColor }
+          : container
+      )
+    );
+
+    setCreatedContainers((prev) => {
+      const updated = prev.map((container) =>
+        Number(container.id) === Number(openedFolder.id)
+          ? { ...container, color: nextColor }
+          : container
       );
-    }
+      localStorage.setItem('createdContainers', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const sortedFolderDocuments = useMemo(() => {
-    let sorted = [...folderDocuments];
+    const normalizedQuery = folderSearchQuery.trim().toLowerCase();
+    let sorted = folderDocuments.filter((document) => {
+      const filename = String(document?.filename || '').toLowerCase();
+      return !normalizedQuery || filename.includes(normalizedQuery);
+    });
     switch (sortBy) {
       case 'name':
         sorted.sort((a, b) => a.filename.localeCompare(b.filename));
@@ -485,7 +579,7 @@ const handleCreateContainer = async (e) => {
         break;
     }
     return sorted;
-  }, [folderDocuments, sortBy]);
+  }, [folderDocuments, sortBy, folderSearchQuery]);
 
 
     // Otherwise call backend delete endpoint. Use workspace-scoped path if selectedWorkspace is set
@@ -500,20 +594,19 @@ const handleCreateContainer = async (e) => {
       return;
     }
 
-    // Check if this container is in createdContainers (personal container)
-    const isPersonalContainer = createdContainers.some(c => c.id === containerId);
+    const container = dbContainers.find((entry) => Number(entry.id) === Number(containerId));
 
     const token = localStorage.getItem('token');
     
     // Build delete URL based on container type
     let deleteUrl;
-    if (isPersonalContainer) {
+    if (!container?.workspace_id) {
       // Personal container - delete from general endpoint
       deleteUrl = `${API_URL}/api/v1/containers/${containerId}`;
     } else {
       // Workspace container - delete from workspace-scoped endpoint
-      deleteUrl = selectedWorkspace
-        ? `${API_URL}/api/v1/workspaces/${selectedWorkspace}/containers/${containerId}`
+      deleteUrl = container.workspace_id
+        ? `${API_URL}/api/v1/workspaces/${container.workspace_id}/containers/${containerId}`
         : `${API_URL}/api/v1/containers/${containerId}`;
     }
 
@@ -536,6 +629,7 @@ const handleCreateContainer = async (e) => {
 
       // Remove from local created containers if present
       setCreatedContainers(prev => prev.filter(c => c.id !== containerId));
+      setDbContainers(prev => prev.filter(c => Number(c.id) !== Number(containerId)));
       setSuccessMessage('Container deleted');
       setTimeout(() => setSuccessMessage(null), 2500);
     } catch (err) {
@@ -591,20 +685,12 @@ const handleCreateContainer = async (e) => {
   const containers = useMemo(() => {
     const palette = ['#93c5fd','#fda4af','#f59e0b','#a78bfa','#f472b6','#60a5fa','#34d399','#fbd38d'];
 
-    let all = [];
-    
-    // Add workspace containers from API
-    if (Array.isArray(workspaces) && workspaces.length > 0) {
-      all = workspaces.map((ws, idx) => ({
-        id: ws.id,
-        name: ws.name || 'Workspace',
-        color: ws.color || palette[idx % palette.length],
-        type: 'workspace'
-      }));
-    }
-
-    return all;
-  }, [workspaces]);
+    return (Array.isArray(dbContainers) ? dbContainers : []).map((container, idx) => ({
+      ...container,
+      color: container.color || palette[idx % palette.length],
+      type: container.type || (container.workspace_id ? 'workspace' : 'user'),
+    }));
+  }, [dbContainers]);
 
   const hexToRgba = (hex, alpha) => {
     const h = hex.replace('#','');
@@ -616,13 +702,116 @@ const handleCreateContainer = async (e) => {
   };
 
   const displayedContainers = useMemo(() => {
-    // show existing workspace containers first, then user-created containers
-    return [...containers, ...createdContainers];
+    const localOnly = createdContainers.filter((container) => typeof container.id === 'string' && container.id.startsWith('local-'));
+    return [...containers, ...localOnly];
   }, [containers, createdContainers]);
+
+  const filteredDisplayedContainers = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    const isWorkspaceDefaultContainer = (container) => {
+      if (!container?.workspace_id) return false;
+      const workspace = workspaces.find((item) => Number(item.id) === Number(container.workspace_id));
+      if (!workspace) return false;
+      return String(container?.name || '').trim().toLowerCase() === String(workspace?.name || '').trim().toLowerCase();
+    };
+
+    const getOwnershipType = (container) => {
+      const rawType = String(container?.type || '').toLowerCase();
+      if (rawType.includes('ai')) return 'ai';
+      if (isWorkspaceDefaultContainer(container)) return 'workspace';
+      if (currentUserId != null && Number(container?.created_by) === Number(currentUserId)) return 'user';
+      return 'workspace';
+    };
+
+    return displayedContainers.filter((container) => {
+      const type = getOwnershipType(container);
+      const name = String(container?.name || '').toLowerCase();
+
+      const matchesOwner =
+        ownerFilter === 'all' ||
+        (ownerFilter === 'workspace' && type === 'workspace') ||
+        (ownerFilter === 'user' && type === 'user') ||
+        (ownerFilter === 'ai' && type === 'ai');
+
+      const matchesSearch = !normalizedQuery || name.includes(normalizedQuery);
+
+      return matchesOwner && matchesSearch;
+    });
+  }, [displayedContainers, ownerFilter, searchQuery, currentUserId, workspaces]);
+
+  useEffect(() => {
+    if (!containerIdParam) {
+      setOpenedFolder(null);
+      setFolderDocuments([]);
+      return;
+    }
+
+    const parsedContainerId = Number(containerIdParam);
+    if (!Number.isFinite(parsedContainerId) || parsedContainerId <= 0) {
+      return;
+    }
+
+    const routeContainer = displayedContainers.find(
+      (container) => Number(container.id) === parsedContainerId
+    );
+
+    if (!routeContainer) {
+      return;
+    }
+
+    setOpenedFolder(routeContainer);
+    setSelectedWorkspace(routeContainer.workspace_id || '');
+    setSelectedDocuments(new Set());
+    setError(null);
+
+    let isMounted = true;
+    fetchDocumentsForContainer(parsedContainerId)
+      .then((containerDocs) => {
+        if (isMounted) {
+          setFolderDocuments(containerDocs);
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setError(err.message || 'Failed to load folder documents');
+          setFolderDocuments([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [containerIdParam, displayedContainers]);
 
   // Helper function to check if a container is user-created
   const isUserCreatedContainer = (containerId) => {
-    return createdContainers.some(c => c.id === containerId);
+    return displayedContainers.some((container) => {
+      const sameId = String(container.id) === String(containerId);
+      const workspace = workspaces.find((item) => Number(item.id) === Number(container.workspace_id));
+      const isWorkspaceDefault =
+        container?.workspace_id &&
+        workspace &&
+        String(container?.name || '').trim().toLowerCase() === String(workspace?.name || '').trim().toLowerCase();
+      const isOwnedByCurrentUser =
+        currentUserId != null && Number(container?.created_by) === Number(currentUserId);
+      return sameId && isOwnedByCurrentUser && !isWorkspaceDefault;
+    });
+  };
+
+  const getContainerCreatorLabel = (container) => {
+    const rawType = String(container?.type || '').toLowerCase();
+    const workspace = workspaces.find((item) => Number(item.id) === Number(container.workspace_id));
+    const isWorkspaceDefault =
+      container?.workspace_id &&
+      workspace &&
+      String(container?.name || '').trim().toLowerCase() === String(workspace?.name || '').trim().toLowerCase();
+    if (rawType.includes('ai')) return 'Created by AI';
+    if (isWorkspaceDefault) return 'Belongs to workspace';
+    if (currentUserId != null && Number(container?.created_by) === Number(currentUserId)) {
+      return 'Created by you';
+    }
+    return 'Belongs to workspace';
   };
 
   // Preset colors used in the pick list
@@ -645,23 +834,34 @@ const handleCreateContainer = async (e) => {
             >
               Back
             </button>
-            <div className="folder-header-icon" style={{ background: openedFolder.color }}>
+            <div
+              className="folder-header-icon folder-color-trigger"
+              style={{ background: openedFolder.color }}
+              role="button"
+              tabIndex={0}
+              title="Change folder color"
+              aria-label="Change folder color"
+              onClick={() => colorInputRef.current?.click()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  colorInputRef.current?.click();
+                }
+              }}
+            >
               <Folder size={28} />
-            </div>
-            <h1 className="folder-title">{openedFolder.name}</h1>
-          </div>
-          <div className="folder-header-actions">
-            <label className="folder-color-control">
-              <span>Color</span>
               <input
                 ref={colorInputRef}
                 type="color"
                 value={openedFolder.color}
                 onChange={(e) => handleFolderColorChange(e.target.value)}
-                className="folder-color-input"
+                className="folder-color-input-hidden"
                 aria-label="Pick folder color"
               />
-            </label>
+            </div>
+            <h1 className="folder-title">{openedFolder.name}</h1>
+          </div>
+          <div className="folder-header-actions">
             {isUserCreatedContainer(openedFolder.id) && (
               <button
                 type="button"
@@ -692,9 +892,8 @@ const handleCreateContainer = async (e) => {
 
         {/* Folder Content */}
         <div className="folder-content">
-                    <div className="folder-top-toolbar">
-            {selectedDocuments.size > 0 && (
-              <div className="bulk-actions-bar" style={{ marginRight: 'auto' }}>
+          {selectedDocuments.size > 0 && (
+            <div className="bulk-actions-bar folder-bulk-actions">
                 <span>{selectedDocuments.size} selected</span>
                 <button 
                   className="action-btn delete-btn"
@@ -704,15 +903,28 @@ const handleCreateContainer = async (e) => {
                   <Trash2 size={18} />
                   Delete
                 </button>
-              </div>
-            )}
-            <button className="new-document-btn">
+            </div>
+          )}
+
+          <div className="folder-top-toolbar">
+            <button
+              className="new-document-btn"
+              onClick={() => {
+                setSelectedWorkspace(Number(openedFolder.workspace_id || ''));
+                setShowUploadModal(true);
+              }}
+            >
               <Plus size={18} />
               New Document
             </button>
             <div className="search-box">
               <Search size={18} />
-              <input type="text" placeholder="Search documents..." />
+              <input
+                type="text"
+                placeholder="Search documents..."
+                value={folderSearchQuery}
+                onChange={(e) => setFolderSearchQuery(e.target.value)}
+              />
             </div>
             <div className="sort-dropdown-wrapper">
               <button className="sort-button" onClick={() => setShowSortMenu(!showSortMenu)}>
@@ -778,11 +990,16 @@ const handleCreateContainer = async (e) => {
               </div>
                             {sortedFolderDocuments.map((doc) => {
                 return (
-                  <div key={doc.id} className="table-row">
+                  <div
+                    key={doc.id}
+                    className={`table-row ${selectedDocuments.has(doc.id) ? 'is-selected' : ''}`}
+                    onClick={() => handleCheckboxChange(doc.id)}
+                  >
                     <div className="col-icon">
                       <input 
                         type="checkbox"
                         checked={selectedDocuments.has(doc.id)}
+                        onClick={(event) => event.stopPropagation()}
                         onChange={() => handleCheckboxChange(doc.id)}
                         title="Select document"
                         aria-label={`Select ${doc.filename}`}
@@ -793,9 +1010,23 @@ const handleCreateContainer = async (e) => {
                     <div className="col-modified">{new Date(doc.created_at).toLocaleDateString()}</div>
                     <div className="col-opened">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>
                     <div className="col-actions">
+                      <button
+                        className="action-menu"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDownloadDocument(doc.id, doc.filename);
+                        }}
+                        title="Download document"
+                        aria-label={`Download ${doc.filename}`}
+                      >
+                        <Download size={18} />
+                      </button>
                       <button 
                         className="action-menu delete-btn"
-                        onClick={() => handleDeleteFolderDocument(doc.id)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteFolderDocument(doc.id);
+                        }}
                         title="Delete document"
                         aria-label={`Delete ${doc.filename}`}
                       >
@@ -807,7 +1038,11 @@ const handleCreateContainer = async (e) => {
               })}
             </div>
             <div className="pagination">
-              <span>1 – 5 of 25</span>
+              <span>
+                {sortedFolderDocuments.length > 0
+                  ? `1 - ${sortedFolderDocuments.length} of ${sortedFolderDocuments.length}`
+                  : '0 of 0'}
+              </span>
               <div className="pagination-buttons">
                 <button disabled>‹</button>
                 <button className="active">1</button>
@@ -817,6 +1052,107 @@ const handleCreateContainer = async (e) => {
             </div>
           </main>
         </div>
+
+        {showUploadModal && (
+          <div className="modal-overlay" onClick={() => setShowUploadModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>Upload Document</h2>
+                <button
+                  className="modal-close"
+                  onClick={() => {
+                    setShowUploadModal(false);
+                    setUploadFiles([]);
+                    setUploadProgress({});
+                    setError(null);
+                  }}
+                  title="Close dialog"
+                  aria-label="Close dialog"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleFileUpload}>
+                <div className="form-group">
+                  <label htmlFor="workspace-name-locked">Workspace</label>
+                  <input
+                    id="workspace-name-locked"
+                    type="text"
+                    value={openedFolder?.name || ''}
+                    disabled
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="folder-file-input">File</label>
+                  <div
+                    className={`file-upload-area ${isDragging ? 'dragging' : ''}`}
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    onClick={handleFileInputClick}
+                  >
+                    <Upload size={24} />
+                    <p className="upload-text">
+                      {isDragging ? 'Drop file here' : 'Click to browse or drag and drop'}
+                    </p>
+                    <p className="upload-hint">PDF, TXT, DOCX, DOC (max 50MB)</p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      id="folder-file-input"
+                      onChange={(e) => {
+                        const newFiles = Array.from(e.target.files);
+                        const combined = [...uploadFiles, ...newFiles];
+                        if (combined.length > 5) {
+                          setError('You can only upload a maximum of 5 documents at once');
+                          setUploadFiles(combined.slice(0, 5));
+                        } else {
+                          setError(null);
+                          setUploadFiles(combined);
+                        }
+                      }}
+                      accept=".pdf,.txt,.docx,.doc"
+                      multiple
+                      style={{ display: 'none' }}
+                      required={uploadFiles.length === 0}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="folder-tags-input">Tags (coming soon)</label>
+                  <input
+                    id="folder-tags-input"
+                    type="text"
+                    placeholder="Tag persistence is not enabled yet"
+                    disabled
+                  />
+                </div>
+
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowUploadModal(false)}
+                    disabled={uploading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={uploadFiles.length === 0 || !selectedWorkspace || uploading}
+                  >
+                    {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/5)`}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
     );
@@ -888,6 +1224,9 @@ const handleCreateContainer = async (e) => {
                   <strong>Create New Container</strong>
                   <button className="panel-close" onClick={() => setShowCreateContainer(false)} aria-label="Close">×</button>
                 </div>
+                <p className="create-container-note">
+                  New containers are personal by default. They become workspace-scoped only when created inside a workspace folder.
+                </p>
                 {successMessage && (
                   <div className="create-success" role="status" aria-live="polite">{successMessage}</div>
                 )}
@@ -1015,7 +1354,7 @@ const handleCreateContainer = async (e) => {
                 <select 
                   id="workspace-select"
                   value={selectedWorkspace} 
-                  onChange={(e) => setSelectedWorkspace(e.target.value)}
+                  onChange={(e) => handleWorkspaceSelect(e.target.value)}
                   required
                 >
                   <option value="">Select workspace</option>
@@ -1096,11 +1435,12 @@ const handleCreateContainer = async (e) => {
               </div>
 
               <div className="form-group">
-                <label htmlFor="tags-input">Tags (optional)</label>
+                <label htmlFor="tags-input">Tags (coming soon)</label>
                 <input 
                   id="tags-input"
                   type="text" 
-                  placeholder="Add tags separated by commas" 
+                  placeholder="Tag persistence is not enabled yet"
+                  disabled
                 />
               </div>
 
@@ -1131,79 +1471,9 @@ const handleCreateContainer = async (e) => {
       {/* Create Container Dropdown Panel is rendered inline in the sidebar (see sidebar area) */}
 
       
-
-      {/* Bulk Actions Bar */}
-      {selectedDocuments.size > 0 && (
-        <div className="bulk-actions-bar">
-          <div className="bulk-info">
-            <input 
-              type="checkbox"
-              checked={selectedDocuments.size === filteredDocuments.length}
-              onChange={handleSelectAll}
-              title={selectedDocuments.size === filteredDocuments.length ? 'Deselect all' : 'Select all'}
-              aria-label={selectedDocuments.size === filteredDocuments.length ? 'Deselect all documents' : 'Select all documents'}
-            />
-            <span>{selectedDocuments.size} selected</span>
-          </div>
-          <div className="bulk-action-buttons">
-            <button 
-              className="action-btn download-btn"
-              onClick={() => {
-                Array.from(selectedDocuments).forEach(docId => {
-                  const doc = documents.find(d => d.id === docId);
-                  if (doc) handleDownloadDocument(docId, doc.filename);
-                });
-              }}
-              title="Download selected documents"
-              aria-label={`Download ${selectedDocuments.size} document${selectedDocuments.size > 1 ? 's' : ''}`}
-            >
-              <Download size={18} />
-              Download
-            </button>
-            <button 
-              className="action-btn delete-btn"
-              onClick={handleBulkDelete}
-              title="Delete selected documents"
-              aria-label={`Delete ${selectedDocuments.size} document${selectedDocuments.size > 1 ? 's' : ''}`}
-            >
-              <Trash2 size={18} />
-              Delete
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Documents List/Grid */}
-      <div className={`documents-${viewMode}`}>
-        {loading ? (
-          <p className="loading-text">Loading documents...</p>
-        ) : (
-          filteredDocuments.map(doc => (
-            <div key={doc.id} className={`document-item document-item-${viewMode}`}>
-              <div className="document-checkbox">
-                <input 
-                  type="checkbox"
-                  checked={selectedDocuments.has(doc.id)}
-                  onChange={() => handleCheckboxChange(doc.id)}
-                  title="Select document"
-                  aria-label={`Select ${doc.filename}`}
-                />
-              </div>
-              <div className="document-info">
-                <div className="document-name">{doc.filename}</div>
-                <div className="document-meta">Uploaded: {new Date(doc.created_at).toLocaleDateString()}</div>
-              </div>
-              <div className="document-date">{new Date(doc.created_at).toLocaleDateString()}</div>
-              <div className="document-status">{doc.status || 'ready'}</div>
-              <div className="document-size">{doc.mime_type?.split('/')[1] || 'file'}</div>
-            </div>
-          ))
-        )}
-      </div>
-
             {/* Containers / Cards Grid (design) */}
       <div className={`container-grid container-grid-${viewMode}`}>
-        {displayedContainers.map((c) => {
+              {filteredDisplayedContainers.map((c) => {
           const isUserCreated = isUserCreatedContainer(c.id);
           return (
             <div
@@ -1211,8 +1481,8 @@ const handleCreateContainer = async (e) => {
               className={`container-card ${isUserCreated ? 'user-created' : 'default-workspace'}`}
               onClick={() => handleFolderDoubleClick(c)}
               style={{ 
-                background: `linear-gradient(90deg, ${hexToRgba(c.color, 0.12)}, ${hexToRgba(c.color, 0.06)})`, 
-                borderColor: hexToRgba(c.color, 0.18),
+                background: `linear-gradient(90deg, ${hexToRgba(c.color, 0.06)}, ${hexToRgba(c.color, 0.03)})`, 
+                borderColor: hexToRgba(c.color, 0.12),
                 cursor: 'pointer'
               }}
             >
@@ -1222,14 +1492,29 @@ const handleCreateContainer = async (e) => {
                 </div>
                 <div className="container-wrapper">
                   <div className="container-name">{c.name}</div>
-                  {isUserCreated && (
-                    <span className="container-badge">Created by you</span>
-                  )}
+                  <span className="container-origin">{getContainerCreatorLabel(c)}</span>
                 </div>
               </div>
+              {isUserCreated && (
+                <button
+                  type="button"
+                  className="container-delete-btn"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleDeleteContainer(c.id);
+                  }}
+                  aria-label={`Delete ${c.name}`}
+                  title="Delete folder"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
           );
         })}
+        {filteredDisplayedContainers.length === 0 && (
+          <p className="empty-state-text">No folders match your current filters.</p>
+        )}
       </div>
 
         </main>

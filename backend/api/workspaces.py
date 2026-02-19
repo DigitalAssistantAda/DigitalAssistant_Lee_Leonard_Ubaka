@@ -5,6 +5,7 @@ from typing import Optional
 from database import get_db
 from models.user import User
 from models.workspace import Workspace, WorkspaceMember, WorkspaceRole, MemberStatus
+from models.container import Container
 from models.document import Document
 from schemas.workspace import (
     CreateWorkspaceRequest,
@@ -79,6 +80,16 @@ async def create_workspace(
         status=MemberStatus.ACTIVE
     )
     db.add(member)
+
+    # Create default workspace-owned container for document organization
+    default_container = Container(
+        workspace_id=workspace.id,
+        name=request.name,
+        color=workspace.accent_color,
+        created_by=current_user.id,
+    )
+    db.add(default_container)
+
     db.commit()
     db.refresh(workspace)
     

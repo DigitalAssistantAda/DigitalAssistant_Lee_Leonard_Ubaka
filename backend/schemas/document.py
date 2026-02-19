@@ -6,6 +6,7 @@ from datetime import datetime
 class DocumentResponse(BaseModel):
     id: int
     workspace_id: int
+    container_id: Optional[int] = None
     uploaded_by: int
     filename: str
     mime_type: str

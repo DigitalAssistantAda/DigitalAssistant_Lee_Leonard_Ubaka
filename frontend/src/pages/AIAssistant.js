@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Send, FileText, Bot, AlertCircle, Sparkles, CheckCircle } from 'lucide-react';
+import { Send, FileText, Bot, AlertCircle, Sparkles, CheckCircle, User } from 'lucide-react';
 import './AIAssistant.css';
 
 function AIAssistant() {
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
+  const [containers, setContainers] = useState([]);
+  const [activeContainerId, setActiveContainerId] = useState('');
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -14,8 +16,16 @@ function AIAssistant() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const API_URL = (process.env.REACT_APP_API_URL || localStorage.getItem('api_url') || 'http://localhost:8000').replace(/\/+$/, '');
   const token = localStorage.getItem('token');
+
+  const getFriendlyErrorMessage = (error, fallbackMessage) => {
+    const raw = String(error?.message || '').toLowerCase();
+    if (raw.includes('failed to fetch') || raw.includes('networkerror')) {
+      return `Cannot reach API at ${API_URL}. Check backend/CORS configuration and REACT_APP_API_URL.`;
+    }
+    return error?.message || fallbackMessage;
+  };
 
   useEffect(() => {
     fetchWorkspaces();
@@ -23,9 +33,14 @@ function AIAssistant() {
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
-    fetchDocuments(activeWorkspaceId);
+    fetchWorkspaceContainers(activeWorkspaceId);
     fetchConversations(activeWorkspaceId);
   }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    fetchDocuments(activeWorkspaceId, activeContainerId || null);
+  }, [activeWorkspaceId, activeContainerId]);
 
   const fetchWorkspaces = async () => {
     try {
@@ -46,14 +61,38 @@ function AIAssistant() {
         setActiveWorkspaceId(items[0].id);
       }
     } catch (err) {
-      setError(err.message || 'Failed to load workspaces');
+      setError(getFriendlyErrorMessage(err, 'Failed to load workspaces'));
     }
   };
 
-  const fetchDocuments = async (workspaceId) => {
+  const fetchWorkspaceContainers = async (workspaceId) => {
     try {
       setError(null);
-      const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/documents`, {
+      const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/containers`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load containers');
+      }
+
+      const data = await response.json();
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      setContainers(items);
+      setActiveContainerId('');
+    } catch (err) {
+      setContainers([]);
+      setError(getFriendlyErrorMessage(err, 'Failed to load containers'));
+    }
+  };
+
+  const fetchDocuments = async (workspaceId, containerId = null) => {
+    try {
+      setError(null);
+      const endpoint = containerId
+        ? `${API_URL}/api/v1/containers/${containerId}/documents`
+        : `${API_URL}/api/v1/workspaces/${workspaceId}/documents`;
+      const response = await fetch(endpoint, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 
@@ -66,7 +105,7 @@ function AIAssistant() {
       setDocuments(items);
       setSelectedDocuments([]);
     } catch (err) {
-      setError(err.message || 'Failed to load documents');
+      setError(getFriendlyErrorMessage(err, 'Failed to load documents'));
     }
   };
 
@@ -93,7 +132,7 @@ function AIAssistant() {
         setMessages([]);
       }
     } catch (err) {
-      setError(err.message || 'Failed to load conversations');
+      setError(getFriendlyErrorMessage(err, 'Failed to load conversations'));
     }
   };
 
@@ -111,7 +150,7 @@ function AIAssistant() {
       const data = await response.json();
       setMessages(Array.isArray(data?.messages) ? data.messages : []);
     } catch (err) {
-      setError(err.message || 'Failed to load messages');
+      setError(getFriendlyErrorMessage(err, 'Failed to load messages'));
     }
   };
 
@@ -163,28 +202,27 @@ function AIAssistant() {
         throw new Error('Failed to send message');
       }
 
-      const newMessage = await response.json();
-      setMessages((prev) => [...prev, newMessage]);
+      await response.json();
+      await fetchConversationMessages(activeWorkspaceId, conversation.id);
       setInput('');
-
-      setTimeout(() => {
-        const aiMessage = {
-          id: `local-${Date.now()}`,
-          role: 'assistant',
-          content: `[AI Service Placeholder]\n\nAI responses are not yet integrated. Ask for a summary by saying: "Summarize the selected documents."\n\nSelected context: ${selectedDocuments.length} documents`,
-          sources: selectedDocuments
-            .map((id) => documents.find((doc) => doc.id === id)?.filename)
-            .filter(Boolean),
-          created_at: new Date().toISOString(),
-          client_only: true,
-        };
-        setMessages((prev) => [...prev, aiMessage]);
-        setLoading(false);
-      }, 900);
+      setLoading(false);
     } catch (err) {
-      setError(err.message || 'Failed to send message');
+      setError(getFriendlyErrorMessage(err, 'Failed to send message'));
       setLoading(false);
     }
+  };
+
+  const handleWorkspaceChange = (event) => {
+    const nextWorkspaceId = event.target.value ? Number(event.target.value) : null;
+    setActiveWorkspaceId(nextWorkspaceId);
+    setActiveConversation(null);
+    setMessages([]);
+    setSelectedDocuments([]);
+  };
+
+  const handleContainerChange = (event) => {
+    setActiveContainerId(event.target.value);
+    setSelectedDocuments([]);
   };
 
   const toggleDocumentSelection = (docId) => {
@@ -195,152 +233,188 @@ function AIAssistant() {
 
   return (
     <div className="ai-assistant-container">
-      {/* Header */}
-      <div className="ai-header">
-        <div className="ai-header-left">
-          <Bot size={28} className="ai-icon" />
-          <h1>AI Assistant</h1>
-        </div>
-      </div>
-
-      <div className="ai-content">
-        {/* Sidebar: Document Selection */}
-        <div className="ai-sidebar">
-          {error && <div className="error-message">{error}</div>}
-          {!activeWorkspaceId && (
-            <div className="empty-state">
-              <AlertCircle size={24} />
-              <p>No workspace available yet.</p>
-            </div>
-          )}
-          {activeWorkspaceId && workspaces.length > 0 && (
-            <div className="selection-summary">
-              <CheckCircle size={16} />
-              Workspace: {workspaces.find((ws) => ws.id === activeWorkspaceId)?.name || 'Selected'}
-            </div>
-          )}
-          <h3>Select Documents</h3>
-          <p className="sidebar-description">Choose documents for context</p>
-          <div className="document-list">
-            {documents.map((doc) => (
-              <div
-                key={doc.id}
-                className={`document-item ${selectedDocuments.includes(doc.id) ? 'selected' : ''}`}
-                onClick={() => toggleDocumentSelection(doc.id)}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedDocuments.includes(doc.id)}
-                  onChange={() => {}}
-                  className="doc-checkbox"
-                />
-                <FileText size={16} />
-                <span className="doc-name">{doc.filename || doc.name}</span>
-              </div>
-            ))}
-          </div>
-
-          {selectedDocuments.length > 0 && (
-            <div className="selection-summary">
-              <CheckCircle size={16} />
-              {selectedDocuments.length} document{selectedDocuments.length !== 1 ? 's' : ''} selected
-            </div>
-          )}
-
-          {/* AI Status */}
-          <div className="ai-status">
-            <AlertCircle size={16} />
-            <div className="status-text">
-              <strong>AI Service:</strong> Mock Mode
-              <p className="status-note">
-                Actual AI integration (GPT-4/Claude) will be implemented in later milestone
-              </p>
-            </div>
+      <div className="ai-shell">
+        {/* Header */}
+        <div className="ai-header">
+          <div className="ai-header-left">
+            <Bot size={24} className="ai-icon" />
+            <h1>Chat with Ada</h1>
           </div>
         </div>
 
-        {/* Main Area */}
-        <div className="ai-main">
-          {/* Chat Messages */}
-          <div className="chat-area">
-            {messages.length === 0 ? (
-              <div className="empty-chat">
-                <Sparkles size={48} />
-                <h2>Ask me anything about your documents</h2>
-                <p>I can help you find information, summarize content, and answer questions based on your uploaded documents.</p>
-                <div className="suggestions">
-                  <button onClick={() => setInput('Summarize the selected documents')}>
-                    Summarize the selected documents
-                  </button>
-                  <button onClick={() => setInput('What are the main requirements?')}>
-                    What are the main requirements?
-                  </button>
-                  <button onClick={() => setInput('What deadlines are mentioned?')}>
-                    What deadlines are mentioned?
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="messages-container">
-                {messages.map((msg) => (
-                  <div key={msg.id} className={`message ${msg.role}`}>
-                    <div className="message-icon">
-                      {msg.role === 'user' ? '👤' : <Bot size={20} />}
-                    </div>
-                    <div className="message-content">
-                      <div className="message-text">{msg.content}</div>
-                      {msg.sources && msg.sources.length > 0 && (
-                        <div className="message-sources">
-                          <strong>Sources:</strong>
-                          {msg.sources.map((source, idx) => (
-                            <span key={idx} className="source-badge">
-                              {source}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="message-time">{msg.created_at}</div>
-                    </div>
-                  </div>
-                ))}
-                {loading && (
-                  <div className="message assistant">
-                    <div className="message-icon">
-                      <Bot size={20} />
-                    </div>
-                    <div className="message-content">
-                      <div className="typing-indicator">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                      </div>
-                    </div>
-                  </div>
-                )}
+        <div className="ai-content">
+          {/* Sidebar: Document Selection */}
+          <div className="ai-sidebar">
+            {error && <div className="error-message">{error}</div>}
+            {!activeWorkspaceId && (
+              <div className="empty-state">
+                <AlertCircle size={24} />
+                <p>No workspace available yet.</p>
               </div>
             )}
+            {activeWorkspaceId && workspaces.length > 0 && (
+              <div className="selection-summary">
+                <CheckCircle size={16} />
+                Workspace: {workspaces.find((ws) => ws.id === activeWorkspaceId)?.name || 'Selected'}
+              </div>
+            )}
+            {workspaces.length > 0 && (
+              <div className="field-group">
+                <label htmlFor="ai-workspace-select" className="field-label">Workspace</label>
+                <select
+                  id="ai-workspace-select"
+                  className="field-select"
+                  value={activeWorkspaceId ?? ''}
+                  onChange={handleWorkspaceChange}
+                >
+                  {workspaces.map((workspace) => (
+                    <option key={workspace.id} value={workspace.id}>
+                      {workspace.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="field-group">
+              <label htmlFor="ai-container-select" className="field-label">Container</label>
+              <select
+                id="ai-container-select"
+                className="field-select"
+                value={activeContainerId}
+                onChange={handleContainerChange}
+                disabled={!activeWorkspaceId}
+              >
+                <option value="">All workspace documents</option>
+                {containers.map((container) => (
+                  <option key={container.id} value={container.id}>
+                    {container.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <h3>Select Documents</h3>
+            <p className="sidebar-description">Choose documents for context</p>
+            <div className="document-list">
+              {documents.map((doc) => (
+                <div
+                  key={doc.id}
+                  className={`document-item ${selectedDocuments.includes(doc.id) ? 'selected' : ''}`}
+                  onClick={() => toggleDocumentSelection(doc.id)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedDocuments.includes(doc.id)}
+                    onChange={() => {}}
+                    className="doc-checkbox"
+                  />
+                  <FileText size={16} />
+                  <span className="doc-name">{doc.filename || doc.name}</span>
+                </div>
+              ))}
+            </div>
+
+            {selectedDocuments.length > 0 && (
+              <div className="selection-summary">
+                <CheckCircle size={16} />
+                {selectedDocuments.length} document{selectedDocuments.length !== 1 ? 's' : ''} selected
+              </div>
+            )}
+
+            {/* AI Status */}
+            <div className="ai-status">
+              <AlertCircle size={16} />
+              <div className="status-text">
+                <strong>AI Service:</strong> Retrieval Mode
+                <p className="status-note">
+                  Responses are generated from semantically retrieved workspace documents
+                </p>
+              </div>
+            </div>
           </div>
 
-          {/* Chat Input */}
-          <div className="chat-input-area">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="Ask a question about your documents..."
-              className="chat-input"
-              disabled={loading}
-            />
-            <button
-              onClick={handleSendMessage}
-              className="btn-send"
-              disabled={loading || !input.trim()}
-              title="Send message"
-              aria-label="Send message"
-            >
-              <Send size={18} />
-            </button>
+          {/* Main Area */}
+          <div className="ai-main">
+            {/* Chat Messages */}
+            <div className="chat-area">
+              {messages.length === 0 ? (
+                <div className="empty-chat">
+                  <Sparkles size={48} />
+                  <h2>Ask me anything about your documents</h2>
+                  <p>I can help you find information, summarize content, and answer questions based on your uploaded documents.</p>
+                  <div className="suggestions">
+                    <button onClick={() => setInput('Summarize the selected documents')}>
+                      Summarize the selected documents
+                    </button>
+                    <button onClick={() => setInput('What are the main requirements?')}>
+                      What are the main requirements?
+                    </button>
+                    <button onClick={() => setInput('What deadlines are mentioned?')}>
+                      What deadlines are mentioned?
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="messages-container">
+                  {messages.map((msg) => (
+                    <div key={msg.id} className={`message ${msg.role}`}>
+                      <div className="message-icon">
+                        {msg.role === 'user' ? <User size={18} /> : <Bot size={18} />}
+                      </div>
+                      <div className="message-content">
+                        <div className="message-text">{msg.content}</div>
+                        {msg.sources && msg.sources.length > 0 && (
+                          <div className="message-sources">
+                            <strong>Sources:</strong>
+                            {msg.sources.map((source, idx) => (
+                              <span key={idx} className="source-badge">
+                                {source}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="message-time">{msg.created_at}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {loading && (
+                    <div className="message assistant">
+                      <div className="message-icon">
+                        <Bot size={18} />
+                      </div>
+                      <div className="message-content">
+                        <div className="typing-indicator">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Chat Input */}
+            <div className="chat-input-area">
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                placeholder="Ask a question about your documents..."
+                className="chat-input"
+                disabled={loading}
+              />
+              <button
+                onClick={handleSendMessage}
+                className="btn-send"
+                disabled={loading || !input.trim()}
+                title="Send message"
+                aria-label="Send message"
+              >
+                <Send size={18} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -1,5 +1,6 @@
 from .user import User
 from .workspace import Workspace, WorkspaceMember
+from .container import Container
 from .document import Document, DocumentStatus
 from .document_chunk import DocumentChunk
 from .chunk_embedding import ChunkEmbedding
@@ -17,6 +18,7 @@ __all__ = [
     "User",
     "Workspace",
     "WorkspaceMember",
+    "Container",
     "Document",
     "DocumentStatus",
     "DocumentChunk",

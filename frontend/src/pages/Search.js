@@ -46,21 +46,25 @@ function Search() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(
-        `${API_URL}/api/v1/search?workspace_id=${selectedWorkspace}&query=${encodeURIComponent(query)}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      );
+      const response = await fetch(`${API_URL}/api/v1/search`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          workspace_id: Number(selectedWorkspace),
+          query,
+          limit: 10,
+        }),
+      });
 
       if (!response.ok) {
         throw new Error('Search failed');
       }
 
       const data = await response.json();
-      setSearchResults(data.results || []);
+      setSearchResults(data.items || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -124,7 +128,7 @@ function Search() {
                 key={index} 
                 className="search-result-card"
               >
-                <h3>{result.document_name || 'Untitled Document'}</h3>
+                <h3>{result.filename || 'Untitled Document'}</h3>
                 <p className="search-result-meta">
                   Relevance Score: {result.score ? result.score.toFixed(2) : 'N/A'}
                 </p>

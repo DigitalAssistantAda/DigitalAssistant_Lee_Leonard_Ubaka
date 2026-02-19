@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 import os
@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from database import get_db
 from models.user import User
 from models.document import Document, DocumentStatus
+from models.container import Container
 from models.document_chunk import DocumentChunk
 from models.chunk_embedding import ChunkEmbedding
 from models.document_hint import DocumentHint
@@ -83,10 +84,48 @@ def _post_n8n_embedding_trigger(payload: dict) -> None:
         )
 
 
+def _validate_container_for_workspace(
+    db: Session,
+    current_user: User,
+    workspace_id: int,
+    container_id: int,
+) -> Container:
+    container = db.query(Container).filter(Container.id == container_id).first()
+    if not container:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
+
+    if container.workspace_id != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Container does not belong to the selected workspace",
+        )
+
+    check_workspace_access(current_user, workspace_id, db)
+    return container
+
+
+def _validate_container_access(
+    db: Session,
+    current_user: User,
+    container_id: int,
+) -> Container:
+    container = db.query(Container).filter(Container.id == container_id).first()
+    if not container:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
+
+    if container.workspace_id is not None:
+        check_workspace_access(current_user, container.workspace_id, db)
+    elif container.created_by != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+
+    return container
+
+
 @router.post("/workspaces/{workspace_id}/documents", response_model=DocumentResponse)
 async def upload_document(
     workspace_id: int,
     file: UploadFile = File(...),
+    container_id: int | None = Form(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -101,6 +140,9 @@ async def upload_document(
     
     if not member:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+
+    if container_id is not None:
+        _validate_container_for_workspace(db, current_user, workspace_id, container_id)
     
     # Validate file
     if not file.content_type or file.content_type not in ALLOWED_MIME_TYPES:
@@ -139,6 +181,7 @@ async def upload_document(
     # Create document record
     document = Document(
         workspace_id=workspace_id,
+        container_id=container_id,
         uploaded_by=current_user.id,
         filename=file.filename,
         mime_type=file.content_type,
@@ -197,6 +240,7 @@ async def upload_document(
 @router.get("/workspaces/{workspace_id}/documents", response_model=DocumentListResponse)
 async def list_documents(
     workspace_id: int,
+    container_id: int | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -209,11 +253,40 @@ async def list_documents(
         raise HTTPException(status_code=e.status_code, detail=e.detail)
     
     # Get documents - filtered by workspace
-    documents = db.query(Document).filter(
+    query = db.query(Document).filter(
         Document.workspace_id == workspace_id,
         Document.status != DocumentStatus.DELETED
-    ).order_by(Document.created_at.desc()).all()
+    )
+
+    if container_id is not None:
+        _validate_container_for_workspace(db, current_user, workspace_id, container_id)
+        query = query.filter(Document.container_id == container_id)
+
+    documents = query.order_by(Document.created_at.desc()).all()
     
+    return DocumentListResponse(
+        items=[DocumentResponse.model_validate(d) for d in documents]
+    )
+
+
+@router.get("/containers/{container_id}/documents", response_model=DocumentListResponse)
+async def list_documents_for_container(
+    container_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    container = _validate_container_access(db, current_user, container_id)
+
+    query = db.query(Document).filter(
+        Document.container_id == container_id,
+        Document.status != DocumentStatus.DELETED,
+    )
+
+    if container.workspace_id is not None:
+        query = query.filter(Document.workspace_id == container.workspace_id)
+
+    documents = query.order_by(Document.created_at.desc()).all()
+
     return DocumentListResponse(
         items=[DocumentResponse.model_validate(d) for d in documents]
     )

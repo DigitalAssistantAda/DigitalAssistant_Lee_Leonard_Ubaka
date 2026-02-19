@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Optional
+from sqlalchemy import or_
 from database import get_db
 from models.container import Container
 from models.user import User
@@ -54,6 +55,34 @@ async def create_container(
     create_audit_log(db, current_user, "container.created", "container", container.id, workspace_id=container.workspace_id)
 
     return ContainerResponse.model_validate(container)
+
+
+@router.get("/containers", response_model=ContainerListResponse, tags=["Containers"])
+async def list_accessible_containers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    member_workspace_ids = [
+        row.workspace_id
+        for row in db.query(WorkspaceMember.workspace_id).filter(
+            WorkspaceMember.user_id == current_user.id,
+            WorkspaceMember.status == MemberStatus.ACTIVE,
+        ).all()
+    ]
+
+    if member_workspace_ids:
+        containers = db.query(Container).filter(
+            or_(
+                Container.created_by == current_user.id,
+                Container.workspace_id.in_(member_workspace_ids),
+            )
+        ).all()
+    else:
+        containers = db.query(Container).filter(
+            Container.created_by == current_user.id
+        ).all()
+
+    return ContainerListResponse(items=[ContainerResponse.model_validate(c) for c in containers])
 
 
 # Create a container inside a workspace (workspace-scoped path)

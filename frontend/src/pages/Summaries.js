@@ -50,7 +50,7 @@ function Summaries() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/documents?workspace_id=${selectedWorkspace}`, {
+      const response = await fetch(`${API_URL}/api/v1/workspaces/${selectedWorkspace}/documents`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -66,6 +66,27 @@ function Summaries() {
     }
   };
 
+  const generateSummary = async (documentId) => {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_URL}/api/v1/summaries`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        document_id: Number(documentId),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to generate summary');
+    }
+
+    const data = await response.json();
+    setSummary(data);
+  };
+
   const handleGenerateSummary = async (e) => {
     e.preventDefault();
     if (!selectedDocument) return;
@@ -75,24 +96,7 @@ function Summaries() {
     setSummary(null);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/summaries/generate`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          document_id: selectedDocument,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to generate summary');
-      }
-
-      const data = await response.json();
-      setSummary(data);
+      await generateSummary(selectedDocument);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -101,24 +105,11 @@ function Summaries() {
   };
 
   const handleLoadSummary = async (documentId) => {
+    if (!documentId) return;
     setLoading(true);
     setError(null);
-    setSummary(null);
-
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/summaries/${documentId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('No summary found for this document');
-      }
-
-      const data = await response.json();
-      setSummary(data);
+      await generateSummary(documentId);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -182,7 +173,7 @@ function Summaries() {
               disabled={loading}
               className="summaries-button"
             >
-              {loading ? 'Loading...' : 'Load Existing Summary'}
+              {loading ? 'Loading...' : 'Regenerate Summary'}
             </button>
           )}
         </form>

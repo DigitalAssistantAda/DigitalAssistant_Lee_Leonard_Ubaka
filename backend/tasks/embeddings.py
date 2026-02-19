@@ -139,10 +139,26 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         
         # Step 5: Check for duplicates
         if first_embedding is not None:
-            _check_and_flag_duplicates(document, first_embedding, db)
+            try:
+                _check_and_flag_duplicates(document, first_embedding, db)
+            except Exception as duplicate_error:
+                db.rollback()
+                logger.warning(
+                    "Duplicate check failed for document %s: %s",
+                    document_id,
+                    duplicate_error,
+                )
         
         # Step 6: Generate AI hints/suggestions
-        _generate_hints(document_id, chunks, db)
+        try:
+            _generate_hints(document_id, chunks, db)
+        except Exception as hints_error:
+            db.rollback()
+            logger.warning(
+                "Hint generation failed for document %s: %s",
+                document_id,
+                hints_error,
+            )
         
         # Update job status
         job.status = EmbeddingJobStatus.COMPLETE
@@ -165,6 +181,7 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         }
     
     except Exception as e:
+        db.rollback()
         logger.exception(f"Error processing document {document_id}: {str(e)}")
         
         # Update job with error

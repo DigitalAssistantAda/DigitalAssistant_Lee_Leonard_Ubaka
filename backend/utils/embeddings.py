@@ -9,6 +9,7 @@ from config import settings
 from database import SessionLocal
 from models.chunk_embedding import ChunkEmbedding
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -153,29 +154,40 @@ class EmbeddingsService:
         Returns:
             List of (document_id, similarity_score) tuples sorted by similarity DESC
         """
+        owns_session = db is None
         if db is None:
             db = SessionLocal()
+
+        vector_param = "[" + ",".join(str(value) for value in query_embedding) + "]"
         
         try:
             # PostgreSQL pgvector cosine distance: 1 - (a <=> b) = similarity
-            results = db.execute(f"""
+            stmt = text("""
                 SELECT 
                     dc.document_id,
-                    1 - (ce.embedding <=> %s::vector) as similarity
+                    1 - (ce.embedding <=> CAST(:query_embedding AS vector)) as similarity
                 FROM chunk_embeddings ce
                 JOIN document_chunks dc ON ce.chunk_id = dc.id
                 JOIN documents d ON dc.document_id = d.id
-                WHERE d.workspace_id = %s
-                    AND 1 - (ce.embedding <=> %s::vector) > %s
-                    AND ce.model_name = %s
+                WHERE d.workspace_id = :workspace_id
+                    AND 1 - (ce.embedding <=> CAST(:query_embedding AS vector)) > :threshold
+                    AND ce.model_name = :model_name
                 ORDER BY similarity DESC
-                LIMIT %s
-            """, (query_embedding, workspace_id, query_embedding, threshold, self.model_name, limit))
+                LIMIT :limit
+            """).bindparams(
+                query_embedding=vector_param,
+                workspace_id=workspace_id,
+                threshold=threshold,
+                model_name=self.model_name,
+                limit=limit,
+            )
+
+            results = db.execute(stmt)
             
             return results.fetchall()
             
         finally:
-            if db:
+            if owns_session and db:
                 db.close()
     
     def check_duplicate(

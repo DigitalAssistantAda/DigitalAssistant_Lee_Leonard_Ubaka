@@ -101,7 +101,6 @@ function Documents() {
     }
   };
 
-  // Replace handleFileUpload function with this enhanced version
   const handleFileUpload = async (e) => {
   e.preventDefault();
   if (uploadFiles.length === 0 || !selectedWorkspace) return;
@@ -140,17 +139,38 @@ function Documents() {
       }
     });
 
-    await Promise.all(uploadPromises);
+        await Promise.all(uploadPromises);
     setUploadFiles([]);
     setUploadProgress({});
     setShowUploadModal(false);
-    fetchDocuments();
+    setSuccessMessage('Files uploaded successfully to workspace folder');
+    setTimeout(() => setSuccessMessage(null), 3000);
+    
+    // Only refresh the folder view if the user has it open
+    if (openedFolder && openedFolder.id === selectedWorkspace) {
+      // Re-fetch documents and filter for the opened folder
+      const token = localStorage.getItem('token');
+      try {
+        const response = await fetch(`${API_URL}/api/v1/workspaces/${selectedWorkspace}/documents`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const items = Array.isArray(data?.documents) ? data.documents : Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+          setFolderDocuments(items);
+        }
+      } catch (err) {
+        console.error('Error refreshing folder:', err);
+      }
+    }
+    // DO NOT call fetchDocuments() - this prevents files from appearing in main list
   } catch (err) {
     setError(err.message);
   } finally {
     setUploading(false);
   }
 };
+
 
   // Drag and drop handlers - UPDATED
 const handleDragEnter = (e) => {
@@ -333,25 +353,91 @@ const handleCreateContainer = async (e) => {
     }
   };
 
-    // double-clicking a folder in the UI will "open" it and show mock documents inside (since we don't have a real folder structure in the backend yet)
+  // Open folder and load actual documents for this workspace
   const handleFolderDoubleClick = (folder) => {
     setOpenedFolder(folder);
-    // Generate mock documents for the folder
-    const mockDocs = [
-      { id: 1, filename: 'Project Plan.pdf', size: '1.2 MB', lastModified: '20 minutes ago', opened: '5 minutes ago', type: 'pdf' },
-      { id: 2, filename: 'Meeting Notes.docx', size: '520 KB', lastModified: '32 minutes ago', opened: '5 minutes ago', type: 'doc' },
-      { id: 3, filename: 'Design Mockups.pptx', size: '850 KB', lastModified: '23 minutes ago', opened: '3 days ago', type: 'pptx' },
-      { id: 4, filename: 'Client Feedback.md', size: '12 KB', lastModified: '1 month ago', opened: '3 days ago', type: 'md' },
-      { id: 5, filename: 'Architecture Diagram.svg', size: '83 KB', lastModified: '1 ed. 2 k ago', opened: '3 days ago', type: 'svg' },
-      { id: 6, filename: 'Task List.xlsx', size: '83 KB', lastModified: '1 week ago', opened: '2 months ago', type: 'xlsx' },
-    ];
-    setFolderDocuments(mockDocs);
+    // Filter real documents from the documents state that match this workspace
+    const workspaceDocs = documents.filter(doc => doc.workspace_id === folder.id);
+    setFolderDocuments(workspaceDocs);
   };
 
   const handleBackFromFolder = () => {
     setOpenedFolder(null);
     setFolderDocuments([]);
     setSortBy('lastOpened');
+  };
+
+  // ADD THESE TWO FUNCTIONS HERE:
+  const handleDeleteFolderDocument = async (docId) => {
+    if (!window.confirm('Delete this document?')) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/v1/documents/${docId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.status === 401) {
+        setError('Authentication required — please sign in to delete documents.');
+        return;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Delete failed');
+        throw new Error(errorText || `Failed to delete (${response.status})`);
+      }
+
+      // Remove from folder documents list
+      setFolderDocuments(prev => prev.filter(doc => doc.id !== docId));
+      setError(null);
+      setSuccessMessage('Document deleted successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Delete error:', err);
+      setError(`Failed to delete document: ${err.message}`);
+    }
+  };
+
+  const handleBulkDeleteFolderDocuments = async () => {
+    if (selectedDocuments.size === 0) return;
+    const count = selectedDocuments.size;
+    if (!window.confirm(`Delete ${count} document${count > 1 ? 's' : ''}?`)) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('token');
+      const deletionResults = await Promise.allSettled(
+        Array.from(selectedDocuments).map(docId =>
+          fetch(`${API_URL}/api/v1/documents/${docId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          }).then(response => {
+            if (!response.ok) throw new Error(`Failed to delete document ${docId}`);
+            return response;
+          })
+        )
+      );
+
+      const failed = deletionResults.filter(r => r.status === 'rejected');
+      if (failed.length > 0) {
+        setError(`Failed to delete ${failed.length} document${failed.length > 1 ? 's' : ''}`);
+        return;
+      }
+
+      setFolderDocuments(prev => 
+        prev.filter(doc => !selectedDocuments.has(doc.id))
+      );
+      setSelectedDocuments(new Set());
+      setSuccessMessage(`${count} document${count > 1 ? 's' : ''} deleted successfully`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      console.error('Bulk delete error:', err);
+      setError(`Failed to delete documents: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFolderColorChange = (nextColor) => {
@@ -600,7 +686,20 @@ const handleCreateContainer = async (e) => {
 
         {/* Folder Content */}
         <div className="folder-content">
-          <div className="folder-top-toolbar">
+                    <div className="folder-top-toolbar">
+            {selectedDocuments.size > 0 && (
+              <div className="bulk-actions-bar" style={{ marginRight: 'auto' }}>
+                <span>{selectedDocuments.size} selected</span>
+                <button 
+                  className="action-btn delete-btn"
+                  onClick={handleBulkDeleteFolderDocuments}
+                  title={`Delete ${selectedDocuments.size} document${selectedDocuments.size > 1 ? 's' : ''}`}
+                >
+                  <Trash2 size={18} />
+                  Delete
+                </button>
+              </div>
+            )}
             <button className="new-document-btn">
               <Plus size={18} />
               New Document
@@ -671,19 +770,30 @@ const handleCreateContainer = async (e) => {
                 <div className="col-opened">Opened</div>
                 <div className="col-actions"></div>
               </div>
-              {sortedFolderDocuments.map((doc) => {
+                            {sortedFolderDocuments.map((doc) => {
                 return (
                   <div key={doc.id} className="table-row">
                     <div className="col-icon">
-                      <span style={{ fontSize: '1.25rem' }}>📄</span>
+                      <input 
+                        type="checkbox"
+                        checked={selectedDocuments.has(doc.id)}
+                        onChange={() => handleCheckboxChange(doc.id)}
+                        title="Select document"
+                        aria-label={`Select ${doc.filename}`}
+                      />
                     </div>
                     <div className="col-name">{doc.filename}</div>
-                    <div className="col-size">{doc.size}</div>
-                    <div className="col-modified">{doc.lastModified}</div>
-                    <div className="col-opened">{doc.opened}</div>
+                    <div className="col-size">{doc.size_bytes ? `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB` : doc.size || '-'}</div>
+                    <div className="col-modified">{new Date(doc.created_at).toLocaleDateString()}</div>
+                    <div className="col-opened">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>
                     <div className="col-actions">
-                      <button className="action-menu" aria-label="More options">
-                        <MoreVertical size={18} />
+                      <button 
+                        className="action-menu delete-btn"
+                        onClick={() => handleDeleteFolderDocument(doc.id)}
+                        title="Delete document"
+                        aria-label={`Delete ${doc.filename}`}
+                      >
+                        <Trash2 size={18} />
                       </button>
                     </div>
                   </div>

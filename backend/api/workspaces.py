@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional
 from database import get_db
 from models.user import User
 from models.workspace import Workspace, WorkspaceMember, WorkspaceRole, MemberStatus
@@ -19,30 +18,9 @@ from schemas.workspace import (
 )
 from schemas.auth import SuccessResponse
 from utils.auth import get_current_user, create_audit_log
+from utils.authorization import require_workspace_access
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
-
-
-def check_workspace_access(workspace_id: int, user: User, db: Session, required_roles: Optional[list] = None) -> Workspace:
-    """Check if user has access to workspace and optionally verify role"""
-    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not workspace:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
-    
-    
-    member = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.status == MemberStatus.ACTIVE
-    ).first()
-    
-    if not member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
-    
-    if required_roles and member.role not in required_roles:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
-    
-    return workspace
 
 
 def build_member_response(member: WorkspaceMember, user: User) -> WorkspaceMemberResponse:
@@ -140,7 +118,7 @@ async def get_workspace(
 ):
     """Retrieves details for a specific workspace"""
     
-    workspace = check_workspace_access(workspace_id, current_user, db)
+    workspace = require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
     return WorkspaceResponse.model_validate(workspace)
 
 
@@ -153,7 +131,12 @@ async def update_workspace(
 ):
     """Updates workspace metadata"""
     
-    workspace = check_workspace_access(workspace_id, current_user, db, [WorkspaceRole.OWNER, WorkspaceRole.ADMIN])
+    workspace = require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
+    )
     
     workspace.name = request.name
     if "accent_color" in request.model_fields_set:
@@ -174,7 +157,12 @@ async def delete_workspace(
 ):
     """Deletes a workspace"""
     
-    workspace = check_workspace_access(workspace_id, current_user, db, [WorkspaceRole.OWNER])
+    workspace = require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        required_roles=[WorkspaceRole.OWNER],
+    )
     
     # Delete all members first
     db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).delete()
@@ -194,7 +182,7 @@ async def list_workspace_members(
 ):
     """Lists members of a workspace"""
     
-    check_workspace_access(workspace_id, current_user, db)
+    require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
     
     members = db.query(WorkspaceMember, User).join(
         User, WorkspaceMember.user_id == User.id
@@ -216,7 +204,12 @@ async def add_workspace_member(
 ):
     """Adds a user to a workspace"""
     
-    check_workspace_access(workspace_id, current_user, db, [WorkspaceRole.OWNER, WorkspaceRole.ADMIN])
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
+    )
     
     # Find user by email or ID
     if request.email_or_user_id.isdigit():
@@ -262,7 +255,12 @@ async def update_workspace_member(
 ):
     """Updates a member's role or status"""
     
-    check_workspace_access(workspace_id, current_user, db, [WorkspaceRole.OWNER, WorkspaceRole.ADMIN])
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
+    )
     
     member = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
@@ -295,7 +293,12 @@ async def remove_workspace_member(
 ):
     """Removes a user from a workspace"""
     
-    check_workspace_access(workspace_id, current_user, db, [WorkspaceRole.OWNER, WorkspaceRole.ADMIN])
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
+    )
     
     member = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,

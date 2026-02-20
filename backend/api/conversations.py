@@ -8,7 +8,6 @@ from datetime import datetime
 import json
 from database import get_db
 from models.user import User
-from models.workspace import Workspace, WorkspaceMember, MemberStatus
 from models.conversation import Conversation, AIMessage, MessageRole
 from models.document import Document
 from models.document_chunk import DocumentChunk
@@ -20,6 +19,7 @@ from schemas.conversation import (
     MessageResponse,
 )
 from utils.auth import get_current_user
+from utils.authorization import require_workspace_access
 from utils.embeddings import embeddings_service
 from config import settings
 
@@ -109,18 +109,12 @@ async def create_conversation(
     """Create a new conversation in a workspace"""
     
     # Verify workspace access
-    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not workspace:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
-    
-    member = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.user_id == current_user.id,
-        WorkspaceMember.status == MemberStatus.ACTIVE
-    ).first()
-    
-    if not member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        check_workspace_exists=True,
+    )
     
     # Create conversation
     conversation = Conversation(
@@ -145,14 +139,12 @@ async def list_conversations(
     """List all conversations in a workspace"""
     
     # Verify workspace access
-    member = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.user_id == current_user.id,
-        WorkspaceMember.status == MemberStatus.ACTIVE
-    ).first()
-    
-    if not member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        check_workspace_exists=False,
+    )
     
     conversations = db.query(Conversation).filter(
         Conversation.workspace_id == workspace_id
@@ -173,14 +165,12 @@ async def get_conversation(
     """Get a specific conversation with all messages"""
     
     # Verify workspace access
-    member = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.user_id == current_user.id,
-        WorkspaceMember.status == MemberStatus.ACTIVE
-    ).first()
-    
-    if not member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        check_workspace_exists=False,
+    )
     
     # Get conversation
     conversation = db.query(Conversation).filter(
@@ -213,14 +203,12 @@ async def send_message(
     """Send a message in a conversation"""
     
     # Verify workspace access
-    member = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.user_id == current_user.id,
-        WorkspaceMember.status == MemberStatus.ACTIVE
-    ).first()
-    
-    if not member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        check_workspace_exists=False,
+    )
     
     # Verify conversation exists and belongs to workspace
     conversation = db.query(Conversation).filter(

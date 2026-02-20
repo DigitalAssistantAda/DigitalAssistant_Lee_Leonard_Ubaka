@@ -125,5 +125,35 @@ def check_document_access(
     return document
 
 
+def require_workspace_access(
+    user: User,
+    workspace_id: int,
+    db: Session,
+    required_roles: Optional[list[WorkspaceRole]] = None,
+    not_member_detail: str = "Not a member of this workspace",
+    insufficient_permissions_detail: str = "Insufficient permissions",
+    check_workspace_exists: bool = True,
+) -> Optional["Workspace"]:
+    workspace = None
+    if check_workspace_exists:
+        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if not workspace:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+
+    membership = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.user_id == user.id,
+        WorkspaceMember.status == MemberStatus.ACTIVE,
+    ).first()
+
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=not_member_detail)
+
+    if required_roles and membership.role not in required_roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=insufficient_permissions_detail)
+
+    return workspace
+
+
 # Import Workspace after defining check functions to avoid circular imports
 from models.workspace import Workspace

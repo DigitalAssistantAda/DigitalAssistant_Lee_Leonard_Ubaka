@@ -17,7 +17,7 @@ htmlcov/
 dist/
 build/
 
-# Node.js / Next.js
+# Node.js / React frontend
 node_modules/
 .next/
 out/

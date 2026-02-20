@@ -1,33 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import Optional
 from sqlalchemy import or_
 from database import get_db
 from models.container import Container
 from models.user import User
-from models.workspace import Workspace, WorkspaceMember, MemberStatus
+from models.workspace import WorkspaceMember, MemberStatus
 from schemas.container import CreateContainerRequest, ContainerResponse, ContainerListResponse
 from utils.auth import get_current_user, create_audit_log
+from utils.authorization import require_workspace_access
 from schemas.auth import SuccessResponse
 
 router = APIRouter()
-
-
-def check_workspace_access(workspace_id: int, user: User, db: Session) -> Workspace:
-    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
-    if not workspace:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
-
-    member = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.user_id == user.id,
-        WorkspaceMember.status == MemberStatus.ACTIVE
-    ).first()
-
-    if not member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
-
-    return workspace
 
 
 # Create a container (top-level) - workspace_id may be provided in body
@@ -39,7 +22,7 @@ async def create_container(
 ):
     # If workspace_id provided, ensure access
     if request.workspace_id:
-        check_workspace_access(request.workspace_id, current_user, db)
+        require_workspace_access(workspace_id=request.workspace_id, user=current_user, db=db)
 
     container = Container(
         workspace_id=request.workspace_id,
@@ -98,7 +81,7 @@ async def create_workspace_container(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="workspace_id mismatch")
 
     # Check access
-    check_workspace_access(workspace_id, current_user, db)
+    require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
 
     container = Container(
         workspace_id=workspace_id,
@@ -123,7 +106,7 @@ async def list_workspace_containers(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    check_workspace_access(workspace_id, current_user, db)
+    require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
     containers = db.query(Container).filter(Container.workspace_id == workspace_id).all()
     return ContainerListResponse(items=[ContainerResponse.model_validate(c) for c in containers])
 
@@ -140,7 +123,7 @@ async def delete_container(
 
     # If container belongs to a workspace, ensure user is a member
     if container.workspace_id:
-        check_workspace_access(container.workspace_id, current_user, db)
+        require_workspace_access(workspace_id=container.workspace_id, user=current_user, db=db)
     else:
         # top-level container: only creator can delete
         if container.created_by != current_user.id:
@@ -162,7 +145,7 @@ async def delete_workspace_container(
     db: Session = Depends(get_db)
 ):
     # Verify workspace access
-    check_workspace_access(workspace_id, current_user, db)
+    require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
 
     container = db.query(Container).filter(Container.id == container_id, Container.workspace_id == workspace_id).first()
     if not container:

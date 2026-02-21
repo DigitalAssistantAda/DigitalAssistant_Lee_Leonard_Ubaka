@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Summaries.css';
 
 function Summaries() {
@@ -80,7 +81,8 @@ function Summaries() {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to generate summary');
+      const message = await getApiErrorMessage(response, 'Failed to generate summary');
+      throw new Error(message);
     }
 
     const data = await response.json();

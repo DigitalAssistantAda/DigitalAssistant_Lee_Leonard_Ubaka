@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getApiErrorMessage, parseApiErrorMessage } from '../utils/apiError';
 import './UserSettings.css';
 
 function UserSettings() {
@@ -44,7 +45,8 @@ function UserSettings() {
           });
           localStorage.setItem('user', JSON.stringify(data.user));
         } else {
-          setProfileError('Failed to load account details');
+          const message = await getApiErrorMessage(response, 'Failed to load account details');
+          setProfileError(message);
         }
       } catch (err) {
         setProfileError('Failed to load account details');
@@ -62,7 +64,8 @@ function UserSettings() {
           const data = await response.json();
           setAccentColor(data.accent_color || '');
         } else {
-          setAccentError('Failed to load accent color');
+          const message = await getApiErrorMessage(response, 'Failed to load accent color');
+          setAccentError(message);
         }
       } catch (err) {
         setAccentError('Failed to load accent color');
@@ -94,8 +97,8 @@ function UserSettings() {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        setAccentError(errData.detail || 'Failed to update accent color');
+        const message = await getApiErrorMessage(response, 'Failed to update accent color');
+        setAccentError(message);
       } else {
         const data = await response.json();
         setAccentColor(data.accent_color || '');
@@ -142,7 +145,7 @@ function UserSettings() {
           });
           setProfileError(messages);
         } else {
-          setProfileError(errData?.detail || 'Failed to update account details');
+          setProfileError(parseApiErrorMessage(errData, 'Failed to update account details'));
         }
         return;
       }

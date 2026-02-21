@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import { getApiErrorMessage, parseApiErrorMessage } from '../utils/apiError';
 import '../styles/shared.css';
 
 function Login({ onLogin }) {
@@ -36,6 +37,10 @@ function Login({ onLogin }) {
     if (typeof detail === 'string' && detail.trim()) {
       return [detail];
     }
+    const apiMessage = parseApiErrorMessage(errorData, null);
+    if (apiMessage) {
+      return [apiMessage];
+    }
     return ['Registration failed. Please check your details and try again.'];
   };
 
@@ -63,7 +68,7 @@ function Login({ onLogin }) {
         if (isRegister) {
           setErrorMessages(buildRegisterErrors(errorData));
         } else {
-          setErrorMessages([errorData?.detail || 'Authentication failed']);
+          setErrorMessages([parseApiErrorMessage(errorData, 'Authentication failed')]);
         }
         setLoading(false);
         return;

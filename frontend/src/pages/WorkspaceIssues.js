@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Trash2, AlertCircle, CheckCircle, Clock, Pencil } from 'lucide-react';
+import { getApiErrorMessage } from '../utils/apiError';
 import './WorkspaceIssues.css';
 
 function WorkspaceIssues({ workspaceId, currentUser }) {
@@ -168,10 +169,13 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
           headers: { 'Authorization': `Bearer ${token}` },
         }
       );
-      if (response.ok) {
-        const data = await response.json();
-        setIssues(data.items || []);
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to load issues');
+        setError(message);
+        return;
       }
+      const data = await response.json();
+      setIssues(data.items || []);
     } catch (err) {
       setError('Failed to load issues');
       console.error(err);
@@ -188,10 +192,13 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
           headers: { 'Authorization': `Bearer ${token}` },
         }
       );
-      if (response.ok) {
-        const data = await response.json();
-        setMembers(data.items || []);
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to load members');
+        setError(message);
+        return;
       }
+      const data = await response.json();
+      setMembers(data.items || []);
     } catch (err) {
       console.error('Failed to load members', err);
     }
@@ -202,11 +209,14 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       const response = await fetch(`${API_URL}/api/v1/workspaces`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
-      if (response.ok) {
-        const data = await response.json();
-        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        setWorkspaces(items);
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to load workspaces');
+        setError(message);
+        return;
       }
+      const data = await response.json();
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      setWorkspaces(items);
     } catch (err) {
       console.error('Failed to load workspaces', err);
     }
@@ -238,21 +248,24 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         body: JSON.stringify(payload),
       });
 
-      if (response.ok) {
-        const newIssue = await response.json();
-        setIssues((prev) => [newIssue, ...prev]);
-        setSelectedIssueId(newIssue.id);
-        setFormData({
-          title: '',
-          description: '',
-          priority: 'medium',
-          assigned_to: currentUserId || null,
-          assignees: currentUserId ? [currentUserId] : [],
-          due_date: '',
-        });
-        setShowCreateModal(false);
-        setError(null);
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to create issue');
+        setError(message);
+        return;
       }
+      const newIssue = await response.json();
+      setIssues((prev) => [newIssue, ...prev]);
+      setSelectedIssueId(newIssue.id);
+      setFormData({
+        title: '',
+        description: '',
+        priority: 'medium',
+        assigned_to: currentUserId || null,
+        assignees: currentUserId ? [currentUserId] : [],
+        due_date: '',
+      });
+      setShowCreateModal(false);
+      setError(null);
     } catch (err) {
       setError('Failed to create issue');
       console.error(err);
@@ -307,14 +320,17 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         }
       );
 
-      if (response.ok) {
-        const updated = await response.json();
-        setIssues(issues.map((i) => (i.id === updated.id ? updated : i)));
-        setSelectedIssueId(updated.id);
-        setShowCreateModal(false);
-        setEditingIssue(null);
-        setError(null);
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to update issue');
+        setError(message);
+        return;
       }
+      const updated = await response.json();
+      setIssues(issues.map((i) => (i.id === updated.id ? updated : i)));
+      setSelectedIssueId(updated.id);
+      setShowCreateModal(false);
+      setEditingIssue(null);
+      setError(null);
     } catch (err) {
       setError('Failed to update issue');
       console.error(err);
@@ -332,10 +348,13 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         body: JSON.stringify({ status: newStatus }),
       });
 
-      if (response.ok) {
-        const updated = await response.json();
-        setIssues(issues.map((i) => (i.id === issueId ? updated : i)));
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to update issue');
+        setError(message);
+        return;
       }
+      const updated = await response.json();
+      setIssues(issues.map((i) => (i.id === issueId ? updated : i)));
     } catch (err) {
       setError('Failed to update issue');
       console.error(err);
@@ -377,15 +396,18 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         headers: { 'Authorization': `Bearer ${token}` },
       });
 
-      if (response.ok) {
-        setIssues((prev) => {
-          const nextIssues = prev.filter((i) => i.id !== issueId);
-          if (selectedIssueId === issueId) {
-            setSelectedIssueId(nextIssues[0]?.id || null);
-          }
-          return nextIssues;
-        });
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to delete issue');
+        setError(message);
+        return;
       }
+      setIssues((prev) => {
+        const nextIssues = prev.filter((i) => i.id !== issueId);
+        if (selectedIssueId === issueId) {
+          setSelectedIssueId(nextIssues[0]?.id || null);
+        }
+        return nextIssues;
+      });
     } catch (err) {
       setError('Failed to delete issue');
       console.error(err);

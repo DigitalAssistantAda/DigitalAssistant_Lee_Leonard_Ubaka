@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, MoreVertical } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Documents.css';
 
 function Documents() {
@@ -100,7 +101,10 @@ function Documents() {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      if (!response.ok) throw new Error('Failed to load containers');
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to load containers');
+        throw new Error(message);
+      }
 
       const data = await response.json();
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
@@ -137,7 +141,10 @@ function Documents() {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (!response.ok) throw new Error('Failed to fetch documents');
+    if (!response.ok) {
+      const message = await getApiErrorMessage(response, 'Failed to fetch documents');
+      throw new Error(message);
+    }
 
     const data = await response.json();
     return Array.isArray(data?.documents)
@@ -155,7 +162,10 @@ function Documents() {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (!response.ok) throw new Error('Failed to fetch container documents');
+    if (!response.ok) {
+      const message = await getApiErrorMessage(response, 'Failed to fetch container documents');
+      throw new Error(message);
+    }
 
     const data = await response.json();
     return Array.isArray(data?.documents)
@@ -194,7 +204,10 @@ function Documents() {
           }
         );
 
-        if (!response.ok) throw new Error(`Failed to upload ${file.name}`);
+        if (!response.ok) {
+          const message = await getApiErrorMessage(response, `Failed to upload ${file.name}`);
+          throw new Error(message);
+        }
 
         // Update progress for this file
         setUploadProgress(prev => ({
@@ -1084,6 +1097,23 @@ const handleCreateContainer = async (e) => {
                   />
                 </div>
 
+                {error && (
+                  <div className="error-message" style={{ marginBottom: '1rem' }}>
+                    <span>{error}</span>
+                    <button 
+                      type="button"
+                      className="close-error"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setError(null);
+                      }}
+                      aria-label="Close error message"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+
                 <div className="form-group">
                   <label htmlFor="folder-file-input">File</label>
                   <div
@@ -1363,6 +1393,23 @@ const handleCreateContainer = async (e) => {
                   ))}
                 </select>
               </div>
+
+              {error && (
+                <div className="error-message" style={{ marginBottom: '1rem' }}>
+                  <span>{error}</span>
+                  <button 
+                    type="button"
+                    className="close-error"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setError(null);
+                    }}
+                    aria-label="Close error message"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
 
               <div className="form-group">
                 <label htmlFor="file-input">File</label>

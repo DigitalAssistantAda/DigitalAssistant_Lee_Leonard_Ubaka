@@ -141,23 +141,23 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         if first_embedding is not None:
             try:
                 _check_and_flag_duplicates(document, first_embedding, db)
-            except Exception as duplicate_error:
+            except Exception:
                 db.rollback()
                 logger.warning(
-                    "Duplicate check failed for document %s: %s",
+                    "Duplicate check failed for document_id=%s workspace_id=%s",
                     document_id,
-                    duplicate_error,
+                    document.workspace_id,
                 )
         
         # Step 6: Generate AI hints/suggestions
         try:
             _generate_hints(document_id, chunks, db)
-        except Exception as hints_error:
+        except Exception:
             db.rollback()
             logger.warning(
-                "Hint generation failed for document %s: %s",
+                "Hint generation failed for document_id=%s workspace_id=%s",
                 document_id,
-                hints_error,
+                document.workspace_id,
             )
         
         # Update job status
@@ -182,13 +182,13 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
     
     except Exception as e:
         db.rollback()
-        logger.exception(f"Error processing document {document_id}: {str(e)}")
+        logger.exception("Error processing document_id=%s", document_id)
         
         # Update job with error
         job = db.query(EmbeddingJob).filter(EmbeddingJob.document_id == document_id).first()
         if job:
             job.status = EmbeddingJobStatus.FAILED
-            job.error_message = str(e)
+            job.error_message = "Document processing failed."
             job.retry_count = self.request.retries
             db.commit()
         
@@ -205,7 +205,7 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         return {
             "document_id": document_id,
             "status": "failed",
-            "error": str(e),
+            "error": "Document processing failed.",
             "retries": self.request.retries,
         }
     

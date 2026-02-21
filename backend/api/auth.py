@@ -25,6 +25,7 @@ from utils.security import (
     record_failed_login,
     clear_failed_login,
 )
+from errors import AppError
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -89,12 +90,22 @@ async def login(request: LoginRequest, request_context: Request, db: Session = D
         (User.email == request.email_or_username) | (User.username == request.email_or_username)
     ).first()
     
-    if not user or not verify_password(request.password, user.hashed_password):
+    if not user:
         record_failed_login(f"login:{request.email_or_username.lower()}:{client_ip}")
-        raise HTTPException(
+        raise AppError(
+            code="USER_NOT_FOUND",
+            message="User not found.",
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email/username or password"
         )
+    
+    if not verify_password(request.password, user.hashed_password):
+        record_failed_login(f"login:{request.email_or_username.lower()}:{client_ip}")
+        raise AppError(
+            code="INVALID_PASSWORD",
+            message="Password incorrect.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    
     clear_failed_login(f"login:{request.email_or_username.lower()}:{client_ip}")
     
     if not user.is_active or user.is_deleted:

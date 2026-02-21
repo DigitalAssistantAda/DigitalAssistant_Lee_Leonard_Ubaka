@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FileText, Users, MessageSquare, AlertCircle, Settings } from 'lucide-react';
 import WorkspaceSettings from './WorkspaceSettings';
+import { getApiErrorMessage, parseApiErrorMessage } from '../utils/apiError';
 import './WorkspaceDetail.css';
 
 function WorkspaceDetail() {
@@ -69,7 +70,10 @@ function WorkspaceDetail() {
           headers: { Authorization: `Bearer ${token}` },
         });
         
-        if (!response.ok) throw new Error('Failed to fetch workspace');
+        if (!response.ok) {
+          const message = await getApiErrorMessage(response, 'Failed to fetch workspace');
+          throw new Error(message);
+        }
         const data = await response.json();
         setWorkspace(data);
       } catch (err) {
@@ -206,7 +210,7 @@ function WorkspaceDetail() {
 
       if (!response.ok) {
         const errData = await response.json().catch(() => null);
-        setInviteMessage(errData?.detail || 'Failed to invite member.');
+        setInviteMessage(parseApiErrorMessage(errData, 'Failed to invite member.'));
         return;
       }
 

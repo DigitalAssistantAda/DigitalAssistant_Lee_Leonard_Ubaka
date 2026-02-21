@@ -1,14 +1,78 @@
 """
 Middleware for authorization and request logging
 """
-from fastapi import Request, HTTPException, status
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
-from functools import wraps
-from typing import Optional
+import json
 import logging
+import time
+from functools import wraps
 
-logger = logging.getLogger(__name__)
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from errors import error_payload
+
+logger = logging.getLogger("app.request")
+if not logger.handlers:
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(stream_handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+
+class SafeRequestLogMiddleware(BaseHTTPMiddleware):
+    SENSITIVE_HEADERS = {"authorization", "cookie", "set-cookie"}
+    HEADER_ALLOWLIST = {"x-request-id", "request-id", "user-agent", "content-type", "accept", "host"}
+
+    def _get_request_id(self, request: Request) -> str | None:
+        request_id = getattr(request.state, "request_id", None)
+        if request_id:
+            return str(request_id)
+        return request.headers.get("x-request-id") or request.headers.get("request-id")
+
+    def _sanitize_headers(self, request: Request) -> dict[str, str]:
+        safe_headers: dict[str, str] = {}
+        for header_name, header_value in request.headers.items():
+            header_name_lower = header_name.lower()
+            if header_name_lower in self.SENSITIVE_HEADERS:
+                safe_headers[header_name_lower] = "[REDACTED]"
+            elif header_name_lower in self.HEADER_ALLOWLIST:
+                safe_headers[header_name_lower] = header_value
+        return safe_headers
+
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.perf_counter()
+        request_id = self._get_request_id(request)
+        headers = self._sanitize_headers(request)
+
+        try:
+            response = await call_next(request)
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            log_payload = {
+                "event": "http_request",
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "elapsed_ms": elapsed_ms,
+                "request_id": request_id,
+                "headers": headers,
+            }
+            logger.info(json.dumps(log_payload, default=str))
+            return response
+        except Exception:
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            log_payload = {
+                "event": "http_request_error",
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                "elapsed_ms": elapsed_ms,
+                "request_id": request_id,
+                "headers": headers,
+            }
+            logger.exception(json.dumps(log_payload, default=str))
+            raise
 
 
 async def authorization_middleware(request: Request, call_next):
@@ -43,14 +107,14 @@ async def authorization_middleware(request: Request, call_next):
         if not auth_header:
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"detail": "Missing authorization header"}
+                content=error_payload("UNAUTHORIZED", "Unauthorized access."),
             )
         
         # Token should be in format: "Bearer <token>"
         if not auth_header.startswith("Bearer "):
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"detail": "Invalid authorization header format"}
+                content=error_payload("UNAUTHORIZED", "Unauthorized access."),
             )
     
     response = await call_next(request)
@@ -73,16 +137,3 @@ def require_auth(func):
         # This decorator just marks the endpoint as requiring it
         return await func(*args, **kwargs)
     return wrapper
-
-
-async def log_request_middleware(request: Request, call_next):
-    """
-    Log HTTP request for debugging and monitoring.
-    """
-    response = await call_next(request)
-    logger.info(
-        f"{request.method} {request.url.path} - "
-        f"Status: {response.status_code} - "
-        f"User: {request.headers.get('x-user-id', 'anonymous')}"
-    )
-    return response

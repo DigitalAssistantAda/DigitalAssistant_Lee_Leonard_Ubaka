@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { X, Plus, Trash2 } from 'lucide-react';
+import { getApiErrorMessage } from '../utils/apiError';
 import './WorkspaceSettings.css';
 
 function WorkspaceSettings({ workspaceId, onClose }) {
@@ -50,21 +51,27 @@ function WorkspaceSettings({ workspaceId, onClose }) {
       const wsResponse = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
-      if (wsResponse.ok) {
-        const wsData = await wsResponse.json();
-        setWorkspace(wsData);
-        setNewName(wsData.name);
-        setWorkspaceAccent(wsData.accent_color || '');
+      if (!wsResponse.ok) {
+        const message = await getApiErrorMessage(wsResponse, 'Failed to load workspace settings');
+        setError(message);
+        return;
       }
+      const wsData = await wsResponse.json();
+      setWorkspace(wsData);
+      setNewName(wsData.name);
+      setWorkspaceAccent(wsData.accent_color || '');
 
       // Fetch members
       const membersResponse = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}/members`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
-      if (membersResponse.ok) {
-        const membersData = await membersResponse.json();
-        setMembers(membersData.items || []);
+      if (!membersResponse.ok) {
+        const message = await getApiErrorMessage(membersResponse, 'Failed to load workspace members');
+        setError(message);
+        return;
       }
+      const membersData = await membersResponse.json();
+      setMembers(membersData.items || []);
 
     } catch (err) {
       setError('Failed to load workspace settings');
@@ -84,11 +91,14 @@ function WorkspaceSettings({ workspaceId, onClose }) {
         },
         body: JSON.stringify({ name: newName }),
       });
-      if (response.ok) {
-        const updated = await response.json();
-        setWorkspace(updated);
-        setEditingName(false);
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to update workspace name');
+        setError(message);
+        return;
       }
+      const updated = await response.json();
+      setWorkspace(updated);
+      setEditingName(false);
     } catch (err) {
       setError('Failed to update workspace name');
       console.error(err);
@@ -110,14 +120,14 @@ function WorkspaceSettings({ workspaceId, onClose }) {
           accent_color: workspaceAccent || null,
         }),
       });
-      if (response.ok) {
-        const updated = await response.json();
-        setWorkspace(updated);
-        setWorkspaceAccent(updated.accent_color || '');
-      } else {
-        const errData = await response.json();
-        setError(errData.detail || 'Failed to update workspace accent');
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to update workspace accent');
+        setError(message);
+        return;
       }
+      const updated = await response.json();
+      setWorkspace(updated);
+      setWorkspaceAccent(updated.accent_color || '');
     } catch (err) {
       setError('Failed to update workspace accent');
       console.error(err);
@@ -144,16 +154,16 @@ function WorkspaceSettings({ workspaceId, onClose }) {
           role: inviteRole,
         }),
       });
-      if (response.ok) {
-        const newMember = await response.json();
-        setMembers([...members, newMember]);
-        setInviteEmail('');
-        setInviteRole('member');
-        setShowInviteModal(false);
-      } else {
-        const errData = await response.json();
-        setError(errData.detail || 'Failed to add member');
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to add member');
+        setError(message);
+        return;
       }
+      const newMember = await response.json();
+      setMembers([...members, newMember]);
+      setInviteEmail('');
+      setInviteRole('member');
+      setShowInviteModal(false);
     } catch (err) {
       setError('Failed to add member');
       console.error(err);
@@ -168,9 +178,12 @@ function WorkspaceSettings({ workspaceId, onClose }) {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });
-      if (response.ok) {
-        setMembers(members.filter((m) => m.user_id !== userId));
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to remove member');
+        setError(message);
+        return;
       }
+      setMembers(members.filter((m) => m.user_id !== userId));
     } catch (err) {
       setError('Failed to remove member');
       console.error(err);
@@ -187,10 +200,13 @@ function WorkspaceSettings({ workspaceId, onClose }) {
         },
         body: JSON.stringify({ role: newRole }),
       });
-      if (response.ok) {
-        const updated = await response.json();
-        setMembers(members.map((m) => (m.user_id === userId ? updated : m)));
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to update role');
+        setError(message);
+        return;
       }
+      const updated = await response.json();
+      setMembers(members.map((m) => (m.user_id === userId ? updated : m)));
     } catch (err) {
       setError('Failed to update role');
       console.error(err);

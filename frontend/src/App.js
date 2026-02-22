@@ -15,6 +15,7 @@ import Search from './pages/Search';
 import Summaries from './pages/Summaries';
 import AIAssistant from './pages/AIAssistant';
 import UserSettings from './pages/UserSettings';
+import Notifications from './pages/Notifications';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -404,7 +405,12 @@ function App() {
             path="/settings"
             element={user ? <UserSettings /> : <Navigate to="/login" />}
           />
+          <Route 
+            path="/notifications" 
+            element={user ? <Notifications /> : <Navigate to="/login" />} 
+          />
         </Routes>
+        
       </div>
     </Router>
   );

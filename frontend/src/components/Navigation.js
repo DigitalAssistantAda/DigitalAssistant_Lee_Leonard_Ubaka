@@ -7,6 +7,7 @@ function Navigation({ user, onLogout }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);  // ADD THIS
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -84,6 +85,7 @@ function Navigation({ user, onLogout }) {
               className="nav-icon" 
               title="Notifications"
               aria-label="Notifications"
+              onClick={() => navigate('/notifications')}
             >
               <Bell size={20} />
             </button>

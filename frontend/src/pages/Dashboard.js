@@ -53,6 +53,26 @@ function Dashboard() {
     fetchDashboardData();
   }, []);
 
+    // Refetch activity when filter changes
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
+    fetch(`${API_URL}/api/v1/dashboard/activity?limit=8${filterParam}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (data) {
+          setRecentActivity(data.items || []);
+        }
+      })
+      .catch(err => console.error('Error fetching filtered activity:', err));
+  }, [activityFilter]);
+
   const fetchDashboardData = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -84,8 +104,9 @@ function Dashboard() {
         });
       }
 
-      // Fetch recent activity
-      const activityResponse = await fetch(`${API_URL}/api/v1/dashboard/activity?limit=8`, {
+    // Fetch recent activity (will update based on filter selection)
+      const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
+      const activityResponse = await fetch(`${API_URL}/api/v1/dashboard/activity?limit=8${filterParam}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -160,23 +181,10 @@ function Dashboard() {
     });
   }, [recentActivity]);
 
-  const filteredActivity = useMemo(() => {
-    const base = recentActivity.filter((activity) => !isAuthAction(activity.action));
-    if (activityFilter === 'all') return base;
-    if (activityFilter === 'documents') {
-      return base.filter((activity) => activity.action?.startsWith('document.'));
-    }
-    if (activityFilter === 'searches') {
-      return base.filter((activity) => activity.type === 'search' || activity.action === 'document.viewed');
-    }
-    if (activityFilter === 'summaries') {
-      return base.filter((activity) => activity.type === 'summary' || activity.action?.startsWith('summary.'));
-    }
-    if (activityFilter === 'workspaces') {
-      return base.filter((activity) => activity.action?.startsWith('workspace.'));
-    }
-    return base;
-  }, [recentActivity, activityFilter]);
+      const filteredActivity = useMemo(() => {
+    // Backend already filters, just exclude auth actions for all tab
+    return recentActivity.filter((activity) => !isAuthAction(activity.action));
+  }, [recentActivity]);
 
   // recentActivity now comes from API
 
@@ -537,25 +545,38 @@ function Dashboard() {
                     <button className={`filter-btn ${activityFilter === 'workspaces' ? 'active' : ''}`} onClick={() => setActivityFilter('workspaces')}>Workspaces</button>
                   </div>
                 </div>
-                <div className="activity-timeline">
-                  {filteredActivity.map((activity, index) => (
-                    <div key={index} className="timeline-item">
-                      <div 
-                        className={`timeline-marker ${getActivityStatusClass(activity.status)}`}
-                      >
-                        <span className={`timeline-icon ${getActivityStatusClass(activity.status)}`}>
-                          {getActivityIcon(activity.type)}
-                        </span>
-                      </div>
-                      <div className="timeline-content">
-                        <div className="timeline-title">{activity.title}</div>
-                        <div className="timeline-meta">
-                          <span>{activity.meta}</span>
-                          <span className="timeline-time">{activity.time}</span>
+                                <div className="activity-timeline">
+                  {(() => {
+                    const today = new Date();
+                    const monthDay = today.toLocaleDateString('en-US', { 
+                      month: 'long', 
+                      day: 'numeric'
+                    });
+                    
+                    return [
+                      <div key="header" className="activity-month-header">
+                        {monthDay}
+                      </div>,
+                      ...filteredActivity.map((activity, index) => (
+                        <div key={`item-${index}`} className="timeline-item">
+                          <div 
+                            className={`timeline-marker ${getActivityStatusClass(activity.status)}`}
+                          >
+                            <span className={`timeline-icon ${getActivityStatusClass(activity.status)}`}>
+                              {getActivityIcon(activity.type)}
+                            </span>
+                          </div>
+                          <div className="timeline-content">
+                            <div className="timeline-username">{activity.username || 'User'}</div>
+                            <div className="timeline-action-description">
+                              {activity.action || activity.title}
+                            </div>
+                          </div>
+                          <div className="timeline-time-right">{activity.time}</div>
                         </div>
-                      </div>
-                    </div>
-                  ))}
+                      ))
+                    ];
+                  })()}
                 </div>
               </div>
             </div>

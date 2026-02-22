@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
+from docx import Document as DocxDocument
+from fastapi.responses import PlainTextResponse, StreamingResponse
+from io import BytesIO
 import os
 import re
 import uuid
@@ -13,6 +16,8 @@ from models.document import Document, DocumentStatus
 from models.container import Container
 from models.document_chunk import DocumentChunk
 from models.chunk_embedding import ChunkEmbedding
+from models.document_deletion_request import DocumentDeletionRequest, DeletionRequestStatus
+from schemas.document import DocumentDeletionRequestResponse, DocumentDeletionRequestListResponse
 from models.document_hint import DocumentHint
 from models.document_duplicate import DocumentDuplicate
 from models.summary import Summary
@@ -370,6 +375,7 @@ async def download_document(
         },
         workspace_id=document.workspace_id
     )
+
     
     # TODO: Generate actual pre-signed URL from S3/MinIO
     # For now, return a placeholder
@@ -380,6 +386,333 @@ async def download_document(
         expires_at=expires_at
     )
 
+@router.get("/documents/{document_id}/content")
+async def get_document_content(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get raw text content from TXT or DOCX files"""
+    
+    doc = check_document_access(current_user, document_id, db)
+    if doc.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    try:
+        bucket, path = _parse_storage_uri(doc.storage_uri)
+        file_content = await storage.download(bucket=bucket, path=path)
+        
+        if doc.filename.lower().endswith('.txt'):
+            content = file_content.decode('utf-8')
+            return PlainTextResponse(content)
+        
+        elif doc.filename.lower().endswith('.docx'):
+            from io import BytesIO
+            # Convert bytes to file-like object
+            file_stream = BytesIO(file_content)
+            docx_doc = DocxDocument(file_stream)
+            content = '\n'.join([paragraph.text for paragraph in docx_doc.paragraphs])
+            return PlainTextResponse(content)
+        
+        else:
+            raise HTTPException(status_code=400, detail="File type not supported for preview")
+    
+    except Exception as e:
+        logger.error(f"Error reading document {document_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+
+@router.get("/documents/{document_id}/preview")
+async def preview_document(
+    document_id: int,
+    token: str = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Preview document - returns file for iframe"""
+    
+    doc = check_document_access(current_user, document_id, db)
+    if doc.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    try:
+        bucket, path = _parse_storage_uri(doc.storage_uri)
+        file_content = await storage.download(bucket=bucket, path=path)
+        
+        return StreamingResponse(
+            iter([file_content]),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"inline; filename={doc.filename}",
+                "Cache-Control": "no-cache",
+                "Content-Type": "application/pdf"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error previewing document {document_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+    
+# NEW ENDPOINT: Request deletion (if not owner)
+@router.post("/documents/{document_id}/deletion-request", response_model=DocumentDeletionRequestResponse)
+async def request_document_deletion(
+    document_id: int,
+    reason: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Request approval to delete another user's document"""
+    
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Can't request deletion of own document
+    if document.uploaded_by == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You can delete your own documents directly"
+        )
+    
+    # Check if request already pending
+    existing = db.query(DocumentDeletionRequest).filter(
+        DocumentDeletionRequest.document_id == document_id,
+        DocumentDeletionRequest.requested_by == current_user.id,
+        DocumentDeletionRequest.status == DeletionRequestStatus.PENDING
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You already have a pending deletion request for this document"
+        )
+    
+    # Create deletion request
+    deletion_request = DocumentDeletionRequest(
+        document_id=document_id,
+        requested_by=current_user.id,
+        document_owner=document.uploaded_by,
+        reason=reason
+    )
+    db.add(deletion_request)
+    db.commit()
+    db.refresh(deletion_request)
+    
+    # Log action
+    create_audit_log(
+        db,
+        current_user,
+        action=AuditActions.DOCUMENT_DELETION_REQUESTED,
+        object_type="document",
+        object_id=document_id,
+        metadata={
+            "document_name": document.filename,
+            "reason": reason or "No reason provided",
+            "workspace_id": document.workspace_id
+        },
+        workspace_id=document.workspace_id
+    )
+    
+    return DocumentDeletionRequestResponse.model_validate(deletion_request)
+
+
+# NEW ENDPOINT: Get deletion requests for a document
+@router.get("/documents/{document_id}/deletion-requests", response_model=DocumentDeletionRequestListResponse)
+async def get_deletion_requests(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get pending deletion requests for a document (owner only)"""
+    
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Only document owner can see requests
+    if document.uploaded_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the document owner can view deletion requests"
+        )
+    
+    requests = db.query(DocumentDeletionRequest).filter(
+        DocumentDeletionRequest.document_id == document_id
+    ).order_by(DocumentDeletionRequest.created_at.desc()).all()
+    
+    return DocumentDeletionRequestListResponse(
+        items=[DocumentDeletionRequestResponse.model_validate(r) for r in requests]
+    )
+
+
+# NEW ENDPOINT: Approve deletion request
+@router.post("/documents/{document_id}/deletion-requests/{request_id}/approve", response_model=DocumentDeletionRequestResponse)
+async def approve_deletion_request(
+    document_id: int,
+    request_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Approve a deletion request and delete the document"""
+    
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Only owner can approve
+    if document.uploaded_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the document owner can approve deletion requests"
+        )
+    
+    deletion_request = db.query(DocumentDeletionRequest).filter(
+        DocumentDeletionRequest.id == request_id,
+        DocumentDeletionRequest.document_id == document_id
+    ).first()
+    
+    if not deletion_request:
+        raise HTTPException(status_code=404, detail="Deletion request not found")
+    
+    if deletion_request.status != DeletionRequestStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Request is already {deletion_request.status}"
+        )
+    
+    # Update request status
+    deletion_request.status = DeletionRequestStatus.APPROVED
+    deletion_request.responded_at = datetime.now(timezone.utc)
+    db.commit()
+    
+    # Now delete the document
+    requester = db.query(User).filter(User.id == deletion_request.requested_by).first()
+    workspace_id = document.workspace_id
+    filename = document.filename
+    bucket, path = _parse_storage_uri(document.storage_uri)
+    
+    try:
+        # Delete all associated data (same as delete endpoint)
+        chunk_ids = [row[0] for row in db.query(DocumentChunk.id).filter(
+            DocumentChunk.document_id == document_id
+        ).all()]
+        
+        if chunk_ids:
+            db.query(ChunkEmbedding).filter(
+                ChunkEmbedding.chunk_id.in_(chunk_ids)
+            ).delete(synchronize_session=False)
+        
+        db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document_id
+        ).delete(synchronize_session=False)
+        
+        db.query(DocumentHint).filter(
+            DocumentHint.document_id == document_id
+        ).delete(synchronize_session=False)
+        
+        db.query(Job).filter(
+            Job.document_id == document_id
+        ).delete(synchronize_session=False)
+        
+        db.query(EmbeddingJob).filter(
+            EmbeddingJob.document_id == document_id
+        ).delete(synchronize_session=False)
+        
+        db.query(Summary).filter(
+            Summary.document_id == document_id
+        ).update({Summary.document_id: None}, synchronize_session=False)
+        
+        db.query(DocumentDuplicate).filter(
+            DocumentDuplicate.duplicate_of_id == document_id
+        ).update({DocumentDuplicate.duplicate_of_id: None}, synchronize_session=False)
+        
+        db.query(DocumentDuplicate).filter(
+            DocumentDuplicate.document_id == document_id
+        ).delete(synchronize_session=False)
+        
+        db.delete(document)
+        db.flush()
+        await storage.delete(bucket=bucket, path=path)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete document: {str(e)}"
+        )
+    
+    # Log action
+    create_audit_log(
+        db,
+        current_user,
+        action=AuditActions.DOCUMENT_DELETION_APPROVED,
+        object_type="document",
+        object_id=document_id,
+        metadata={
+            "document_name": filename,
+            "approved_for_user": requester.username if requester else "Unknown",
+            "workspace_id": workspace_id
+        },
+        workspace_id=workspace_id
+    )
+    
+    return DocumentDeletionRequestResponse.model_validate(deletion_request)
+
+
+# NEW ENDPOINT: Deny deletion request
+@router.post("/documents/{document_id}/deletion-requests/{request_id}/deny", response_model=DocumentDeletionRequestResponse)
+async def deny_deletion_request(
+    document_id: int,
+    request_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Deny a deletion request"""
+    
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=404, detail="Document not found")
+    
+    # Only owner can deny
+    if document.uploaded_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the document owner can deny deletion requests"
+        )
+    
+    deletion_request = db.query(DocumentDeletionRequest).filter(
+        DocumentDeletionRequest.id == request_id,
+        DocumentDeletionRequest.document_id == document_id
+    ).first()
+    
+    if not deletion_request:
+        raise HTTPException(status_code=404, detail="Deletion request not found")
+    
+    if deletion_request.status != DeletionRequestStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Request is already {deletion_request.status}"
+        )
+    
+    deletion_request.status = DeletionRequestStatus.DENIED
+    deletion_request.responded_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(deletion_request)
+    
+    # Log action
+    create_audit_log(
+        db,
+        current_user,
+        action=AuditActions.DOCUMENT_DELETION_DENIED,
+        object_type="document",
+        object_id=document_id,
+        metadata={
+            "document_name": document.filename,
+            "denied_for_user_id": deletion_request.requested_by,
+            "workspace_id": document.workspace_id
+        },
+        workspace_id=document.workspace_id
+    )
+    
+    return DocumentDeletionRequestResponse.model_validate(deletion_request)    
 
 @router.delete("/documents/{document_id}", response_model=SuccessResponse)
 async def delete_document(
@@ -387,9 +720,19 @@ async def delete_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Permanently deletes a document and associated data"""
+    """Permanently deletes a document (owner only)"""
     
     document = check_document_access(current_user, document_id, db)
+    
+    # Only owner can delete directly
+    if document.uploaded_by != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the document owner can delete. Request approval from the owner."
+        )
+    
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     # Get document details for audit log before deletion
     workspace_id = document.workspace_id
@@ -463,3 +806,5 @@ async def delete_document(
     )
     
     return SuccessResponse()
+
+

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, MoreVertical } from 'lucide-react';
+import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, MoreVertical, Eye } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import './Documents.css';
 
@@ -33,6 +33,8 @@ function Documents() {
   const fileInputRef = useRef(null);
   const [uploadFiles, setUploadFiles] = useState([]); // Changed from uploadFile to uploadFiles (array)
   const [uploadProgress, setUploadProgress] = useState({}); // Track progress per file
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const currentUserId = useMemo(() => {
@@ -46,6 +48,175 @@ function Documents() {
       return null;
     }
   }, []);
+
+// TXT Preview Component
+function TxtPreview({ docId }) {
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+  useEffect(() => {
+    const loadTxt = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setError('Authentication required');
+          setLoading(false);
+          return;
+        }
+        
+        const response = await fetch(
+          `${API_URL}/api/v1/documents/${docId}/content`,
+          {
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || `Failed to load file (${response.status})`);
+        }
+
+        const text = await response.text();
+        setContent(text);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadTxt();
+  }, [docId]);
+
+  if (loading) return <div className="preview-loading">Loading...</div>;
+  if (error) return <div className="preview-error">{error}</div>;
+
+  return (
+    <pre className="txt-preview">
+      {content}
+    </pre>
+  );
+}
+
+// DOCX Preview Component
+function DocxPreview({ docId }) {
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+  useEffect(() => {
+    const loadDocx = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setError('Authentication required');
+          setLoading(false);
+          return;
+        }
+        
+        const response = await fetch(
+          `${API_URL}/api/v1/documents/${docId}/content`,
+          {
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+          }
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.detail || `Failed to load file (${response.status})`);
+        }
+
+        const text = await response.text();
+        setContent(text);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadDocx();
+  }, [docId]);
+
+  if (loading) return <div className="preview-loading">Loading...</div>;
+  if (error) return <div className="preview-error">{error}</div>;
+
+  return (
+    <div className="docx-preview">
+      {content}
+    </div>
+  );
+}
+
+// PDF Preview Component
+// PDF Preview Component
+function PdfPreview({ docId }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+  useEffect(() => {
+    const loadPdf = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          setError('Authentication required');
+          setLoading(false);
+          return;
+        }
+
+        const response = await fetch(
+          `${API_URL}/api/v1/documents/${docId}/preview`,
+          {
+            headers: { 
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to load PDF (${response.status})`);
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        setPdfUrl(url);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadPdf();
+
+    return () => {
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    };
+  }, [docId]);
+
+  if (loading) return <div className="preview-loading">Loading PDF...</div>;
+  if (error) return <div className="preview-error">{error}</div>;
+
+  return (
+    <iframe
+      src={pdfUrl}
+      className="preview-iframe"
+      title="PDF Preview"
+      style={{ width: '100%', height: '100%' }}
+    />
+  );
+}
 
   useEffect(() => {
     fetchWorkspaces();
@@ -65,7 +236,7 @@ function Documents() {
               type: container?.type || 'user',
             }))
           : [];
-        setCreatedContainers(normalized);
+    setCreatedContainers(normalized);
       } catch (err) {
         console.error('Error loading saved containers:', err);
       }
@@ -386,6 +557,33 @@ const handleCreateContainer = async (e) => {
     }
   };
 
+  const handleRequestDeletion = async (docId, docFilename) => {
+  const reason = prompt(`Request deletion of "${docFilename}"?\n\nOptional: Add a reason for the request:`, '');
+  
+  if (reason === null) return; // User cancelled
+  
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(
+      `${API_URL}/api/v1/documents/${docId}/deletion-request?reason=${encodeURIComponent(reason || '')}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || 'Failed to request deletion');
+    }
+
+    setSuccessMessage(`Deletion request sent to document owner`);
+    setTimeout(() => setSuccessMessage(null), 3000);
+  } catch (err) {
+    setError(err.message);
+  }
+};
+
   const handleBulkDelete = async () => {
     if (selectedDocuments.size === 0) return;
     const count = selectedDocuments.size;
@@ -583,7 +781,7 @@ const handleCreateContainer = async (e) => {
 
 
     // Otherwise call backend delete endpoint. Use workspace-scoped path if selectedWorkspace is set
-      const handleDeleteContainer = async (containerId) => {
+    const handleDeleteContainer = async (containerId) => {
     if (!window.confirm('Delete this container?')) return;
 
     // If this is a local-only placeholder, just remove it
@@ -661,10 +859,15 @@ const handleCreateContainer = async (e) => {
   };
 
   const handleClearUploadForm = () => {
-  setUploadFiles([]);
-  setUploadProgress({});
-  setError(null);
-};
+    setUploadFiles([]);
+    setUploadProgress({});
+    setError(null);
+  };
+
+  const handleDocumentDoubleClick = (doc) => {
+    setPreviewDocument(doc);
+    setShowPreviewModal(true);
+  };
 
   const blockedNames = new Set([
     'component library v2.3.fig',
@@ -988,7 +1191,7 @@ const handleCreateContainer = async (e) => {
                 <div className="col-opened">Opened</div>
                 <div className="col-actions"></div>
               </div>
-                            {sortedFolderDocuments.map((doc) => {
+                {sortedFolderDocuments.map((doc) => {
                 return (
                   <div
                     key={doc.id}
@@ -1009,7 +1212,18 @@ const handleCreateContainer = async (e) => {
                     <div className="col-size">{doc.size_bytes ? `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB` : doc.size || '-'}</div>
                     <div className="col-modified">{new Date(doc.created_at).toLocaleDateString()}</div>
                     <div className="col-opened">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>
-                    <div className="col-actions">
+                                        <div className="col-actions">
+                      <button
+                        className="action-menu"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDocumentDoubleClick(doc);
+                        }}
+                        title="Preview document"
+                        aria-label={`Preview ${doc.filename}`}
+                      >
+                        <Eye size={18} />
+                      </button>
                       <button
                         className="action-menu"
                         onClick={(event) => {
@@ -1021,17 +1235,31 @@ const handleCreateContainer = async (e) => {
                       >
                         <Download size={18} />
                       </button>
-                      <button 
-                        className="action-menu delete-btn"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDeleteFolderDocument(doc.id);
-                        }}
-                        title="Delete document"
-                        aria-label={`Delete ${doc.filename}`}
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      {doc.uploaded_by === currentUserId ? (
+                        <button 
+                          className="action-menu delete-btn"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteFolderDocument(doc.id);
+                          }}
+                          title="Delete document"
+                          aria-label={`Delete ${doc.filename}`}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      ) : (
+                        <button 
+                          className="action-menu request-deletion-btn"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleRequestDeletion(doc.id, doc.filename);
+                          }}
+                          title="Request deletion from owner"
+                          aria-label={`Request deletion of ${doc.filename}`}
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1118,8 +1346,40 @@ const handleCreateContainer = async (e) => {
                       multiple
                       style={{ display: 'none' }}
                       required={uploadFiles.length === 0}
-                    />
-                  </div>
+                  />
+                </div>
+                  {uploadFiles.length > 0 && (
+                    <div className="selected-files">
+                      <div className="selected-files-header">
+                        <h4>Selected Files ({uploadFiles.length}/5):</h4>
+                        {uploadFiles.length === 5 && (
+                          <span className="limit-reached-badge">Limit reached</span>
+                        )}
+                      </div>
+                      <ul>
+                        {uploadFiles.map((file, idx) => (
+                          <li key={idx} className="file-item">
+                            <span>{file.name}</span>
+                            <span className="file-size">
+                              {(file.size / 1024 / 1024).toFixed(2)} MB
+                            </span>
+                            <button
+                              type="button"
+                              className="remove-file-btn"
+                              onClick={() => {
+                                const newFiles = uploadFiles.filter((_, i) => i !== idx);
+                                setUploadFiles(newFiles);
+                              }}
+                              title="Remove file"
+                              aria-label={`Remove ${file.name}`}
+                            >
+                              ✕
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -1150,6 +1410,51 @@ const handleCreateContainer = async (e) => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+        {/* Document Preview Modal */}
+        {showPreviewModal && previewDocument && (
+          <div className="modal-overlay" onClick={() => setShowPreviewModal(false)}>
+            <div className="preview-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="preview-header">
+                <h2>{previewDocument.filename}</h2>
+                <button
+                  className="modal-close"
+                  onClick={() => setShowPreviewModal(false)}
+                  aria-label="Close preview"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="preview-content">
+                {previewDocument.filename.toLowerCase().endsWith('.pdf') ? (
+                  <PdfPreview docId={previewDocument.id} />
+                ) : previewDocument.filename.toLowerCase().endsWith('.txt') ? (
+                  <TxtPreview docId={previewDocument.id} />
+                ) : previewDocument.filename.toLowerCase().endsWith('.docx') ? (
+                  <DocxPreview docId={previewDocument.id} />
+                ) : (
+                  <div className="preview-text-wrapper">
+                    <p className="preview-placeholder">
+                      Preview not available for this file type
+                    </p>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => handleDownloadDocument(previewDocument.id, previewDocument.filename)}
+                    >
+                      <Download size={18} />
+                      Download to view
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="preview-footer">
+                <span>{(previewDocument.size_bytes / 1024 / 1024).toFixed(2)} MB</span>
+                <span>{new Date(previewDocument.created_at).toLocaleDateString()}</span>
+              </div>
             </div>
           </div>
         )}
@@ -1398,44 +1703,45 @@ const handleCreateContainer = async (e) => {
                     multiple
                     style={{ display: 'none' }}
                     required={uploadFiles.length === 0}
-                  />
-                </div>
-                {uploadFiles.length > 0 && (
-                  <div className="selected-files">
-                    <div className="selected-files-header">
-                      <h4>Selected Files ({uploadFiles.length}/5):</h4>
-                      {uploadFiles.length === 5 && (
-                        <span className="limit-reached-badge">Limit reached</span>
-                      )}
-                    </div>
-                    <ul>
-                      {uploadFiles.map((file, idx) => (
-                        <li key={idx} className="file-item">
-                          <span>{file.name}</span>
-                          <span className="file-size">
-                            {(file.size / 1024 / 1024).toFixed(2)} MB
-                          </span>
-                          <button
-                            type="button"
-                            className="remove-file-btn"
-                            onClick={() => {
-                              const newFiles = uploadFiles.filter((_, i) => i !== idx);
-                              setUploadFiles(newFiles);
-                            }}
-                            title="Remove file"
-                            aria-label={`Remove ${file.name}`}
-                          >
-                            ✕
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                                      />
                   </div>
-                )}
-              </div>
 
-              <div className="form-group">
-                <label htmlFor="tags-input">Tags (coming soon)</label>
+                  {uploadFiles.length > 0 && (
+                    <div className="selected-files">
+                      <div className="selected-files-header">
+                        <h4>Selected Files ({uploadFiles.length}/5):</h4>
+                        {uploadFiles.length === 5 && (
+                          <span className="limit-reached-badge">Limit reached</span>
+                        )}
+                      </div>
+                      <ul>
+                        {uploadFiles.map((file, idx) => (
+                          <li key={idx} className="file-item">
+                            <span>{file.name}</span>
+                            <span className="file-size">
+                              {(file.size / 1024 / 1024).toFixed(2)} MB
+                            </span>
+                            <button
+                              type="button"
+                              className="remove-file-btn"
+                              onClick={() => {
+                                const newFiles = uploadFiles.filter((_, i) => i !== idx);
+                                setUploadFiles(newFiles);
+                              }}
+                              title="Remove file"
+                              aria-label={`Remove ${file.name}`}
+                            >
+                              ✕
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="folder-tags-input">Tags (coming soon)</label>
                 <input 
                   id="tags-input"
                   type="text" 

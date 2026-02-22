@@ -173,6 +173,10 @@ class AuditActions:
     DOCUMENT_DELETED = "document.deleted"
     DOCUMENT_DOWNLOADED = "document.downloaded"
     DOCUMENT_SHARED = "document.shared"
+    DOCUMENT_UPDATED = "document.updated"
+    DOCUMENT_DELETION_REQUESTED = "document.deletion_requested"
+    DOCUMENT_DELETION_APPROVED = "document.deletion_approved"
+    DOCUMENT_DELETION_DENIED = "document.deletion_denied"
     
     # Search actions
     SEARCH_PERFORMED = "search.performed"

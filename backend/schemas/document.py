@@ -30,3 +30,24 @@ class UpdateDocumentRequest(BaseModel):
 class DownloadResponse(BaseModel):
     url: str
     expires_at: datetime
+
+class DocumentDeletionRequestResponse(BaseModel):
+    id: int
+    document_id: int
+    requested_by: int
+    document_owner: int
+    reason: Optional[str] = None
+    status: str  # "pending", "approved", "denied", "cancelled"
+    created_at: datetime
+    responded_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class DocumentDeletionRequestListResponse(BaseModel):
+    items: List[DocumentDeletionRequestResponse]
+
+
+class RequestDeletionRequest(BaseModel):
+    reason: Optional[str] = None

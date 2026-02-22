@@ -4,6 +4,12 @@ from pydantic import BaseModel
 import os
 from database import init_db
 from middleware import authorization_middleware, log_request_middleware
+
+from models.user import User
+from models.document import Document
+from models.container import Container
+from models.workspace import Workspace, WorkspaceMember
+
 from api import (
     auth_router,
     users_router,

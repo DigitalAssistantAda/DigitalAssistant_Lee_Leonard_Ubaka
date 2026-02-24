@@ -4,7 +4,7 @@ from pydantic import BaseModel
 import os
 from database import init_db
 
-from middleware import authorization_middleware, log_request_middleware
+#from middleware import authorization_middleware, log_request_middleware
 
 from models.user import User
 from models.document import Document
@@ -31,7 +31,7 @@ from api.dashboard import router as dashboard_router
 from api.messages import router as messages_router
 from api.tasks import router as tasks_router
 from api.conversations import router as conversations_router
-from api.embeddings import router as embeddings_router
+#from api.embeddings import router as embeddings_router
 from api.deletion_requests import router as deletion_requests_router
 
 app = FastAPI(
@@ -103,5 +103,4 @@ app.include_router(tasks_router, prefix="/api/v1")
 app.include_router(embeddings_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(webhooks_router)
-app.include_router(deletion_requests_router, prefix="/api/v1")
 app.include_router(deletion_requests_router, prefix="/api/v1")

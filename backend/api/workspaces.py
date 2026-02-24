@@ -18,6 +18,7 @@ from schemas.workspace import (
 )
 from schemas.auth import SuccessResponse
 from utils.auth import get_current_user, create_audit_log
+from utils.authorization import require_workspace_access, check_workspace_access
 from errors import AppError
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])

@@ -3,18 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 from database import init_db
-<<<<<<< HEAD
-from middleware import authorization_middleware, log_request_middleware
+from errors import register_exception_handlers
+from middleware import authorization_middleware, SafeRequestLogMiddleware
 
 from models.user import User
 from models.document import Document
 from models.container import Container
 from models.workspace import Workspace, WorkspaceMember
 
-=======
-from errors import register_exception_handlers
-from middleware import authorization_middleware, SafeRequestLogMiddleware
->>>>>>> origin/safe-error-handling
 from api import (
     auth_router,
     users_router,

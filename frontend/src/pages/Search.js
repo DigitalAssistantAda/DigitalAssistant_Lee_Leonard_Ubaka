@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Search.css';
 
 function Search() {
@@ -60,7 +61,8 @@ function Search() {
       });
 
       if (!response.ok) {
-        throw new Error('Search failed');
+        const message = await getApiErrorMessage(response, 'Search failed');
+        throw new Error(message);
       }
 
       const data = await response.json();

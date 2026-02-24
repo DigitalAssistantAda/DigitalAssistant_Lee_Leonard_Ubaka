@@ -27,9 +27,12 @@ async def extract_text_from_storage(document: Document) -> str:
     if not document.storage_uri:
         return ""
 
-    bucket, path = _parse_storage_uri(document.storage_uri)
-    storage = get_storage_backend()
-    data = await storage.download(bucket=bucket, path=path)
+    try:
+        bucket, path = _parse_storage_uri(document.storage_uri)
+        storage = get_storage_backend()
+        data = await storage.download(bucket=bucket, path=path)
+    except Exception as exc:
+        raise ValueError("Document content could not be processed.") from exc
 
     if not data:
         return ""
@@ -38,17 +41,23 @@ async def extract_text_from_storage(document: Document) -> str:
         return data.decode("utf-8", errors="ignore")
 
     if document.mime_type == "application/pdf":
-        reader = PdfReader(BytesIO(data))
-        return "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+        try:
+            reader = PdfReader(BytesIO(data))
+            return "\n".join((page.extract_text() or "") for page in reader.pages).strip()
+        except Exception as exc:
+            raise ValueError("Document content could not be processed.") from exc
 
     if document.mime_type in {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/msword",
     }:
         if document.mime_type == "application/msword":
-            raise ValueError("Legacy .doc files are not supported")
+            raise ValueError("Document format is not supported.")
 
-        doc = DocxDocument(BytesIO(data))
-        return "\n".join(p.text for p in doc.paragraphs).strip()
+        try:
+            doc = DocxDocument(BytesIO(data))
+            return "\n".join(p.text for p in doc.paragraphs).strip()
+        except Exception as exc:
+            raise ValueError("Document content could not be processed.") from exc
 
-    raise ValueError(f"Unsupported mime type: {document.mime_type}")
+    raise ValueError("Document format is not supported.")

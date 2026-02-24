@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, X, Search, ArrowUpRight, MoreVertical } from 'lucide-react';
+import { getApiErrorMessage } from '../utils/apiError';
 import './Workspaces.css';
 
 function Workspaces() {
@@ -31,7 +32,8 @@ function Workspaces() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch workspaces');
+        const message = await getApiErrorMessage(response, 'Failed to fetch workspaces');
+        throw new Error(message);
       }
 
       const data = await response.json();
@@ -64,7 +66,8 @@ function Workspaces() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create workspace');
+        const message = await getApiErrorMessage(response, 'Failed to create workspace');
+        throw new Error(message);
       }
 
       setNewWorkspace({ name: '' });
@@ -88,7 +91,8 @@ function Workspaces() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete workspace');
+        const message = await getApiErrorMessage(response, 'Failed to delete workspace');
+        throw new Error(message);
       }
 
       setSelectedWorkspaces(prev => {

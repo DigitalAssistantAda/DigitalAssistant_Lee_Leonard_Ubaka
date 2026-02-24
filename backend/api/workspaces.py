@@ -18,7 +18,7 @@ from schemas.workspace import (
 )
 from schemas.auth import SuccessResponse
 from utils.auth import get_current_user, create_audit_log
-from utils.authorization import require_workspace_access
+from errors import AppError
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
@@ -131,12 +131,35 @@ async def update_workspace(
 ):
     """Updates workspace metadata"""
     
+
     workspace = require_workspace_access(
         workspace_id=workspace_id,
         user=current_user,
         db=db,
         required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
     )
+
+    # Check if user is a member of the workspace
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+    
+    member = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.user_id == current_user.id,
+        WorkspaceMember.status == MemberStatus.ACTIVE
+    ).first()
+    
+    if not member:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+    
+    # Check if user has permission to update workspace (must be owner or admin)
+    if member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+        raise AppError(
+            code="INSUFFICIENT_PERMISSIONS",
+            message="You do not have permission to modify workspace settings.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     
     workspace.name = request.name
     if "accent_color" in request.model_fields_set:
@@ -218,7 +241,11 @@ async def add_workspace_member(
         target_user = db.query(User).filter(User.email == request.email_or_user_id).first()
     
     if not target_user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise AppError(
+            code="MEMBER_NOT_FOUND",
+            message="Unable to invite member. The specified user could not be found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     
     
     # Check if already a member
@@ -228,7 +255,11 @@ async def add_workspace_member(
     ).first()
     
     if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already a member")
+        raise AppError(
+            code="MEMBER_EXISTS",
+            message="User is already a member of this workspace.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
     
     member = WorkspaceMember(
         workspace_id=workspace_id,
@@ -255,12 +286,29 @@ async def update_workspace_member(
 ):
     """Updates a member's role or status"""
     
+
     require_workspace_access(
         workspace_id=workspace_id,
         user=current_user,
         db=db,
         required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
     )
+
+    check_workspace_access(workspace_id, current_user, db)
+
+    current_member = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.user_id == current_user.id,
+        WorkspaceMember.status == MemberStatus.ACTIVE,
+    ).first()
+
+    if not current_member or current_member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+        raise AppError(
+            code="INSUFFICIENT_PERMISSIONS",
+            message="You do not have permission to change member roles.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
     
     member = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
@@ -268,7 +316,11 @@ async def update_workspace_member(
     ).first()
     
     if not member:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+        raise AppError(
+            code="MEMBER_NOT_FOUND",
+            message="Member not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     
     if request.role:
         member.role = WorkspaceRole(request.role)
@@ -293,20 +345,48 @@ async def remove_workspace_member(
 ):
     """Removes a user from a workspace"""
     
+
     require_workspace_access(
         workspace_id=workspace_id,
         user=current_user,
         db=db,
         required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
     )
+
+    # Check if user is a member of the workspace
+    workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not workspace:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     
+    current_member = db.query(WorkspaceMember).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.user_id == current_user.id,
+        WorkspaceMember.status == MemberStatus.ACTIVE
+    ).first()
+    
+    if not current_member:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+    
+    # Check if current user has permission to delete members (must be owner or admin)
+    if current_member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+        raise AppError(
+            code="INSUFFICIENT_PERMISSIONS",
+            message="You do not have permission to delete members from this workspace.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    
+    # Find the member to delete
     member = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
         WorkspaceMember.user_id == user_id
     ).first()
     
     if not member:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+        raise AppError(
+            code="MEMBER_NOT_FOUND",
+            message="Member not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     
     db.delete(member)
     db.commit()

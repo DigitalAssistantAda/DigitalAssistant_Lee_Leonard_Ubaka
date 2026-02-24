@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 from database import init_db
+<<<<<<< HEAD
 from middleware import authorization_middleware, log_request_middleware
 
 from models.user import User
@@ -10,6 +11,10 @@ from models.document import Document
 from models.container import Container
 from models.workspace import Workspace, WorkspaceMember
 
+=======
+from errors import register_exception_handlers
+from middleware import authorization_middleware, SafeRequestLogMiddleware
+>>>>>>> origin/safe-error-handling
 from api import (
     auth_router,
     users_router,
@@ -36,6 +41,8 @@ app = FastAPI(
     version="1.0.0"
 )
 
+register_exception_handlers(app)
+
 cors_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
 cors_origin_regex = os.getenv("CORS_ORIGIN_REGEX", r"https://.*\.ngrok-free\.app")
 
@@ -53,7 +60,7 @@ app.add_middleware(
 app.middleware("http")(authorization_middleware)
 
 # Add logging middleware for all requests
-app.middleware("http")(log_request_middleware)
+app.add_middleware(SafeRequestLogMiddleware)
 
 # Initialize database on startup
 @app.on_event("startup")

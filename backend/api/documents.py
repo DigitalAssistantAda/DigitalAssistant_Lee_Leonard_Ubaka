@@ -42,12 +42,14 @@ from utils.audit import create_audit_log, AuditActions
 from utils.storage import storage
 from config import settings
 from tasks.embeddings import process_document_embeddings
+from errors import AppError
 
 router = APIRouter(tags=["Documents"])
 
 logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+MAX_DOCUMENTS_PER_CONTAINER = 5
 ALLOWED_MIME_TYPES = [
     "application/pdf",
     "text/plain",
@@ -85,7 +87,7 @@ def _post_n8n_embedding_trigger(payload: dict) -> None:
     )
     if response.status_code >= 400:
         raise RuntimeError(
-            f"n8n trigger failed with {response.status_code}: {response.text}"
+            f"n8n trigger failed with status code {response.status_code}"
         )
 
 
@@ -180,8 +182,26 @@ async def upload_document(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload document to storage: {str(e)}"
+            detail="Failed to store document."
         )
+    
+    # Check if container has reached max documents (if container_id is provided)
+    if container_id is not None:
+        doc_count = db.query(Document).filter(
+            Document.container_id == container_id,
+            Document.status != DocumentStatus.DELETED
+        ).count()
+        
+        if doc_count >= MAX_DOCUMENTS_PER_CONTAINER:
+            try:
+                await storage.delete(bucket=settings.storage_bucket, path=storage_path)
+            except Exception:
+                pass
+            raise AppError(
+                code="MAX_DOCUMENTS_REACHED",
+                message=f"You have reached the maximum number of documents ({MAX_DOCUMENTS_PER_CONTAINER}) for this container.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
     
     # Create document record
     document = Document(
@@ -234,8 +254,12 @@ async def upload_document(
                     "triggered_by": current_user.id,
                 },
             )
-        except Exception as exc:
-            logger.warning("n8n embedding trigger failed: %s", exc)
+        except Exception:
+            logger.warning(
+                "n8n embedding trigger failed for document_id=%s workspace_id=%s",
+                document.id,
+                workspace_id,
+            )
     else:
         process_document_embeddings.delay(document.id, current_user.id)
     

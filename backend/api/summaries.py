@@ -6,6 +6,7 @@ from models.user import User
 from models.document import Document
 from models.workspace import WorkspaceMember, MemberStatus
 from models.document_chunk import DocumentChunk
+from errors import AppError
 from utils.text_extraction import extract_text_from_storage
 import re
 from schemas.summary import SummaryRequest, SummaryResponse, ErrorResponse, ErrorDetail
@@ -56,9 +57,10 @@ async def create_summary(
             source_text = await extract_text_from_storage(document)
 
         if not source_text:
-            raise HTTPException(
+            raise AppError(
+                code="DOCUMENT_PARSING_FAILED",
+                message="Document content could not be processed.",
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"code": "SUMMARY_NO_TEXT", "message": "No extractable text"}
             )
 
         summary_text = _simple_summary(source_text)
@@ -69,9 +71,15 @@ async def create_summary(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except ValueError:
+        raise AppError(
+            code="DOCUMENT_PARSING_FAILED",
+            message="Document content could not be processed.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    except Exception:
         # Return error response
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"code": "SUMMARY_GENERATION_FAILED", "message": str(e)}
+            detail={"code": "SUMMARY_GENERATION_FAILED", "message": "An unexpected error occurred. Please try again later."}
         )

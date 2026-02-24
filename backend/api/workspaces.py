@@ -188,12 +188,64 @@ async def delete_workspace(
         required_roles=[WorkspaceRole.OWNER],
     )
     
-    # Delete all members first
-    db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).delete()
+    # Create audit log before deletion
+    create_audit_log(db, current_user, "workspace.deleted", "workspace", workspace_id, workspace_id=workspace_id)
+    
+    # Delete workspace related data in correct order to respect foreign keys
+    # 1. Delete conversations and their AI messages
+    from models.conversation import Conversation, AIMessage
+    conversation_ids = [c.id for c in db.query(Conversation.id).filter(Conversation.workspace_id == workspace_id).all()]
+    if conversation_ids:
+        db.query(AIMessage).filter(AIMessage.conversation_id.in_(conversation_ids)).delete(synchronize_session=False)
+        db.query(Conversation).filter(Conversation.workspace_id == workspace_id).delete(synchronize_session=False)
+    
+    # 2. Delete summaries
+    from models.summary import Summary
+    db.query(Summary).filter(Summary.workspace_id == workspace_id).delete(synchronize_session=False)
+    
+    # 3. Delete tasks and their assignees
+    from models.task import Task
+    from models.task_assignee import TaskAssignee
+    task_ids = [t.id for t in db.query(Task.id).filter(Task.workspace_id == workspace_id).all()]
+    if task_ids:
+        db.query(TaskAssignee).filter(TaskAssignee.task_id.in_(task_ids)).delete(synchronize_session=False)
+        db.query(Task).filter(Task.workspace_id == workspace_id).delete(synchronize_session=False)
+    
+    # 4. Delete messages
+    from models.message import Message
+    db.query(Message).filter(Message.workspace_id == workspace_id).delete(synchronize_session=False)
+    
+    # 5. Delete documents and their related data
+    from models.document import Document
+    from models.document_chunk import DocumentChunk
+    from models.chunk_embedding import ChunkEmbedding
+    from models.document_deletion_request import DocumentDeletionRequest
+    document_ids = [d.id for d in db.query(Document.id).filter(Document.workspace_id == workspace_id).all()]
+    if document_ids:
+        # Delete chunk embeddings first
+        chunk_ids = [c.id for c in db.query(DocumentChunk.id).filter(DocumentChunk.document_id.in_(document_ids)).all()]
+        if chunk_ids:
+            db.query(ChunkEmbedding).filter(ChunkEmbedding.chunk_id.in_(chunk_ids)).delete(synchronize_session=False)
+        # Delete chunks
+        db.query(DocumentChunk).filter(DocumentChunk.document_id.in_(document_ids)).delete(synchronize_session=False)
+        # Delete deletion requests
+        db.query(DocumentDeletionRequest).filter(DocumentDeletionRequest.document_id.in_(document_ids)).delete(synchronize_session=False)
+        # Delete documents
+        db.query(Document).filter(Document.workspace_id == workspace_id).delete(synchronize_session=False)
+    
+    # 6. Delete containers
+    db.query(Container).filter(Container.workspace_id == workspace_id).delete(synchronize_session=False)
+    
+    # 7. Delete workspace members
+    db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).delete(synchronize_session=False)
+    
+    # 8. Delete audit logs (not sure if you guys want to keep these or not)
+    from models.audit_log import AuditLog
+    db.query(AuditLog).filter(AuditLog.workspace_id == workspace_id).delete(synchronize_session=False)
+    
+    # 9. And finally delete the workspace itself
     db.delete(workspace)
     db.commit()
-    
-    create_audit_log(db, current_user, "workspace.deleted", "workspace", workspace_id, workspace_id=workspace_id)
     
     return SuccessResponse()
 

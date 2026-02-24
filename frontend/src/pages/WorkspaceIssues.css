@@ -73,7 +73,6 @@
   align-items: center;
 }
 
-.issue-search input,
 .issue-search select {
   padding: 0.45rem 0.75rem;
   border-radius: 999px;
@@ -85,9 +84,39 @@
   font-family: var(--font-ui);
 }
 
+.issue-search-text {
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 0.25rem;
+  height: var(--nav-item-height);
+}
+
+.issue-search-text input {
+  min-width: 220px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--font-ui);
+  padding: 0;
+}
+
+.issue-search-icon {
+  color: var(--text-secondary);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
 .issue-search input:focus,
 .issue-search select:focus {
   outline: none;
+  border-color: var(--accent-primary);
+}
+
+.issue-search-text:focus-within {
   border-color: var(--accent-primary);
 }
 

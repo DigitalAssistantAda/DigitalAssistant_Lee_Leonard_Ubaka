@@ -187,6 +187,9 @@ function Summaries() {
           <div className="summary-meta">
             <strong>Document:</strong> {summary.document_name || 'Unknown'}
           </div>
+          <div className="summary-meta">
+            <strong>Source:</strong> {summary.summary_source || 'unknown'}
+          </div>
           {summary.created_at && (
             <div className="summary-generated">
               Generated: {new Date(summary.created_at).toLocaleString()}

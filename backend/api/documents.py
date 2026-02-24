@@ -91,6 +91,30 @@ def _post_n8n_embedding_trigger(payload: dict) -> None:
         )
 
 
+def _validate_upload_content(content: bytes, mime_type: str) -> None:
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty.",
+        )
+
+    if mime_type == "application/pdf":
+        # PDF files should begin with the %PDF magic header.
+        if not content.lstrip().startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file content is not a valid PDF.",
+            )
+
+    if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        # DOCX files are ZIP containers and should begin with PK signature.
+        if not content.startswith(b"PK"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file content is not a valid DOCX document.",
+            )
+
+
 def _validate_container_for_workspace(
     db: Session,
     current_user: User,
@@ -167,7 +191,23 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB"
         )
-    
+
+    _validate_upload_content(content, file.content_type)
+
+    # Check document limit before uploading to avoid wasted storage on rejected requests
+    if container_id is not None:
+        doc_count = db.query(Document).filter(
+            Document.container_id == container_id,
+            Document.status != DocumentStatus.DELETED
+        ).count()
+
+        if doc_count >= MAX_DOCUMENTS_PER_CONTAINER:
+            raise AppError(
+                code="MAX_DOCUMENTS_REACHED",
+                message=f"You have reached the maximum number of documents ({MAX_DOCUMENTS_PER_CONTAINER}) for this container.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
     # Upload to storage (S3/MinIO)
     safe_name = _sanitize_filename(file.filename)
     unique_name = f"{uuid.uuid4().hex}_{safe_name}"
@@ -184,24 +224,6 @@ async def upload_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to store document."
         )
-    
-    # Check if container has reached max documents (if container_id is provided)
-    if container_id is not None:
-        doc_count = db.query(Document).filter(
-            Document.container_id == container_id,
-            Document.status != DocumentStatus.DELETED
-        ).count()
-        
-        if doc_count >= MAX_DOCUMENTS_PER_CONTAINER:
-            try:
-                await storage.delete(bucket=settings.storage_bucket, path=storage_path)
-            except Exception:
-                pass
-            raise AppError(
-                code="MAX_DOCUMENTS_REACHED",
-                message=f"You have reached the maximum number of documents ({MAX_DOCUMENTS_PER_CONTAINER}) for this container.",
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
     
     # Create document record
     document = Document(
@@ -244,7 +266,10 @@ async def upload_document(
     )
 
     # Trigger embedding workflow
-    if settings.n8n_embeddings_trigger_url:
+    # In development, prefer direct Celery dispatch to avoid external callback dependency.
+    if settings.environment.lower() == "development":
+        process_document_embeddings.delay(document.id, current_user.id)
+    elif settings.n8n_embeddings_trigger_url:
         try:
             await run_in_threadpool(
                 _post_n8n_embedding_trigger,
@@ -256,10 +281,11 @@ async def upload_document(
             )
         except Exception:
             logger.warning(
-                "n8n embedding trigger failed for document_id=%s workspace_id=%s",
+                "n8n embedding trigger failed for document_id=%s workspace_id=%s; falling back to celery",
                 document.id,
                 workspace_id,
             )
+            process_document_embeddings.delay(document.id, current_user.id)
     else:
         process_document_embeddings.delay(document.id, current_user.id)
     
@@ -440,10 +466,12 @@ async def get_document_content(
         
         else:
             raise HTTPException(status_code=400, detail="File type not supported for preview")
-    
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error reading document {document_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error reading file")
 
 @router.get("/documents/{document_id}/preview")
 async def preview_document(
@@ -464,16 +492,18 @@ async def preview_document(
         
         return StreamingResponse(
             iter([file_content]),
-            media_type="application/pdf",
+            media_type=doc.mime_type,
             headers={
                 "Content-Disposition": f"inline; filename={doc.filename}",
                 "Cache-Control": "no-cache",
-                "Content-Type": "application/pdf"
+                "Content-Type": doc.mime_type,
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error previewing document {document_id}: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error reading file")
     
 # NEW ENDPOINT: Request deletion (if not owner)
 @router.post("/documents/{document_id}/deletion-request", response_model=DocumentDeletionRequestResponse)
@@ -602,11 +632,10 @@ async def approve_deletion_request(
             detail=f"Request is already {deletion_request.status}"
         )
     
-    # Update request status
+    # Update request status — committed atomically with document deletion below
     deletion_request.status = DeletionRequestStatus.APPROVED
     deletion_request.responded_at = datetime.now(timezone.utc)
-    db.commit()
-    
+
     # Now delete the document
     requester = db.query(User).filter(User.id == deletion_request.requested_by).first()
     workspace_id = document.workspace_id
@@ -747,16 +776,17 @@ async def delete_document(
     """Permanently deletes a document (owner only)"""
     
     document = check_document_access(current_user, document_id, db)
-    
+
+    # Return 404 before 403 to avoid revealing that a deleted document once existed
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
     # Only owner can delete directly
     if document.uploaded_by != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the document owner can delete. Request approval from the owner."
         )
-    
-    if document.status == DocumentStatus.DELETED:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     # Get document details for audit log before deletion
     workspace_id = document.workspace_id

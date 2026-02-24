@@ -4,7 +4,7 @@ from sqlalchemy import or_
 from database import get_db
 from models.container import Container
 from models.user import User
-from models.workspace import WorkspaceMember, MemberStatus
+from models.workspace import WorkspaceMember, MemberStatus, WorkspaceRole
 from schemas.container import CreateContainerRequest, ContainerResponse, ContainerListResponse
 from utils.auth import get_current_user, create_audit_log
 from utils.authorization import require_workspace_access
@@ -31,7 +31,6 @@ async def create_container(
         created_by=current_user.id,
     )
     db.add(container)
-    db.flush()
     db.commit()
     db.refresh(container)
 
@@ -90,7 +89,6 @@ async def create_workspace_container(
         created_by=current_user.id,
     )
     db.add(container)
-    db.flush()
     db.commit()
     db.refresh(container)
 
@@ -124,6 +122,15 @@ async def delete_container(
     # If container belongs to a workspace, ensure user is a member
     if container.workspace_id:
         require_workspace_access(workspace_id=container.workspace_id, user=current_user, db=db)
+        # Only the creator, admins, or owners may delete workspace containers
+        if container.created_by != current_user.id:
+            require_workspace_access(
+                workspace_id=container.workspace_id,
+                user=current_user,
+                db=db,
+                required_roles=[WorkspaceRole.ADMIN, WorkspaceRole.OWNER],
+                insufficient_permissions_detail="Only the container creator, workspace admins, or owners can delete containers",
+            )
     else:
         # top-level container: only creator can delete
         if container.created_by != current_user.id:
@@ -150,6 +157,16 @@ async def delete_workspace_container(
     container = db.query(Container).filter(Container.id == container_id, Container.workspace_id == workspace_id).first()
     if not container:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found in workspace")
+
+    # Only the creator, admins, or owners may delete workspace containers
+    if container.created_by != current_user.id:
+        require_workspace_access(
+            workspace_id=workspace_id,
+            user=current_user,
+            db=db,
+            required_roles=[WorkspaceRole.ADMIN, WorkspaceRole.OWNER],
+            insufficient_permissions_detail="Only the container creator, workspace admins, or owners can delete containers",
+        )
 
     db.delete(container)
     db.commit()

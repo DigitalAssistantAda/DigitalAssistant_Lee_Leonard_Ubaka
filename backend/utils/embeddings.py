@@ -139,7 +139,7 @@ class EmbeddingsService:
         limit: int = 10,
         threshold: float = 0.7,
         db: Session = None
-    ) -> List[Tuple[int, float]]:
+    ) -> List[Tuple[int, int, float]]:
         """
         Find documents with similar embeddings using pgvector
         Uses cosine similarity
@@ -152,7 +152,7 @@ class EmbeddingsService:
             db: Database session
             
         Returns:
-            List of (document_id, similarity_score) tuples sorted by similarity DESC
+            List of (chunk_id, document_id, similarity_score) tuples sorted by similarity DESC
         """
         owns_session = db is None
         if db is None:
@@ -164,6 +164,7 @@ class EmbeddingsService:
             # PostgreSQL pgvector cosine distance: 1 - (a <=> b) = similarity
             stmt = text("""
                 SELECT 
+                    dc.id as chunk_id,
                     dc.document_id,
                     1 - (CAST(ce.embedding AS vector) <=> CAST(:query_embedding AS vector)) as similarity
                 FROM chunk_embeddings ce
@@ -218,7 +219,7 @@ class EmbeddingsService:
         )
         
         if similar:
-            doc_id, similarity = similar[0]
+            _chunk_id, doc_id, similarity = similar[0]
             return (True, doc_id, similarity)
         
         return (False, None, 0.0)

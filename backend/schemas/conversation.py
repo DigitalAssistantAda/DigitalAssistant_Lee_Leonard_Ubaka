@@ -5,6 +5,7 @@ from datetime import datetime
 
 class MessageCreate(BaseModel):
     content: str
+    document_ids: Optional[List[int]] = None
 
 
 class MessageResponse(BaseModel):

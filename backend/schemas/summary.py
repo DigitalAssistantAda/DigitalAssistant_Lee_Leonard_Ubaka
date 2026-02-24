@@ -12,6 +12,7 @@ class SummaryRequest(BaseModel):
 class SummaryResponse(BaseModel):
     summary_text: str
     created_at: datetime
+    summary_source: str
 
 
 class ErrorDetail(BaseModel):

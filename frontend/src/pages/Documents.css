@@ -365,18 +365,19 @@
 .search-box {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color, #e0e6ed);
-  padding: 0.65rem 1rem;
-  margin-bottom: 0.75rem;
-  border-radius: 6px;
-  transition: all 0.2s;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color, #e0e6ed);
+  padding: 0 0.25rem;
+  height: var(--nav-item-height);
+  margin-bottom: 0;
+  transition: border-color 0.2s ease;
 }
 
 .search-box:focus-within {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  box-shadow: none;
 }
 
 .search-box input {
@@ -386,7 +387,7 @@
   color: var(--text-primary);
   font-family: inherit;
   padding: 0;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 .search-box input:focus {
@@ -395,6 +396,8 @@
 
 .search-box svg {
   color: var(--text-secondary, #6c757d);
+  opacity: 0.6;
+  flex-shrink: 0;
 }
 
 .filter-row {
@@ -732,25 +735,11 @@
 }
 
 .documents-sidebar .search-box {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: var(--bg-tertiary, #f1f1f3);
-  border: 1px solid var(--border-color, #e0e6ed);
-  padding: 0.6rem 1rem;
-  border-radius: var(--radius-base);
   min-width: 0;
-  margin-bottom: 0;
 }
 
 .documents-sidebar .search-box input {
-  flex: 1;
-  border: none;
-  background: transparent;
   color: var(--text-primary, #1a1f35);
-  font-family: inherit;
-  padding: 0;
-  font-size: 0.9rem;
 }
 
 .documents-sidebar .search-box svg {
@@ -1110,6 +1099,7 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  text-align: left;
 }
 
 /* Folder Header - Just shows folder name */
@@ -1270,13 +1260,7 @@
 .folder-top-toolbar .search-box {
   width: 100%;
   max-width: none;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  background: var(--bg-secondary, #f8f9fa);
-  border: 1px solid var(--border-color, #e0e6ed);
-  padding: 0.65rem 1rem;
-  border-radius: 8px;
+  margin-bottom: 0;
 }
 
 .folder-top-toolbar .search-box input {
@@ -1441,6 +1425,7 @@
   font-weight: 500;
   color: var(--text-primary);
   font-size: 0.95rem;
+  text-align: left;
 }
 
 .col-size {

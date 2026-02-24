@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, CheckCircle, Clock, Pencil } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, CheckCircle, Clock, Pencil, Search as SearchIcon } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
 import './WorkspaceIssues.css';
 
@@ -520,7 +520,8 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
             All issues
           </button>
         </div>
-        <div className="issue-search">
+        <div className="issue-search issue-search-text">
+          <SearchIcon size={16} className="issue-search-icon" />
           <input
             type="text"
             value={searchQuery}

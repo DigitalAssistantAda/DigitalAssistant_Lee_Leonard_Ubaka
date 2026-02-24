@@ -7,7 +7,6 @@ function Navigation({ user, onLogout }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);  // ADD THIS
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -30,6 +29,17 @@ function Navigation({ user, onLogout }) {
     } else {
       document.documentElement.classList.remove('dark');
     }
+  };
+
+  const handleNavSearch = (event) => {
+    event.preventDefault();
+    const trimmedQuery = searchQuery.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+
+    navigate(`/search?q=${encodeURIComponent(trimmedQuery)}`);
+    setSearchOpen(false);
   };
 
   const isActive = (path) => location.pathname === path;
@@ -61,17 +71,22 @@ function Navigation({ user, onLogout }) {
         {user && (
           <div className="nav-right">
             {searchOpen && (
-              <div className="nav-search">
+              <form className="nav-search" onSubmit={handleNavSearch}>
                 <input 
                   type="text" 
                   placeholder="Search..." 
                   className="nav-search-input"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setSearchOpen(false);
+                    }
+                  }}
                   aria-label="Search"
                   autoFocus
                 />
-              </div>
+              </form>
             )}
             <button
               className="nav-icon"

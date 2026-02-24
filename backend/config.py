@@ -59,6 +59,17 @@ class Settings(BaseSettings):
     voyage_model: str = os.getenv("VOYAGE_MODEL", "voyage-2")  # Or "voyage-large-2-instruct"
     embedding_dimensions: int = 1024  # voyage-2 uses 1024 dims
 
+    # LLM Summary Settings (supports anthropic, openai, azure)
+    summary_llm_enabled: bool = os.getenv("SUMMARY_LLM_ENABLED", "true").lower() == "true"
+    summary_llm_provider: str = os.getenv("SUMMARY_LLM_PROVIDER", "anthropic")  # anthropic | openai | azure
+    summary_llm_api_url: str = os.getenv("SUMMARY_LLM_API_URL", "https://api.anthropic.com/v1/messages")
+    summary_llm_api_key: str = os.getenv("SUMMARY_LLM_API_KEY", "")
+    summary_llm_model: str = os.getenv("SUMMARY_LLM_MODEL", "claude-3-haiku-20240307")
+    summary_llm_timeout_seconds: int = int(os.getenv("SUMMARY_LLM_TIMEOUT_SECONDS", "45"))
+    summary_llm_max_input_chars: int = int(os.getenv("SUMMARY_LLM_MAX_INPUT_CHARS", "12000"))
+    summary_llm_temperature: float = float(os.getenv("SUMMARY_LLM_TEMPERATURE", "0.2"))
+    summary_llm_max_output_tokens: int = int(os.getenv("SUMMARY_LLM_MAX_OUTPUT_TOKENS", "500"))
+
     # n8n Integration
     n8n_embeddings_trigger_url: str = os.getenv("N8N_EMBEDDINGS_TRIGGER_URL", "")
     n8n_webhook_secret: str = os.getenv("N8N_WEBHOOK_SECRET", "")

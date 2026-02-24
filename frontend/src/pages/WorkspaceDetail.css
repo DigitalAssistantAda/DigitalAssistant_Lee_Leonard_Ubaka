@@ -451,14 +451,14 @@
   color: var(--text-primary, #1a1f35);
 }
 
-.settings-actions {
+.workspace-detail-page .settings-actions {
   display: flex;
   align-items: center;
   gap: 1rem;
   margin-top: 0.5rem;
 }
 
-.settings-actions button {
+.workspace-detail-page .settings-actions button {
   padding: 0.65rem 1.2rem;
   border-radius: var(--radius-base);
   border: 1px solid var(--border-color, #e0e6ed);
@@ -468,7 +468,7 @@
   font-size: 0.9rem;
 }
 
-.settings-actions button:hover {
+.workspace-detail-page .settings-actions button:hover {
   background: var(--bg-secondary);
 }
 

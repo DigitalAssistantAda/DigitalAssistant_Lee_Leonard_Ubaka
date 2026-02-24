@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import case, or_
 from sqlalchemy.orm import Session
-from datetime import datetime
 from database import get_db
 from models.user import User
 from models.workspace import WorkspaceMember, MemberStatus
-from models.document import Document
+from models.document import Document, DocumentStatus
 from models.document_chunk import DocumentChunk
-from utils.embeddings import embeddings_service
 from schemas.search import SearchRequest, SearchResponse, SearchResultItem
 from utils.auth import get_current_user
 
@@ -33,69 +32,85 @@ async def search(
     
     query_text = (request.query or "").strip()
     if not query_text:
-        return SearchResponse(query=request.query, items=[])
+        return SearchResponse(query="", items=[])
 
     limit = max(1, min(request.limit or 10, 50))
+    pattern = f"%{query_text}%"
 
-    try:
-        query_embedding = embeddings_service.generate_embedding(query_text)
-        similar_docs = embeddings_service.find_similar_embeddings(
-            query_embedding,
-            request.workspace_id,
-            limit=limit,
-            threshold=0.2,
-            db=db
+    results = db.query(Document, DocumentChunk).outerjoin(
+        DocumentChunk, DocumentChunk.document_id == Document.id
+    ).filter(
+        Document.workspace_id == request.workspace_id,
+        Document.status != DocumentStatus.DELETED,
+        or_(
+            Document.filename.ilike(pattern),
+            DocumentChunk.text.ilike(pattern)
         )
+    ).order_by(
+        case((Document.filename.ilike(pattern), 0), else_=1),
+        case((DocumentChunk.chunk_index.is_(None), 1), else_=0),
+        DocumentChunk.chunk_index.asc(),
+        Document.id.desc()
+    ).limit(limit * 5).all()
 
-        doc_ids = [doc_id for doc_id, _ in similar_docs]
-        if not doc_ids:
-            return SearchResponse(query=request.query, items=[])
+    items = []
+    seen_document_ids = set()
 
-        docs = db.query(Document).filter(Document.id.in_(doc_ids)).all()
-        doc_map = {doc.id: doc for doc in docs}
-        chunks = db.query(DocumentChunk).filter(
-            DocumentChunk.document_id.in_(doc_ids),
-            DocumentChunk.chunk_index == 0
-        ).all()
-        chunk_map = {chunk.document_id: chunk for chunk in chunks}
+    for doc, chunk in results:
+        if doc.id in seen_document_ids:
+            continue
+        seen_document_ids.add(doc.id)
 
-        items = []
-        for doc_id, score in similar_docs:
-            doc = doc_map.get(doc_id)
-            chunk = chunk_map.get(doc_id)
-            if not doc or not chunk:
+        snippet = _build_snippet(chunk.text if chunk else "", query_text)
+        items.append(SearchResultItem(
+            document_id=doc.id,
+            chunk_id=chunk.id if chunk else 0,
+            score=1.0 if query_text.lower() in (doc.filename or "").lower() else 0.6,
+            snippet=snippet,
+            filename=doc.filename,
+            created_at=doc.created_at
+        ))
+
+        if len(items) >= limit:
+            break
+
+    return SearchResponse(query=query_text, items=items)
+
+
+def _build_snippet(text: str, query: str, max_length: int = 280) -> str:
+    normalized_text = " ".join((text or "").split())
+    if not normalized_text:
+        return ""
+
+    lower_text = normalized_text.lower()
+    lower_query = (query or "").lower().strip()
+    match_index = lower_text.find(lower_query) if lower_query else -1
+
+    if match_index < 0 and lower_query:
+        for token in lower_query.split():
+            if not token:
                 continue
-            snippet = (chunk.text or "").strip()[:280]
-            items.append(SearchResultItem(
-                document_id=doc.id,
-                chunk_id=chunk.id,
-                score=float(score),
-                snippet=snippet,
-                filename=doc.filename,
-                created_at=doc.created_at
-            ))
+            token_index = lower_text.find(token)
+            if token_index >= 0:
+                match_index = token_index
+                break
 
-        return SearchResponse(query=request.query, items=items)
-    except Exception:
-        # Fallback to keyword search if embeddings are unavailable
-        pattern = f"%{query_text}%"
-        results = db.query(DocumentChunk, Document).join(
-            Document, Document.id == DocumentChunk.document_id
-        ).filter(
-            Document.workspace_id == request.workspace_id,
-            (DocumentChunk.text.ilike(pattern) | Document.filename.ilike(pattern))
-        ).order_by(DocumentChunk.id.desc()).limit(limit).all()
+    if match_index < 0:
+        snippet = normalized_text[:max_length]
+        return f"{snippet}..." if len(normalized_text) > max_length else snippet
 
-        items = [
-            SearchResultItem(
-                document_id=doc.id,
-                chunk_id=chunk.id,
-                score=0.0,
-                snippet=(chunk.text or "").strip()[:280],
-                filename=doc.filename,
-                created_at=doc.created_at
-            )
-            for chunk, doc in results
-        ]
+    start = max(0, match_index - 100)
+    end = min(len(normalized_text), match_index + max(len(lower_query), 1) + 140)
+    snippet = normalized_text[start:end].strip()
 
-        return SearchResponse(query=request.query, items=items)
+    if start > 0:
+        snippet = f"... {snippet}"
+    if end < len(normalized_text):
+        snippet = f"{snippet} ..."
+
+    if len(snippet) > max_length:
+        snippet = snippet[:max_length].rstrip()
+        if not snippet.endswith("..."):
+            snippet = f"{snippet}..."
+
+    return snippet

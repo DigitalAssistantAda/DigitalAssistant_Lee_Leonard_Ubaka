@@ -281,12 +281,12 @@ async def find_similar_documents(
         
         # Filter out the document itself
         similar_docs = [
-            (doc_id, score) for doc_id, score in similar_docs
+            (chunk_id, doc_id, score) for chunk_id, doc_id, score in similar_docs
             if doc_id != document_id
         ][:limit]
         
         # Fetch document info
-        doc_ids = [doc_id for doc_id, _ in similar_docs]
+        doc_ids = [doc_id for _chunk_id, doc_id, _score in similar_docs]
         similar_doc_records = db.query(Document).filter(Document.id.in_(doc_ids)).all()
         
         return {
@@ -297,7 +297,7 @@ async def find_similar_documents(
                     "filename": next(d.filename for d in similar_doc_records if d.id == doc_id),
                     "similarity_score": score
                 }
-                for doc_id, score in similar_docs
+                for _chunk_id, doc_id, score in similar_docs
             ]
         }
     

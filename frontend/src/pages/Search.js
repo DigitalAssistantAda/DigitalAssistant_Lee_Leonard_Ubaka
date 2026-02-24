@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
+import { Search as SearchIcon } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
 import './Search.css';
 
@@ -7,16 +9,14 @@ function Search() {
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [hasSearched, setHasSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const location = useLocation();
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-  useEffect(() => {
-    fetchWorkspaces();
-  }, []);
-
-  const fetchWorkspaces = async () => {
+  const fetchWorkspaces = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_URL}/api/v1/workspaces`, {
@@ -30,20 +30,29 @@ function Search() {
         const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
         setWorkspaces(items);
         if (items.length > 0) {
-          setSelectedWorkspace(items[0].id);
+          setSelectedWorkspace(String(items[0].id));
         }
       }
     } catch (err) {
       console.error('Error fetching workspaces:', err);
     }
-  };
+  }, [API_URL]);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!query.trim() || !selectedWorkspace) return;
+  useEffect(() => {
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
+
+  const runSearch = useCallback(async (queryValue, workspaceId) => {
+    const trimmedQuery = (queryValue || '').trim();
+    if (!trimmedQuery || !workspaceId) {
+      setError('Select a workspace and enter a search query.');
+      return;
+    }
 
     setLoading(true);
     setError(null);
+    setHasSearched(true);
+    setSearchResults([]);
 
     try {
       const token = localStorage.getItem('token');
@@ -54,8 +63,8 @@ function Search() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          workspace_id: Number(selectedWorkspace),
-          query,
+          workspace_id: Number(workspaceId),
+          query: trimmedQuery,
           limit: 10,
         }),
       });
@@ -72,11 +81,41 @@ function Search() {
     } finally {
       setLoading(false);
     }
+  }, [API_URL]);
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    await runSearch(query, selectedWorkspace);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const queryFromNav = (params.get('q') || '').trim();
+    const workspaceFromNav = (params.get('workspace_id') || '').trim();
+
+    if (workspaceFromNav) {
+      setSelectedWorkspace(workspaceFromNav);
+    }
+
+    if (!queryFromNav) {
+      return;
+    }
+
+    setQuery(queryFromNav);
+
+    const workspaceIdToUse = workspaceFromNav || selectedWorkspace;
+    if (workspaceIdToUse) {
+      runSearch(queryFromNav, workspaceIdToUse);
+    }
+  }, [location.search, selectedWorkspace, runSearch]);
 
   return (
     <div className="search-page">
-      <h1>Search Documents</h1>
+      <div className="search-hero">
+        <p className="search-eyebrow">Workspace Search</p>
+        <h1>Search Documents</h1>
+        <p className="search-subtitle">Find relevant documents and excerpts inside a specific workspace.</p>
+      </div>
 
       {error && (
         <div className="search-error">
@@ -85,7 +124,7 @@ function Search() {
       )}
 
       <div className="search-card">
-        <form onSubmit={handleSearch}>
+        <form onSubmit={handleSearch} className="search-form">
           <div className="search-field">
             <label>Workspace:</label>
             <select
@@ -102,51 +141,63 @@ function Search() {
           </div>
           <div className="search-field">
             <label>Search Query:</label>
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Enter search terms..."
-              required
-              className="search-input"
-            />
+            <div className="search-input-shell">
+              <SearchIcon size={16} className="search-input-icon" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Enter search terms..."
+                required
+                className="search-input"
+              />
+            </div>
           </div>
-          <button 
-            type="submit" 
-            disabled={loading || !selectedWorkspace}
-            className="search-button"
-          >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
+          <div className="search-actions">
+            <button 
+              type="submit" 
+              disabled={loading || !selectedWorkspace}
+              className="search-button"
+            >
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+          </div>
         </form>
       </div>
 
       {searchResults.length > 0 && (
-        <div>
-          <h2>Search Results ({searchResults.length})</h2>
+        <section className="search-results-section">
+          <div className="search-results-header">
+            <h2>Search Results</h2>
+            <span className="search-results-count">
+              {searchResults.length} result{searchResults.length !== 1 ? 's' : ''}
+            </span>
+          </div>
           <div className="search-results-grid">
             {searchResults.map((result, index) => (
               <div 
                 key={index} 
                 className="search-result-card"
               >
-                <h3>{result.filename || 'Untitled Document'}</h3>
-                <p className="search-result-meta">
-                  Relevance Score: {result.score ? result.score.toFixed(2) : 'N/A'}
-                </p>
+                <h3>{result.title || result.filename || 'Untitled Document'}</h3>
                 {result.snippet && (
                   <p className="search-result-snippet">
                     {result.snippet}
                   </p>
                 )}
+                {!result.snippet && (
+                  <p className="search-result-snippet search-result-snippet-empty">
+                    No preview is available for this match yet.
+                  </p>
+                )}
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {!loading && searchResults.length === 0 && query && (
-        <p>No results found for "{query}"</p>
+      {!loading && !error && hasSearched && searchResults.length === 0 && (
+        <p className="search-empty">No matching documents were found in this workspace. Try different keywords.</p>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Send, FileText, Bot, AlertCircle, Sparkles, CheckCircle, User } from 'lucide-react';
 import './AIAssistant.css';
 
@@ -15,6 +15,8 @@ function AIAssistant() {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const chatAreaRef = useRef(null);
+  const shouldAutoScrollRef = useRef(true);
 
   const API_URL = (process.env.REACT_APP_API_URL || localStorage.getItem('api_url') || 'http://localhost:8000').replace(/\/+$/, '');
   const token = localStorage.getItem('token');
@@ -25,6 +27,28 @@ function AIAssistant() {
       return `Cannot reach API at ${API_URL}. Check backend/CORS configuration and REACT_APP_API_URL.`;
     }
     return error?.message || fallbackMessage;
+  };
+
+  const formatMessageTime = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.round((startOfToday - startOfMessageDay) / (1000 * 60 * 60 * 24));
+
+    const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (diffDays === 0) return `Today, ${time}`;
+    if (diffDays === 1) return `Yesterday, ${time}`;
+
+    const datePart = date.toLocaleDateString([], {
+      month: 'short',
+      day: 'numeric',
+      year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    });
+    return `${datePart}, ${time}`;
   };
 
   useEffect(() => {
@@ -41,6 +65,15 @@ function AIAssistant() {
     if (!activeWorkspaceId) return;
     fetchDocuments(activeWorkspaceId, activeContainerId || null);
   }, [activeWorkspaceId, activeContainerId]);
+
+  useEffect(() => {
+    const chatArea = chatAreaRef.current;
+    if (!chatArea) return;
+
+    if (shouldAutoScrollRef.current) {
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+  }, [messages, loading]);
 
   const fetchWorkspaces = async () => {
     try {
@@ -194,7 +227,10 @@ function AIAssistant() {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ content: input.trim() }),
+          body: JSON.stringify({
+            content: input.trim(),
+            document_ids: selectedDocuments,
+          }),
         }
       );
 
@@ -229,6 +265,18 @@ function AIAssistant() {
     setSelectedDocuments((prev) =>
       prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
     );
+  };
+
+  const selectedDocumentRecords = documents.filter((doc) => selectedDocuments.includes(doc.id));
+  const pendingSelectedDocuments = selectedDocumentRecords.filter(
+    (doc) => String(doc.status || '').toLowerCase() !== 'ready'
+  );
+
+  const handleChatScroll = () => {
+    const chatArea = chatAreaRef.current;
+    if (!chatArea) return;
+    const distanceFromBottom = chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight;
+    shouldAutoScrollRef.current = distanceFromBottom < 80;
   };
 
   return (
@@ -309,6 +357,9 @@ function AIAssistant() {
                   />
                   <FileText size={16} />
                   <span className="doc-name">{doc.filename || doc.name}</span>
+                  <span className={`doc-status ${String(doc.status || '').toLowerCase() === 'ready' ? 'ready' : 'pending'}`}>
+                    {String(doc.status || 'uploaded').toLowerCase()}
+                  </span>
                 </div>
               ))}
             </div>
@@ -317,6 +368,13 @@ function AIAssistant() {
               <div className="selection-summary">
                 <CheckCircle size={16} />
                 {selectedDocuments.length} document{selectedDocuments.length !== 1 ? 's' : ''} selected
+              </div>
+            )}
+
+            {pendingSelectedDocuments.length > 0 && (
+              <div className="selection-warning">
+                <AlertCircle size={16} />
+                {pendingSelectedDocuments.length} selected document{pendingSelectedDocuments.length !== 1 ? 's are' : ' is'} still processing. Chat answers may be limited until status is ready.
               </div>
             )}
 
@@ -335,7 +393,7 @@ function AIAssistant() {
           {/* Main Area */}
           <div className="ai-main">
             {/* Chat Messages */}
-            <div className="chat-area">
+            <div className="chat-area" ref={chatAreaRef} onScroll={handleChatScroll}>
               {messages.length === 0 ? (
                 <div className="empty-chat">
                   <Sparkles size={48} />
@@ -372,7 +430,12 @@ function AIAssistant() {
                             ))}
                           </div>
                         )}
-                        <div className="message-time">{msg.created_at}</div>
+                        {msg.role === 'assistant' && (
+                          <div className="message-meta-source">
+                            Source: {msg.model_used || 'retrieval'}
+                          </div>
+                        )}
+                        <div className="message-time">{formatMessageTime(msg.created_at)}</div>
                       </div>
                     </div>
                   ))}

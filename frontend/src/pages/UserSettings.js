@@ -31,6 +31,21 @@ function UserSettings() {
   };
 
   useEffect(() => {
+    // Fire petals once when both settings sections load
+    if (profileLoaded && accentLoaded && !accentError && !profileError) {
+      window.dispatchEvent(
+        new CustomEvent('ada:petalburst', {
+          detail: {
+            x: window.innerWidth / 2,
+            y: 100,
+            count: 12,
+          },
+        })
+      );
+    }
+  }, [profileLoaded, accentLoaded, profileError, accentError]);
+
+  useEffect(() => {
     const fetchProfile = async () => {
       try {
         const response = await fetch(`${API_URL}/api/v1/auth/me`, {

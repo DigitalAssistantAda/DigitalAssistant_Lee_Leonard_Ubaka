@@ -63,6 +63,21 @@ function WorkspaceDetail() {
   const discussionHasUpdates = messages.some((msg) => isRecent(msg.created_at, 2));
 
   useEffect(() => {
+    // Fire petals once when workspace detail loads
+    if (!loading && workspace) {
+      window.dispatchEvent(
+        new CustomEvent('ada:petalburst', {
+          detail: {
+            x: window.innerWidth / 2,
+            y: 150,
+            count: 14,
+          },
+        })
+      );
+    }
+  }, [loading, workspace]);
+
+  useEffect(() => {
     const fetchWorkspaceDetail = async () => {
       try {
         const token = localStorage.getItem('token');

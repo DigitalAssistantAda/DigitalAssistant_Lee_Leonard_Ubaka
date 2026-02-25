@@ -344,6 +344,68 @@
   color: var(--text-secondary);
 }
 
+.issue-status-control {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.issue-status-control label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.issue-status-select {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  height: auto;
+  white-space: nowrap;
+}
+
+.issue-status-select:hover {
+  border-color: var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+.issue-status-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+}
+
+.issue-status-select.status-open {
+  border-color: color-mix(in srgb, var(--status-warning) 40%, transparent);
+}
+
+.issue-status-select.status-in_progress {
+  border-color: color-mix(in srgb, var(--status-info) 40%, transparent);
+}
+
+.issue-status-select.status-completed {
+  border-color: color-mix(in srgb, var(--status-success) 40%, transparent);
+}
+
+.issue-status-select.status-overdue {
+  border-color: color-mix(in srgb, var(--status-danger) 40%, transparent);
+}
+
+.issue-status-select.status-closed {
+  border-color: color-mix(in srgb, var(--text-muted) 40%, transparent);
+}
+
 .issue-detail-description {
   font-size: 0.9rem;
   color: var(--text-secondary);

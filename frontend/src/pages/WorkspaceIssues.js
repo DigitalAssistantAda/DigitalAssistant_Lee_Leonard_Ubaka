@@ -630,10 +630,20 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
               </div>
 
               <div className="issue-detail-meta">
-                <span className="issue-detail-chip">
-                  {getStatusIcon(selectedIssue.status)}
-                  {getStatusLabel(selectedIssue.status)}
-                </span>
+                <select 
+                  id="issue-status-select"
+                  value={selectedIssue.status || 'open'}
+                  onChange={(e) => handleUpdateStatus(selectedIssue.id, e.target.value)}
+                  className={`issue-status-select status-${selectedIssue.status}`}
+                  title="Change issue status"
+                  aria-label="Change issue status"
+                >
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="overdue">Overdue</option>
+                  <option value="closed">Closed</option>
+                </select>
                 <span className="issue-detail-chip">
                   Assigned to {(selectedIssue.assignees && selectedIssue.assignees.length)
                     ? `${selectedIssue.assignees.length} people`

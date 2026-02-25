@@ -40,15 +40,30 @@
 }
 
 .nav-logo {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--text-primary);
   text-decoration: none;
-  padding: 0 12px;
-  height: var(--nav-item-height);
+  padding: 0 8px;
   display: inline-flex;
   align-items: center;
   border-radius: var(--radius-base);
+  position: relative;
+}
+
+.nav-logo-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.nav-logo-img {
+  height: 64px;
+  width: auto;
+  display: block;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.nav-logo:hover .nav-logo-img {
+  transform: scale(1.06);
+  opacity: 0.9;
 }
 
 .nav-pill {

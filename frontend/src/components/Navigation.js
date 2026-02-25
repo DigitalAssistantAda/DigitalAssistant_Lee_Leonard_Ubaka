@@ -1,23 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Bell, Settings, Moon, Sun, LogOut, Search, Sparkles } from 'lucide-react';
+import { Bell, Settings, Moon, Sun, LogOut, Sparkles, Search, X } from 'lucide-react';
+import adaFlower from '../ada_logo.png';
 import './Navigation.css';
 
 function Navigation({ user, onLogout }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  const logoHoverRef = useRef(0); // timestamp throttle
   const location = useLocation();
   const navigate = useNavigate();
 
-
   useEffect(() => {
-    // Check for saved dark mode preference
     const savedMode = localStorage.getItem('darkMode') === 'true';
     setDarkMode(savedMode);
-    if (savedMode) {
-      document.documentElement.classList.add('dark');
-    }
+    if (savedMode) document.documentElement.classList.add('dark');
   }, []);
 
   const toggleDarkMode = () => {
@@ -34,12 +33,19 @@ function Navigation({ user, onLogout }) {
   const handleNavSearch = (event) => {
     event.preventDefault();
     const trimmedQuery = searchQuery.trim();
-    if (!trimmedQuery) {
-      return;
-    }
-
+    if (!trimmedQuery) return;
     navigate(`/search?q=${encodeURIComponent(trimmedQuery)}`);
     setSearchOpen(false);
+  };
+
+  // Hover over logo → petals rain from the upper-left corner
+  const handleLogoHover = () => {
+    const now = Date.now();
+    if (now - logoHoverRef.current < 2500) return; // throttle
+    logoHoverRef.current = now;
+    window.dispatchEvent(
+      new CustomEvent('ada:petalrain', { detail: { maxX: 340, count: 28 } })
+    );
   };
 
   const isActive = (path) => location.pathname === path;
@@ -48,7 +54,20 @@ function Navigation({ user, onLogout }) {
     <div className="nav-shell">
       <nav className="nav-bar">
         <div className="nav-left">
-          <Link to="/" className="nav-logo">Ada</Link>
+          {/* ── Logo ──────────────────────────────────────────────── */}
+          <Link
+            to="/"
+            className="nav-logo"
+            aria-label="Ada home"
+            onMouseEnter={handleLogoHover}
+          >
+            <img
+              src={adaFlower}
+              alt="Ada"
+              className="nav-logo-img"
+              draggable={false}
+            />
+          </Link>
           {user && (
             <div className="nav-pill" aria-label="Primary navigation">
               <Link to="/dashboard" className={`nav-link ${isActive('/dashboard') ? 'active' : ''}`}>
@@ -88,13 +107,14 @@ function Navigation({ user, onLogout }) {
                 />
               </form>
             )}
+            {/* ── Search button ──────────────────────────────── */}
             <button
               className="nav-icon"
               title="Search"
-              aria-label="Search"
+              aria-label={searchOpen ? 'Close search' : 'Search'}
               onClick={() => setSearchOpen(!searchOpen)}
             >
-              <Search size={20} />
+              {searchOpen ? <X size={20} /> : <Search size={20} />}
             </button>
             <button 
               className="nav-icon" 

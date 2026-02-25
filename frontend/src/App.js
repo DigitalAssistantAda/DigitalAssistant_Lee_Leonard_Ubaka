@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import './App.css';
 
 import Navigation from './components/Navigation';
+import PetalRain from './components/PetalRain';
+import PetalSpinner from './components/PetalSpinner';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -16,11 +18,14 @@ import Summaries from './pages/Summaries';
 import AIAssistant from './pages/AIAssistant';
 import UserSettings from './pages/UserSettings';
 import Notifications from './pages/Notifications';
+import NotFound from './pages/NotFound';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+
   const getDefaultAccent = () => {
     const value = getComputedStyle(document.documentElement)
       .getPropertyValue('--accent-primary')
@@ -340,12 +345,13 @@ function App() {
   };
 
   if (loading) {
-    return <div className="app-loading">Loading...</div>;
+    return <PetalSpinner page label="Ada is waking up…" />;
   }
 
   return (
     <Router>
       <div className="App">
+        <PetalRain />
         <Navigation user={user} onLogout={handleLogout} />
         
         <Routes>
@@ -409,6 +415,7 @@ function App() {
             path="/notifications" 
             element={user ? <Notifications /> : <Navigate to="/login" />} 
           />
+          <Route path="*" element={<NotFound />} />
         </Routes>
         
       </div>

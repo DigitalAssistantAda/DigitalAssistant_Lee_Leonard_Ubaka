@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { getApiErrorMessage, parseApiErrorMessage } from '../utils/apiError';
@@ -13,15 +13,37 @@ function Login({ onLogin }) {
   });
   const [errorMessages, setErrorMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [adaMode, setAdaMode] = useState(false);
+  const adaTimerRef = useRef(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
   const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+
+    // Easter egg: typing 'ada' as username floats petals upward
+    if (name === 'username' && value.toLowerCase() === 'ada') {
+      setAdaMode(true);
+      clearTimeout(adaTimerRef.current);
+      // Dispatch multiple float waves
+      for (let wave = 0; wave < 3; wave++) {
+        setTimeout(() => {
+          window.dispatchEvent(
+            new CustomEvent('ada:petalfloat', {
+              detail: { x: window.innerWidth / 2, y: window.innerHeight * 0.75, count: 10 },
+            })
+          );
+        }, wave * 600);
+      }
+      adaTimerRef.current = setTimeout(() => setAdaMode(false), 3000);
+    } else if (name === 'username' && adaMode) {
+      setAdaMode(false);
+    }
   };
+
+  // Clean up timer on unmount
+  useEffect(() => () => clearTimeout(adaTimerRef.current), []);
 
   const buildRegisterErrors = (errorData) => {
     const detail = errorData?.detail;
@@ -86,7 +108,7 @@ function Login({ onLogin }) {
   };
 
   return (
-    <div className="auth-container">
+    <div className={`auth-container${adaMode ? ' ada-mode' : ''}`}>
       <Link to="/" className="back-link">
         <ArrowLeft size={20} />
         <span>Back to Home</span>

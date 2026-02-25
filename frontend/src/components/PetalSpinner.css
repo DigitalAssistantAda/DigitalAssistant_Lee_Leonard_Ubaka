@@ -1,0 +1,40 @@
+/* ── PetalSpinner ───────────────────────────────────────────────── */
+
+.petal-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.petal-spinner img {
+  display: block;
+  animation: petalSpin 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  transform-origin: center center;
+}
+
+@keyframes petalSpin {
+  0%   { transform: rotate(0deg) scale(1); }
+  40%  { transform: rotate(160deg) scale(1.15); }
+  70%  { transform: rotate(310deg) scale(0.9); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+/* Full-page loading screen */
+.petal-spinner-page {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--bg-primary, #ffffff);
+  z-index: 9000;
+}
+
+.petal-spinner-page .petal-spinner-label {
+  font-family: var(--font-display, serif);
+  font-size: 0.9rem;
+  color: var(--text-muted, #999);
+  letter-spacing: 0.08em;
+}

@@ -11,7 +11,7 @@
   --radius-base: 6px;
   --radius-tight: 3px;
   --nav-height: 72px;
-  --nav-pill-height: 48px;
+  --nav-pill-height: 72px;
   --nav-item-height: 32px;
   --nav-glass-bg: #ffffff;
   --nav-glass-border: #e3e3e7;
@@ -32,10 +32,10 @@
   --text-secondary: #6b6b78;
   --text-muted: #6b6b78;
   --border-color: #e3e3e7;
-  --accent-primary-default: #8f2f5a;
-  --accent-hover-default: #7d284f;
-  --accent-secondary-default: #b06a86;
-  --accent-highlight-default: #f6e4ea;
+  --accent-primary-default: #D96B8A;
+  --accent-hover-default: #C25A77;
+  --accent-secondary-default: #E89DB2;
+  --accent-highlight-default: #faedf1;
   --accent-contrast-default: #ffffff;
   --accent-primary: var(--accent-primary-custom, var(--accent-primary-default));
   --accent-hover: var(--accent-hover-custom, var(--accent-hover-default));
@@ -56,11 +56,11 @@
   --text-secondary: #c8c8d0;
   --text-muted: #a9a9b4;
   --border-color: #3a3a41;
-  --accent-primary-default: #c86b8f;
-  --accent-hover-default: #b55d80;
-  --accent-secondary-default: #e0a6bd;
-  --accent-highlight-default: #3a2630;
-  --accent-contrast-default: #1b1b1e;
+  --accent-primary-default: #D96B8A;
+  --accent-hover-default: #C25A77;
+  --accent-secondary-default: #E89DB2;
+  --accent-highlight-default: #3a1e27;
+  --accent-contrast-default: #ffffff;
   --accent-primary: var(--accent-primary-custom-dark, var(--accent-primary-default));
   --accent-hover: var(--accent-hover-custom-dark, var(--accent-hover-default));
   --accent-secondary: var(--accent-secondary-custom-dark, var(--accent-secondary-default));
@@ -121,4 +121,25 @@ p, span, a, button {
 
 code {
   font-family: 'JetBrains Mono', monospace;
+}
+
+/* ────────────────────────────────────────────────────────────── */
+/* Skeleton loading - pink shimmer                                  */
+/* Usage: <div className="skeleton" style={{ height: 20 }} />        */
+/* ────────────────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary)) 0%,
+    color-mix(in srgb, var(--accent-primary) 22%, var(--bg-secondary)) 40%,
+    color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary)) 80%
+  );
+  background-size: 200% 100%;
+  animation: adaSkeletonShimmer 1.6s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@keyframes adaSkeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }

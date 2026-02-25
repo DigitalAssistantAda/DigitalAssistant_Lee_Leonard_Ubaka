@@ -36,6 +36,8 @@ function Documents() {
   const [uploadProgress, setUploadProgress] = useState({}); // Track progress per file
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewDocument, setPreviewDocument] = useState(null);
+  const prevDocStatusesRef = useRef({});   // tracks last-known status per doc id
+  const processingPollRef = useRef(null); // holds the polling interval id
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const currentUserId = useMemo(() => {
@@ -224,6 +226,13 @@ function PdfPreview({ docId }) {
     fetchContainers();
   }, []);
 
+  // Clean up processing poll on unmount
+  useEffect(() => {
+    return () => {
+      if (processingPollRef.current) clearInterval(processingPollRef.current);
+    };
+  }, []);
+
     // Add this useEffect after your other useEffect hooks
   useEffect(() => {
     // Load created containers from localStorage
@@ -289,6 +298,47 @@ function PdfPreview({ docId }) {
     }
   };
 
+  // Compares incoming docs against previously seen statuses.
+  // Fires a petal burst near the notification bell for every doc that
+  // just transitioned from any non-ready state to 'ready'.
+  // Returns true if any doc is still processing/pending (poll should continue).
+  const checkAndFireBursts = (newDocs) => {
+    let burst = false;
+    newDocs.forEach(doc => {
+      const prev = prevDocStatusesRef.current[doc.id];
+      if (prev && prev !== 'ready' && doc.status === 'ready' && !burst) {
+        window.dispatchEvent(
+          new CustomEvent('ada:petalburst', {
+            detail: { x: window.innerWidth - 80, y: 60, count: 22 },
+          })
+        );
+        burst = true; // one burst per poll tick is enough
+      }
+      prevDocStatusesRef.current[doc.id] = doc.status;
+    });
+    return newDocs.some(d => d.status === 'processing' || d.status === 'pending');
+  };
+
+  // Polls the workspace document list every 3 s while any doc is processing.
+  // Stops automatically once all docs have settled.
+  const startProcessingPoll = (workspaceId) => {
+    if (processingPollRef.current) clearInterval(processingPollRef.current);
+    processingPollRef.current = setInterval(async () => {
+      try {
+        const items = await fetchDocumentsForWorkspace(workspaceId);
+        setDocuments(items);
+        const stillProcessing = checkAndFireBursts(items);
+        if (!stillProcessing) {
+          clearInterval(processingPollRef.current);
+          processingPollRef.current = null;
+        }
+      } catch {
+        clearInterval(processingPollRef.current);
+        processingPollRef.current = null;
+      }
+    }, 3000);
+  };
+
   const fetchDocuments = async () => {
     if (!selectedWorkspace) return;
     setLoading(true);
@@ -297,6 +347,7 @@ function PdfPreview({ docId }) {
     try {
       const items = await fetchDocumentsForWorkspace(selectedWorkspace);
       setDocuments(items);
+      checkAndFireBursts(items);
       setSelectedDocuments(new Set());
     } catch (err) {
       setError(err.message);
@@ -399,7 +450,21 @@ function PdfPreview({ docId }) {
     setShowUploadModal(false);
     setSuccessMessage('Files uploaded successfully to workspace folder');
     setTimeout(() => setSuccessMessage(null), 3000);
-    
+    // Celebrate upload completion with a petal burst near the notification bell
+    window.dispatchEvent(
+      new CustomEvent('ada:petalburst', {
+        detail: {
+          x: window.innerWidth - 80,
+          y: 60,
+          count: 22,
+        },
+      })
+    );
+
+    // Poll until all just-uploaded docs finish processing, then burst again
+    const wsId = openedFolder?.workspace_id || selectedWorkspace;
+    if (wsId) startProcessingPoll(wsId);
+
     // Only refresh the folder view if the user has it open
     if (openedFolder?.id) {
       try {
@@ -423,6 +488,12 @@ const handleDragEnter = (e) => {
   e.preventDefault();
   e.stopPropagation();
   setIsDragging(true);
+  // Float a few petals upward from the drop zone
+  window.dispatchEvent(
+    new CustomEvent('ada:petalfloat', {
+      detail: { x: e.clientX, y: e.clientY, count: 8 },
+    })
+  );
 };
 
 const handleDragLeave = (e) => {
@@ -441,6 +512,12 @@ const handleDrop = (e) => {
   e.preventDefault();
   e.stopPropagation();
   setIsDragging(false);
+  // Celebrate the drop with a petal burst
+  window.dispatchEvent(
+    new CustomEvent('ada:petalburst', {
+      detail: { x: e.clientX, y: e.clientY, count: 28 },
+    })
+  );
 
   const items = e.dataTransfer.items;
   const files = [];

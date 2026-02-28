@@ -178,8 +178,8 @@
 }
 
 .accent-save:hover {
-  background: var(--accent-hover, #C25A77);
-  border-color: var(--accent-hover, #C25A77);
+  background: var(--accent-hover, #B26C82);
+  border-color: var(--accent-hover, #B26C82);
 }
 
 .accent-save:disabled {

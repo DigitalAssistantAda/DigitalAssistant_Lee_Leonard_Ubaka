@@ -4,7 +4,7 @@
   left: 0;
   right: 0;
   z-index: 1000;
-  padding: 12px 20px;
+  padding: 6px 20px;
   pointer-events: none;
   border-bottom: 1px solid var(--border-color);
   background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
@@ -55,7 +55,7 @@
 }
 
 .nav-logo-img {
-  height: 64px;
+  height: 46px;
   width: auto;
   display: block;
   transition: transform 0.2s ease, opacity 0.2s ease;

@@ -30,7 +30,7 @@ function App() {
     const value = getComputedStyle(document.documentElement)
       .getPropertyValue('--accent-primary')
       .trim();
-    return value || '#8f2f5a';
+    return value || '#F3B8CF';
   };
 
   const adjustHex = (hex, amount) => {
@@ -169,7 +169,7 @@ function App() {
 
   const pickTextColor = (hex) => {
     const white = '#FFFFFF';
-    const nearBlack = '#101014';
+    const nearBlack = '#3C2F33';
     const whiteContrast = contrastRatio(hex, white);
     const blackContrast = contrastRatio(hex, nearBlack);
     return whiteContrast >= blackContrast ? white : nearBlack;
@@ -210,11 +210,14 @@ function App() {
     const lumPrimary = relativeLuminance(bgPrimary);
     const lumSecondary = relativeLuminance(bgSecondary);
     const targetBg = lumPrimary >= lumSecondary ? bgPrimary : bgSecondary;
-    const minRatio = 4.5;
-    const accent = ensureContrast(hex, targetBg, minRatio);
-    const hover = adjustHex(accent, -18);
-    const secondary = adjustLightness(accent, lumPrimary > 0.5 ? 0.14 : -0.14);
-    const highlight = mixHex(accent, targetBg, lumPrimary > 0.5 ? 0.14 : 0.22);
+    const isLightTheme = lumPrimary > 0.5;
+    const minRatio = isLightTheme ? 3.2 : 4.5;
+    const contrastSafe = ensureContrast(hex, targetBg, minRatio);
+    const softened = isLightTheme ? mixHex(contrastSafe, targetBg, 0.88) : contrastSafe;
+    const accent = isLightTheme ? ensureContrast(softened, targetBg, minRatio) : softened;
+    const hover = isLightTheme ? adjustHex(accent, -8) : adjustHex(accent, -18);
+    const secondary = adjustLightness(accent, isLightTheme ? 0.08 : -0.14);
+    const highlight = mixHex(accent, targetBg, isLightTheme ? 0.08 : 0.22);
     const contrast = pickTextColor(accent);
     return { accent, hover, secondary, highlight, contrast };
   };
@@ -317,6 +320,60 @@ function App() {
       applyAccentColor(null);
     }
   }, [user, API_URL]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const easterClass = 'easter-script';
+    const storageKey = 'ada:easter-script-enabled';
+    const sequence = ['a', 'd', 'a'];
+    let buffer = [];
+    let resetTimer = null;
+
+    if (localStorage.getItem(storageKey) === '1') {
+      root.classList.add(easterClass);
+    }
+
+    const onKeyDown = (event) => {
+      const target = event.target;
+      const isTypingField = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      );
+      if (isTypingField) return;
+
+      const key = String(event.key || '').toLowerCase();
+      if (!key || key.length !== 1) return;
+
+      buffer.push(key);
+      if (buffer.length > sequence.length) {
+        buffer = buffer.slice(-sequence.length);
+      }
+
+      if (resetTimer) {
+        clearTimeout(resetTimer);
+      }
+      resetTimer = setTimeout(() => {
+        buffer = [];
+      }, 1400);
+
+      const matched = sequence.every((char, idx) => buffer[idx] === char);
+      if (!matched) return;
+
+      const nextEnabled = !root.classList.contains(easterClass);
+      root.classList.toggle(easterClass, nextEnabled);
+      localStorage.setItem(storageKey, nextEnabled ? '1' : '0');
+      buffer = [];
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      if (resetTimer) {
+        clearTimeout(resetTimer);
+      }
+    };
+  }, []);
 
   const handleLogin = (data) => {
     setUser(data.user);

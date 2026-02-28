@@ -5,14 +5,15 @@
 :root {
   /* Font stack variables */
   --font-display: "Canela", "Libre Baskerville", "Georgia", serif;
+  --font-display-script: "La Belle Aurore", "Bradley Hand", "Snell Roundhand", cursive;
   --font-body: "Source Serif 4", "Charter", "Georgia", serif;
   --font-ui: "Source Sans 3", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
 
   --radius-base: 6px;
   --radius-tight: 3px;
-  --nav-height: 72px;
-  --nav-pill-height: 72px;
-  --nav-item-height: 32px;
+  --nav-height: 56px;
+  --nav-pill-height: 56px;
+  --nav-item-height: 28px;
   --nav-glass-bg: #ffffff;
   --nav-glass-border: #e3e3e7;
   --nav-glass-shadow: none;
@@ -32,10 +33,10 @@
   --text-secondary: #6b6b78;
   --text-muted: #6b6b78;
   --border-color: #e3e3e7;
-  --accent-primary-default: #D96B8A;
-  --accent-hover-default: #C25A77;
-  --accent-secondary-default: #E89DB2;
-  --accent-highlight-default: #faedf1;
+  --accent-primary-default: #EBC7D8;
+  --accent-hover-default: #D7AEC0;
+  --accent-secondary-default: #F3E1E9;
+  --accent-highlight-default: #FCF8FA;
   --accent-contrast-default: #ffffff;
   --accent-primary: var(--accent-primary-custom, var(--accent-primary-default));
   --accent-hover: var(--accent-hover-custom, var(--accent-hover-default));
@@ -56,10 +57,10 @@
   --text-secondary: #c8c8d0;
   --text-muted: #a9a9b4;
   --border-color: #3a3a41;
-  --accent-primary-default: #D96B8A;
-  --accent-hover-default: #C25A77;
-  --accent-secondary-default: #E89DB2;
-  --accent-highlight-default: #3a1e27;
+  --accent-primary-default: #F3B8CF;
+  --accent-hover-default: #B26C82;
+  --accent-secondary-default: #DEAFC0;
+  --accent-highlight-default: #39242d;
   --accent-contrast-default: #ffffff;
   --accent-primary: var(--accent-primary-custom-dark, var(--accent-primary-default));
   --accent-hover: var(--accent-hover-custom-dark, var(--accent-hover-default));
@@ -104,7 +105,21 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h1 {
+  font-family: var(--font-display);
   font-size: 2.5rem;
+}
+
+html.easter-script h1,
+html.easter-script .hero-title,
+html.easter-script .auth-title,
+html.easter-script .not-found-title,
+html.easter-script .search-hero h1,
+html.easter-script .user-settings-header h1,
+html.easter-script .documents-hero h1,
+html.easter-script .workspaces-hero h1,
+html.easter-script .ai-header h1 {
+  font-family: var(--font-display-script) !important;
+  font-weight: 400;
 }
 
 h2 {

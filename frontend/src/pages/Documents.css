@@ -89,7 +89,7 @@
 .modal {
   background: var(--bg-primary, #ffffff);
   border-radius: var(--radius-lg, 12px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 20px 60px rgba(60, 47, 51, 0.15);
   width: 94vw;
   max-width: 720px;
   min-width: 360px;
@@ -164,7 +164,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(60, 47, 51, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -690,12 +690,12 @@
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  border: 2px solid rgba(0,0,0,0.06);
+  border: 2px solid rgba(60, 47, 51, 0.06);
   cursor: pointer;
 }
 
 .swatch.selected {
-  box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+  box-shadow: 0 0 0 3px rgba(60, 47, 51, 0.06);
   transform: translateY(-1px);
 }
 
@@ -835,7 +835,7 @@
   border-radius: 8px;
   background: var(--bg-primary);
   border: 1px solid var(--border-color, #e0e6ed);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(60, 47, 51, 0.08);
 }
 
 .create-container-panel .panel-header {
@@ -868,7 +868,7 @@
 }
 
 .create-container-panel .swatch.selected {
-  box-shadow: 0 0 0 3px rgba(0,0,0,0.06) inset;
+  box-shadow: 0 0 0 3px rgba(60, 47, 51, 0.06) inset;
   transform: translateY(-2px);
 }
 
@@ -1027,7 +1027,7 @@
 .container-card:hover {
   transform: translateY(-3px);
   border-color: var(--accent-primary);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(60, 47, 51, 0.08);
 }
 
 .container-card.default-workspace {
@@ -1053,7 +1053,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(0,0,0,0.04);
+  border: 1px solid rgba(60, 47, 51, 0.04);
   flex-shrink: 0;
 }
 
@@ -1318,7 +1318,7 @@
   margin-top: 0.5rem;
   z-index: 100;
   min-width: 180px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(60, 47, 51, 0.1);
 }
 
 .sort-option {
@@ -1808,7 +1808,7 @@
   height: 95vh;
   max-width: 1600px;
   max-height: 95vh;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 20px 60px rgba(60, 47, 51, 0.3);
 }
 
 .preview-header {

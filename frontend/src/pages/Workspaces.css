@@ -144,7 +144,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(60, 47, 51, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -533,7 +533,7 @@
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-base);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 25px rgba(60, 47, 51, 0.08);
   padding: 0.35rem;
   display: grid;
   gap: 0.2rem;

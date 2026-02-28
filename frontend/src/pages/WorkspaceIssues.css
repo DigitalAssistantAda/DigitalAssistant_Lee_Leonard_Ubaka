@@ -51,7 +51,7 @@
   color: white;
   border-radius: var(--radius-base);
   margin-bottom: 1.5rem;
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(60, 47, 51, 0.2);
 }
 
 /* Filter Controls */

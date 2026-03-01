@@ -1,44 +1,97 @@
+/* Summaries — uses global design tokens from index.css */
+
 .summaries-page {
-  padding: 2rem;
+  min-height: 100vh;
+  padding: var(--s-40) var(--s-32) var(--s-48);
   max-width: 1320px;
   margin: 0 auto;
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.summaries-page h1 {
+  margin: 0 0 var(--s-8);
+  font-size: 2.25rem;
+  font-weight: 400;
+  font-family: var(--font-display);
+}
+
+.summaries-page .page-subtitle {
+  margin: 0 0 var(--s-32);
+  color: var(--text-secondary);
+  font-size: 1rem;
 }
 
 .summaries-error {
   color: var(--status-danger);
-  padding: 10px;
-  margin-bottom: 20px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
+  padding: var(--s-12) var(--s-16);
+  margin-bottom: var(--s-20);
+  background: color-mix(in srgb, var(--status-danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-danger) 35%, transparent);
+  border-radius: var(--radius-base);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .summaries-card {
-  margin-bottom: 2rem;
-  padding: 1.5rem;
+  margin-bottom: var(--s-32);
+  padding: var(--s-24);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-base);
   background: var(--bg-secondary);
 }
 
 .summaries-field {
-  margin-bottom: 1rem;
+  margin-bottom: var(--s-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+}
+
+.summaries-field label {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--text-secondary);
 }
 
 .summaries-input,
 .summaries-select {
   width: 100%;
-  padding: 8px;
+  padding: var(--s-12);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-base);
   background: var(--bg-primary);
   color: var(--text-primary);
+  font-size: 0.95rem;
+  font-family: var(--font-ui);
+  transition: border-color 0.2s ease;
+}
+
+.summaries-input:focus,
+.summaries-select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
 .summaries-button {
-  padding: 10px 20px;
+  padding: var(--s-12) var(--s-24);
   cursor: pointer;
   background: var(--accent-primary);
   color: var(--accent-contrast);
-  border: none;
-  margin-right: 10px;
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-base);
+  font-size: 0.95rem;
+  font-weight: 400;
+  font-family: var(--font-ui);
+  transition: background 0.2s ease;
+  margin-right: var(--s-12);
+}
+
+.summaries-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .summaries-button:disabled {
@@ -47,25 +100,40 @@
 }
 
 .summary-panel {
-  padding: 1.5rem;
+  padding: var(--s-24);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-base);
   background: var(--bg-tertiary);
 }
 
 .summary-meta {
-  margin-bottom: 10px;
+  margin-bottom: var(--s-12);
+  font-size: 0.875rem;
 }
 
 .summary-generated {
-  margin-bottom: 10px;
+  margin-bottom: var(--s-12);
   color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
 .summary-content {
-  margin-top: 15px;
-  padding: 1rem;
+  margin-top: var(--s-16);
+  padding: var(--s-16);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
+  border-radius: var(--radius-base);
   white-space: pre-wrap;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 768px) {
+  .summaries-page {
+    padding: var(--s-24) var(--s-16) var(--s-32);
+  }
+
+  .summaries-card {
+    padding: var(--s-16);
+  }
 }

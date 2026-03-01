@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, MoreVertical, Eye } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { getApiErrorMessage } from '../utils/apiError';
 import './Documents.css';
 
 function Documents() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { containerId: containerIdParam } = useParams();
   const [documents, setDocuments] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
@@ -32,14 +33,19 @@ function Documents() {
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
+  const workspaceContainerFetchRef = useRef(new Set());
   const [uploadFiles, setUploadFiles] = useState([]); // Changed from uploadFile to uploadFiles (array)
   const [uploadProgress, setUploadProgress] = useState({}); // Track progress per file
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewDocument, setPreviewDocument] = useState(null);
-  const prevDocStatusesRef = useRef({});   // tracks last-known status per doc id
   const processingPollRef = useRef(null); // holds the polling interval id
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const workspaceIdFromQuery = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const value = Number(params.get('workspaceId'));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }, [location.search]);
   const currentUserId = useMemo(() => {
     try {
       const raw = localStorage.getItem('user');
@@ -264,6 +270,11 @@ function PdfPreview({ docId }) {
         const data = await response.json();
         const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
         setWorkspaces(items);
+        const queryWorkspaceExists = workspaceIdFromQuery && items.some((item) => Number(item.id) === Number(workspaceIdFromQuery));
+        if (!containerIdParam && queryWorkspaceExists) {
+          setSelectedWorkspace(workspaceIdFromQuery);
+          return;
+        }
         if (!containerIdParam && items.length > 0 && !selectedWorkspace) {
           setSelectedWorkspace(items[0].id);
         }
@@ -273,6 +284,14 @@ function PdfPreview({ docId }) {
       setError('Failed to load workspaces');
     }
   };
+
+  useEffect(() => {
+    if (!workspaceIdFromQuery || !workspaces.length || containerIdParam) return;
+    const exists = workspaces.some((item) => Number(item.id) === Number(workspaceIdFromQuery));
+    if (!exists) return;
+    if (Number(selectedWorkspace) === Number(workspaceIdFromQuery)) return;
+    setSelectedWorkspace(workspaceIdFromQuery);
+  }, [workspaceIdFromQuery, workspaces, selectedWorkspace, containerIdParam]);
 
   const fetchContainers = async () => {
     try {
@@ -298,25 +317,9 @@ function PdfPreview({ docId }) {
     }
   };
 
-  // Compares incoming docs against previously seen statuses.
-  // Fires a petal burst near the notification bell for every doc that
-  // just transitioned from any non-ready state to 'ready'.
   // Returns true if any doc is still processing/pending (poll should continue).
-  const checkAndFireBursts = (newDocs) => {
-    let burst = false;
-    newDocs.forEach(doc => {
-      const prev = prevDocStatusesRef.current[doc.id];
-      if (prev && prev !== 'ready' && doc.status === 'ready' && !burst) {
-        window.dispatchEvent(
-          new CustomEvent('ada:petalburst', {
-            detail: { x: window.innerWidth - 80, y: 60, count: 22 },
-          })
-        );
-        burst = true; // one burst per poll tick is enough
-      }
-      prevDocStatusesRef.current[doc.id] = doc.status;
-    });
-    return newDocs.some(d => d.status === 'processing' || d.status === 'pending');
+  const hasProcessingDocuments = (newDocs) => {
+    return newDocs.some((doc) => doc.status === 'processing' || doc.status === 'pending');
   };
 
   // Polls the workspace document list every 3 s while any doc is processing.
@@ -327,7 +330,7 @@ function PdfPreview({ docId }) {
       try {
         const items = await fetchDocumentsForWorkspace(workspaceId);
         setDocuments(items);
-        const stillProcessing = checkAndFireBursts(items);
+        const stillProcessing = hasProcessingDocuments(items);
         if (!stillProcessing) {
           clearInterval(processingPollRef.current);
           processingPollRef.current = null;
@@ -347,7 +350,7 @@ function PdfPreview({ docId }) {
     try {
       const items = await fetchDocumentsForWorkspace(selectedWorkspace);
       setDocuments(items);
-      checkAndFireBursts(items);
+      hasProcessingDocuments(items);
       setSelectedDocuments(new Set());
     } catch (err) {
       setError(err.message);
@@ -450,18 +453,7 @@ function PdfPreview({ docId }) {
     setShowUploadModal(false);
     setSuccessMessage('Files uploaded successfully to workspace folder');
     setTimeout(() => setSuccessMessage(null), 3000);
-    // Celebrate upload completion with a petal burst near the notification bell
-    window.dispatchEvent(
-      new CustomEvent('ada:petalburst', {
-        detail: {
-          x: window.innerWidth - 80,
-          y: 60,
-          count: 22,
-        },
-      })
-    );
-
-    // Poll until all just-uploaded docs finish processing, then burst again
+    // Poll until all just-uploaded docs finish processing
     const wsId = openedFolder?.workspace_id || selectedWorkspace;
     if (wsId) startProcessingPoll(wsId);
 
@@ -488,12 +480,6 @@ const handleDragEnter = (e) => {
   e.preventDefault();
   e.stopPropagation();
   setIsDragging(true);
-  // Float a few petals upward from the drop zone
-  window.dispatchEvent(
-    new CustomEvent('ada:petalfloat', {
-      detail: { x: e.clientX, y: e.clientY, count: 8 },
-    })
-  );
 };
 
 const handleDragLeave = (e) => {
@@ -512,12 +498,6 @@ const handleDrop = (e) => {
   e.preventDefault();
   e.stopPropagation();
   setIsDragging(false);
-  // Celebrate the drop with a petal burst
-  window.dispatchEvent(
-    new CustomEvent('ada:petalburst', {
-      detail: { x: e.clientX, y: e.clientY, count: 28 },
-    })
-  );
 
   const items = e.dataTransfer.items;
   const files = [];
@@ -729,12 +709,14 @@ const handleCreateContainer = async (e) => {
   };
 
   const handleBackFromFolder = () => {
+    const backTarget = '/documents';
+
     setOpenedFolder(null);
     setFolderDocuments([]);
     setFolderSearchQuery('');
     setSelectedDocuments(new Set());
     setSortBy('lastOpened');
-    navigate('/documents');
+    navigate(backTarget);
   };
 
   const handleWorkspaceSelect = (value) => {
@@ -999,6 +981,75 @@ const handleCreateContainer = async (e) => {
     return [...containers, ...localOnly];
   }, [containers, createdContainers]);
 
+  useEffect(() => {
+    if (!workspaceIdFromQuery || containerIdParam) return;
+
+    const targetWorkspaceId = Number(workspaceIdFromQuery);
+    if (!Number.isFinite(targetWorkspaceId) || targetWorkspaceId <= 0) return;
+
+    const workspaceContainers = displayedContainers.filter(
+      (container) => Number(container.workspace_id) === targetWorkspaceId
+    );
+    if (!workspaceContainers.length) return;
+
+    const workspace = workspaces.find((item) => Number(item.id) === targetWorkspaceId);
+    const workspaceName = String(workspace?.name || '').trim().toLowerCase();
+
+    const preferredContainer = workspaceContainers.find(
+      (container) => String(container?.name || '').trim().toLowerCase() === workspaceName
+    ) || workspaceContainers[0];
+
+    if (!preferredContainer?.id) return;
+    navigate(`/documents/${preferredContainer.id}?workspaceId=${targetWorkspaceId}`, { replace: true });
+  }, [workspaceIdFromQuery, containerIdParam, displayedContainers, workspaces, navigate]);
+
+  const workspaceScopedContainers = useMemo(() => {
+    const numericWorkspaceId = Number(selectedWorkspace);
+    if (!Number.isFinite(numericWorkspaceId) || numericWorkspaceId <= 0) {
+      return displayedContainers;
+    }
+    return displayedContainers.filter((container) => Number(container.workspace_id) === numericWorkspaceId);
+  }, [displayedContainers, selectedWorkspace]);
+
+  useEffect(() => {
+    const numericWorkspaceId = Number(selectedWorkspace || workspaceIdFromQuery);
+    if (!Number.isFinite(numericWorkspaceId) || numericWorkspaceId <= 0) return;
+    if (containerIdParam) return;
+    if (workspaceScopedContainers.length > 0) return;
+    if (workspaceContainerFetchRef.current.has(numericWorkspaceId)) return;
+
+    workspaceContainerFetchRef.current.add(numericWorkspaceId);
+
+    const fetchWorkspaceContainersFallback = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(`${API_URL}/api/v1/workspaces/${numericWorkspaceId}/containers`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+        if (!items.length) return;
+
+        setDbContainers((prev) => {
+          const byId = new Map((Array.isArray(prev) ? prev : []).map((container) => [Number(container.id), container]));
+          items.forEach((container) => {
+            byId.set(Number(container.id), {
+              ...container,
+              type: container?.type || null,
+            });
+          });
+          return Array.from(byId.values());
+        });
+      } catch (err) {
+        console.error('Failed workspace-scoped container fallback fetch:', err);
+      }
+    };
+
+    fetchWorkspaceContainersFallback();
+  }, [selectedWorkspace, workspaceIdFromQuery, containerIdParam, workspaceScopedContainers.length, API_URL]);
+
   const filteredDisplayedContainers = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
@@ -1017,7 +1068,7 @@ const handleCreateContainer = async (e) => {
       return 'workspace';
     };
 
-    return displayedContainers.filter((container) => {
+    return workspaceScopedContainers.filter((container) => {
       const type = getOwnershipType(container);
       const name = String(container?.name || '').toLowerCase();
 
@@ -1031,7 +1082,20 @@ const handleCreateContainer = async (e) => {
 
       return matchesOwner && matchesSearch;
     });
-  }, [displayedContainers, ownerFilter, searchQuery, currentUserId, workspaces]);
+  }, [workspaceScopedContainers, ownerFilter, searchQuery, currentUserId, workspaces]);
+
+  const emptyStateMessage = useMemo(() => {
+    const hasWorkspaceScope = Number.isFinite(Number(selectedWorkspace)) && Number(selectedWorkspace) > 0;
+    if (workspaceScopedContainers.length === 0) {
+      return hasWorkspaceScope
+        ? 'No folders in this workspace yet.'
+        : 'No folders available yet.';
+    }
+    if (searchQuery || ownerFilter !== 'all') {
+      return 'No folders match your current filters.';
+    }
+    return 'No folders available yet.';
+  }, [workspaceScopedContainers, selectedWorkspace, searchQuery, ownerFilter]);
 
   useEffect(() => {
     if (!containerIdParam) {
@@ -1176,6 +1240,15 @@ const handleCreateContainer = async (e) => {
         </div>
 
         <div className="folder-meta">
+          <button
+            type="button"
+            className="meta-pill meta-pill-action"
+            onClick={handleBackFromFolder}
+            aria-label="Back to folder overview"
+            title="Back to folder overview"
+          >
+            Back to folder overview
+          </button>
           <div className="meta-pill">
             {isUserCreatedContainer(openedFolder.id) ? 'Personal folder' : 'Workspace folder'}
           </div>
@@ -1943,7 +2016,7 @@ const handleCreateContainer = async (e) => {
           );
         })}
         {filteredDisplayedContainers.length === 0 && (
-          <p className="empty-state-text">No folders match your current filters.</p>
+          <p className="empty-state-text">{emptyStateMessage}</p>
         )}
       </div>
 

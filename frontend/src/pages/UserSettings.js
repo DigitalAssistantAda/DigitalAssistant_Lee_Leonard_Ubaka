@@ -18,6 +18,14 @@ function UserSettings() {
   const [profileError, setProfileError] = useState(null);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
   const navigate = useNavigate();
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -29,21 +37,6 @@ function UserSettings() {
       .trim();
     return value || '#8f2f5a';
   };
-
-  useEffect(() => {
-    // Fire petals once when both settings sections load
-    if (profileLoaded && accentLoaded && !accentError && !profileError) {
-      window.dispatchEvent(
-        new CustomEvent('ada:petalburst', {
-          detail: {
-            x: window.innerWidth / 2,
-            y: 100,
-            count: 12,
-          },
-        })
-      );
-    }
-  }, [profileLoaded, accentLoaded, profileError, accentError]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -205,6 +198,59 @@ function UserSettings() {
     }
   };
 
+  const handlePasswordFormChange = (event) => {
+    const { name, value } = event.target;
+    setPasswordForm((prev) => ({ ...prev, [name]: value }));
+    setPasswordSuccess(false);
+  };
+
+  const handlePasswordSave = async () => {
+    setPasswordError(null);
+    setPasswordSuccess(false);
+
+    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setPasswordError('Please fill in all password fields.');
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
+
+    try {
+      setPasswordSaving(true);
+      const response = await fetch(`${API_URL}/api/v1/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          current_password: passwordForm.currentPassword,
+          new_password: passwordForm.newPassword,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => null);
+        if (Array.isArray(errData?.detail)) {
+          setPasswordError(errData.detail.map((item) => item?.msg || 'Invalid password input.').join(' '));
+        } else {
+          setPasswordError(parseApiErrorMessage(errData, 'Failed to update password'));
+        }
+        return;
+      }
+
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setPasswordSuccess(true);
+    } catch (err) {
+      setPasswordError('Failed to update password');
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   return (
     <div className="user-settings-page">
       <header className="user-settings-header">
@@ -318,6 +364,66 @@ function UserSettings() {
             </div>
           </div>
         )}
+      </section>
+
+      <section className="user-settings-card">
+        <div className="user-settings-card-header">
+          <h2>Password</h2>
+          <p>Update your password for account security.</p>
+        </div>
+
+        <div className="user-settings-form">
+          {passwordError && <div className="user-settings-error">{passwordError}</div>}
+          {passwordSuccess && (
+            <div className="user-settings-success">Password updated successfully.</div>
+          )}
+
+          <div className="settings-grid">
+            <label className="settings-field settings-field-full">
+              <span>Current password</span>
+              <input
+                type="password"
+                name="currentPassword"
+                value={passwordForm.currentPassword}
+                onChange={handlePasswordFormChange}
+                className="settings-input"
+                placeholder="Enter current password"
+                autoComplete="current-password"
+              />
+            </label>
+            <label className="settings-field">
+              <span>New password</span>
+              <input
+                type="password"
+                name="newPassword"
+                value={passwordForm.newPassword}
+                onChange={handlePasswordFormChange}
+                className="settings-input"
+                placeholder="At least 12 characters"
+                autoComplete="new-password"
+              />
+              <span className="password-helper">Use 12+ characters with uppercase, lowercase, number, and special character.</span>
+            </label>
+            <label className="settings-field">
+              <span>Confirm new password</span>
+              <input
+                type="password"
+                name="confirmPassword"
+                value={passwordForm.confirmPassword}
+                onChange={handlePasswordFormChange}
+                className="settings-input"
+                placeholder="Re-enter new password"
+                autoComplete="new-password"
+              />
+            </label>
+          </div>
+
+          <div className="settings-actions">
+            <button className="accent-save" onClick={handlePasswordSave} disabled={passwordSaving}>
+              {passwordSaving ? 'Saving...' : 'Save password'}
+            </button>
+          </div>
+        </div>
       </section>
 
       <section className="user-settings-card user-settings-danger">

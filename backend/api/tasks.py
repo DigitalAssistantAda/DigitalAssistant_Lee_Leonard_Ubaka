@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
-from datetime import datetime
+from datetime import datetime, timezone
 
 from database import get_db
 from models.task import Task, TaskType, TaskStatus, TaskPriority
@@ -137,9 +137,19 @@ def list_tasks(
             raise HTTPException(status_code=400, detail="Invalid task type")
     if status:
         try:
-            query = query.filter(Task.status == TaskStatus(status))
+            requested_status = TaskStatus(status)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid task status")
+
+        if requested_status == TaskStatus.OVERDUE:
+            now_utc = datetime.now(timezone.utc)
+            query = query.filter(
+                Task.due_date.isnot(None),
+                Task.due_date < now_utc,
+                Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CLOSED]),
+            )
+        else:
+            query = query.filter(Task.status == requested_status)
     if assigned_to:
         if assigned_to == "me":
             query = query.outerjoin(TaskAssignee, TaskAssignee.task_id == Task.id).filter(

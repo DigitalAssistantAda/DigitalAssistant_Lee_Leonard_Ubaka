@@ -5,12 +5,43 @@
 :root {
   /* Font stack variables */
   --font-display: "Canela", "Libre Baskerville", "Georgia", serif;
-  --font-display-script: "La Belle Aurore", "Bradley Hand", "Snell Roundhand", cursive;
+  --font-display-script: "Pinyon Script", "La Belle Aurore", "Bradley Hand", "Snell Roundhand", cursive;
   --font-body: "Source Serif 4", "Charter", "Georgia", serif;
-  --font-ui: "Source Sans 3", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-ui: "Sen", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
 
+  /* 8pt spacing scale — use everywhere for margins, padding, gaps */
+  --s-2: 2px;
+  --s-4: 4px;
+  --s-8: 8px;
+  --s-12: 12px;
+  --s-16: 16px;
+  --s-20: 20px;
+  --s-24: 24px;
+  --s-32: 32px;
+  --s-40: 40px;
+  --s-48: 48px;
+  --s-56: 56px;
+  --s-64: 64px;
+  --s-80: 80px;
+  --s-96: 96px;
+  --s-120: 120px;
+
+  /* Radius scale */
   --radius-base: 6px;
   --radius-tight: 3px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* Shadow scale */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+
+  /* Timing */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 0.15s;
+  --duration-normal: 0.2s;
+
   --nav-height: 56px;
   --nav-pill-height: 56px;
   --nav-item-height: 28px;
@@ -19,10 +50,10 @@
   --nav-glass-shadow: none;
   --nav-glass-inset: none;
 
-  /* Neutral gray base with pink accent - Light Mode */
-  --bg-primary-light: #f8f8f9;
+  /* Landing-aligned neutral base + rose brand accent - Light Mode */
+  --bg-primary-light: #f4f3f1;
   --bg-secondary-light: #ffffff;
-  --bg-tertiary-light: #f1f1f3;
+  --bg-tertiary-light: #f3f3f1;
   --bg-primary-dark: #1b1b1e;
   --bg-secondary-dark: #232328;
   --bg-tertiary-dark: #2b2b31;
@@ -34,9 +65,9 @@
   --text-muted: #6b6b78;
   --border-color: #e3e3e7;
   --accent-primary-default: #EBC7D8;
-  --accent-hover-default: #D7AEC0;
-  --accent-secondary-default: #F3E1E9;
-  --accent-highlight-default: #FCF8FA;
+  --accent-hover-default: #E0A8C2;
+  --accent-secondary-default: #F5E3EA;
+  --accent-highlight-default: #FDF5F8;
   --accent-contrast-default: #ffffff;
   --accent-primary: var(--accent-primary-custom, var(--accent-primary-default));
   --accent-hover: var(--accent-hover-custom, var(--accent-hover-default));
@@ -49,7 +80,7 @@
 }
 
 .dark {
-  /* Graphite base with pink accent - Dark Mode */
+  /* Landing-aligned graphite base + rose brand accent - Dark Mode */
   --bg-primary: var(--bg-primary-dark);
   --bg-secondary: var(--bg-secondary-dark);
   --bg-tertiary: var(--bg-tertiary-dark);
@@ -58,9 +89,9 @@
   --text-muted: #a9a9b4;
   --border-color: #3a3a41;
   --accent-primary-default: #F3B8CF;
-  --accent-hover-default: #B26C82;
-  --accent-secondary-default: #DEAFC0;
-  --accent-highlight-default: #39242d;
+  --accent-hover-default: #DEAEC0;
+  --accent-secondary-default: #4A2D38;
+  --accent-highlight-default: #39242D;
   --accent-contrast-default: #ffffff;
   --accent-primary: var(--accent-primary-custom-dark, var(--accent-primary-default));
   --accent-hover: var(--accent-hover-custom-dark, var(--accent-hover-default));
@@ -70,6 +101,10 @@
   --status-success: #6eb08a;
   --status-warning: #d4a26b;
   --status-danger: #e07b87;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.16), 0 1px 4px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.12);
 
   --nav-glass-bg: #232328;
   --nav-glass-border: #3a3a41;
@@ -101,7 +136,7 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 400;
 }
 
 h1 {

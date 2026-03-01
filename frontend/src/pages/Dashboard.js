@@ -1,6 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle, FileText, Folder, Search, Upload, Eye, XCircle, AlertCircle, Clock, ArrowUpRight, Minus, ArrowDownRight } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowDownRight,
+  ArrowUpRight,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  FileText,
+  Minus,
+  Search,
+  Upload,
+} from 'lucide-react';
 import './Dashboard.css';
 
 function Dashboard() {
@@ -10,19 +22,22 @@ function Dashboard() {
     documents: 0,
     recentItems: 0,
     openTasks: 0,
-    overdueTasks: 0
+    overdueTasks: 0,
   });
   const [user, setUser] = useState({
     username: '',
     email: '',
     joinedDate: '',
-    status: ''
+    status: '',
   });
   const [recentActivity, setRecentActivity] = useState([]);
   const [issues, setIssues] = useState([]);
   const [deadlines, setDeadlines] = useState([]);
-  const [currentMonth, setCurrentMonth] = useState('February 2026');
-  const [selectedDay, setSelectedDay] = useState(1);
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    const now = new Date();
+    return now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  });
+  const [selectedDay, setSelectedDay] = useState(() => new Date().getDate());
   const [activityFilter, setActivityFilter] = useState('all');
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -53,7 +68,6 @@ function Dashboard() {
     fetchDashboardData();
   }, []);
 
-    // Refetch activity when filter changes
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) return;
@@ -61,29 +75,26 @@ function Dashboard() {
     const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
     fetch(`${API_URL}/api/v1/dashboard/activity?limit=8${filterParam}`, {
       headers: {
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
       },
     })
-      .then(response => response.ok ? response.json() : null)
-      .then(data => {
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
         if (data) {
           setRecentActivity(data.items || []);
         }
       })
-      .catch(err => console.error('Error fetching filtered activity:', err));
-  }, [activityFilter]);
+      .catch((err) => console.error('Error fetching filtered activity:', err));
+  }, [activityFilter, API_URL]);
 
   const fetchDashboardData = async () => {
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        return;
-      }
+      if (!token) return;
 
-      // Fetch dashboard stats
       const statsResponse = await fetch(`${API_URL}/api/v1/dashboard/stats`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -94,21 +105,19 @@ function Dashboard() {
           documents: statsData.documents,
           recentItems: statsData.recent_items,
           openTasks: 0,
-          overdueTasks: 0
+          overdueTasks: 0,
         });
         setUser({
           username: statsData.username,
           email: statsData.email,
           joinedDate: statsData.member_since,
-          status: statsData.status_message || ''
+          status: statsData.status_message || '',
         });
       }
 
-    // Fetch recent activity (will update based on filter selection)
-      const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
-      const activityResponse = await fetch(`${API_URL}/api/v1/dashboard/activity?limit=8${filterParam}`, {
+      const activityResponse = await fetch(`${API_URL}/api/v1/dashboard/activity?limit=8`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -117,10 +126,9 @@ function Dashboard() {
         setRecentActivity(activityData.items || []);
       }
 
-      // Fetch issues
       const issuesResponse = await fetch(`${API_URL}/api/v1/dashboard/issues`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -134,19 +142,16 @@ function Dashboard() {
         }));
       }
 
-      // Fetch deadlines
       const deadlinesResponse = await fetch(`${API_URL}/api/v1/dashboard/deadlines`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
       if (deadlinesResponse.ok) {
         const deadlinesData = await deadlinesResponse.json();
         const items = deadlinesData.items || [];
-        const overdueCount = items.filter((deadline) =>
-          (deadline.due_in || '').toLowerCase().includes('overdue')
-        ).length;
+        const overdueCount = items.filter((deadline) => deadline?.is_overdue).length;
         setDeadlines(items);
         setStats((prev) => ({
           ...prev,
@@ -158,9 +163,33 @@ function Dashboard() {
     }
   };
 
-  const isAuthAction = (action) => {
-    if (!action) return false;
-    return action.startsWith('user.') || action.includes('login') || action.includes('logout');
+  const shiftMonth = (direction) => {
+    const [monthName, yearValue] = currentMonth.split(' ');
+    const monthIndex = monthIndexMap[monthName] ?? 0;
+    const year = Number.parseInt(yearValue, 10) || new Date().getFullYear();
+    const nextDate = new Date(year, monthIndex + direction, 1);
+    setCurrentMonth(nextDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+    setSelectedDay(1);
+  };
+
+  const isAuthAction = (activity) => {
+    if (!activity) return false;
+
+    const rawType = String(activity.action_type || '').toLowerCase();
+    const rawAction = String(activity.action || '').toLowerCase();
+    const combined = `${rawType} ${rawAction}`;
+
+    return (
+      rawType.startsWith('user.')
+      || combined.includes('login')
+      || combined.includes('logout')
+      || combined.includes('logged in')
+      || combined.includes('logged out')
+      || combined.includes('sign in')
+      || combined.includes('sign out')
+      || combined.includes('auth.')
+      || combined.includes('authentication')
+    );
   };
 
   const accomplishments = useMemo(() => {
@@ -171,22 +200,20 @@ function Dashboard() {
       'workspace.updated',
       'workspace.member_added',
       'workspace.member_updated',
-      'workspace.member_removed'
+      'workspace.member_removed',
     ]);
 
     return recentActivity.filter((activity) => {
-      if (isAuthAction(activity.action)) return false;
+      if (isAuthAction(activity)) return false;
       if (accomplishmentActions.has(activity.action)) return true;
       return activity.status === 'success' && activity.type !== 'access';
     });
   }, [recentActivity]);
 
-      const filteredActivity = useMemo(() => {
-    // Backend already filters, just exclude auth actions for all tab
-    return recentActivity.filter((activity) => !isAuthAction(activity.action));
-  }, [recentActivity]);
-
-  // recentActivity now comes from API
+  const filteredActivity = useMemo(
+    () => recentActivity.filter((activity) => !isAuthAction(activity)),
+    [recentActivity]
+  );
 
   const getActivityIcon = (type) => {
     const icons = {
@@ -194,19 +221,19 @@ function Dashboard() {
       search: <Search size={14} aria-label="Search" />,
       summary: <FileText size={14} aria-label="Summary" />,
       processing: <FileText size={14} aria-label="Processing" />,
-      access: <Eye size={14} aria-label="Access" />,
+      access: <Search size={14} aria-label="Access" />,
       success: <CheckCircle size={14} aria-label="Success" />,
-      failed: <XCircle size={14} aria-label="Failed" />,
-      workspace: <Folder size={14} aria-label="Workspace" />
+      failed: <AlertCircle size={14} aria-label="Failed" />,
+      workspace: <FileText size={14} aria-label="Workspace" />,
     };
     return icons[type] || <FileText size={14} aria-label="Activity" />;
   };
 
-  const getActivityStatusClass = (status) => {
-    if (status === 'success') return 'status-success';
-    if (status === 'pending') return 'status-pending';
-    if (status === 'failed') return 'status-failed';
-    return 'status-neutral';
+  const getActivityTypeClass = (type) => {
+    if (type === 'summary' || type === 'processing') return 'ai-ada';
+    if (type === 'upload' || type === 'workspace') return 'ai-doc';
+    if (type === 'search' || type === 'access') return 'ai-search';
+    return 'ai-check';
   };
 
   const getPriorityClass = (priority) => {
@@ -215,10 +242,10 @@ function Dashboard() {
   };
 
   const getPriorityIcon = (priority) => {
-    if (priority === 'high') return <ArrowUpRight size={14} aria-hidden="true" />;
-    if (priority === 'medium') return <Minus size={14} aria-hidden="true" />;
-    if (priority === 'low') return <ArrowDownRight size={14} aria-hidden="true" />;
-    return <Minus size={14} aria-hidden="true" />;
+    if (priority === 'high') return <ArrowUpRight size={12} aria-hidden="true" />;
+    if (priority === 'medium') return <Minus size={12} aria-hidden="true" />;
+    if (priority === 'low') return <ArrowDownRight size={12} aria-hidden="true" />;
+    return <Minus size={12} aria-hidden="true" />;
   };
 
   const getPriorityLabel = (priority) => {
@@ -228,11 +255,20 @@ function Dashboard() {
     return 'P-';
   };
 
-  const getDeadlineClass = (dueIn) => {
+  const getDeadlineClass = (dueIn, isOverdue) => {
+    if (isOverdue) return 'due-overdue';
     const value = (dueIn || '').toLowerCase();
-    if (value.includes('overdue')) return 'due-overdue';
     if (value.includes('today') || value.includes('tomorrow')) return 'due-soon';
     return 'due-normal';
+  };
+
+  const formatActivityAction = (value) => {
+    if (!value || typeof value !== 'string') return 'Activity';
+    return value
+      .replace(/[._-]+/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   };
 
   const handleIssueClick = (issue) => {
@@ -244,16 +280,38 @@ function Dashboard() {
 
   const handleDeadlineClick = (deadline) => {
     if (!deadline?.workspace_id) return;
-    navigate(`/workspace/${deadline.workspace_id}`);
+    const issueId = deadline?.id;
+    const suffix = issueId ? `?issueId=${issueId}` : '';
+    navigate(`/workspace/${deadline.workspace_id}/issues${suffix}`);
   };
 
-  const calendarDays = [
-    { day: 26, inactive: true }, { day: 27, inactive: true }, { day: 28, inactive: true },
-    { day: 29, inactive: true }, { day: 30, inactive: true }, { day: 31, inactive: true },
-    { day: 1, today: true },
-    ...Array.from({ length: 28 }, (_, i) => ({ day: i + 2 })),
-    { day: 1, inactive: true, nextMonth: true }
-  ];
+  const calendarDays = useMemo(() => {
+    const firstDay = new Date(currentMonthInfo.year, currentMonthInfo.monthIndex, 1).getDay();
+    const daysInMonth = new Date(currentMonthInfo.year, currentMonthInfo.monthIndex + 1, 0).getDate();
+    const daysInPrevMonth = new Date(currentMonthInfo.year, currentMonthInfo.monthIndex, 0).getDate();
+
+    const days = [];
+
+    for (let index = firstDay - 1; index >= 0; index -= 1) {
+      days.push({ day: daysInPrevMonth - index, inactive: true });
+    }
+
+    const today = new Date();
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const isToday =
+        today.getFullYear() === currentMonthInfo.year
+        && today.getMonth() === currentMonthInfo.monthIndex
+        && today.getDate() === day;
+      days.push({ day, inactive: false, today: isToday });
+    }
+
+    const trailing = (7 - (days.length % 7)) % 7;
+    for (let day = 1; day <= trailing; day += 1) {
+      days.push({ day, inactive: true, nextMonth: true });
+    }
+
+    return days;
+  }, [currentMonthInfo]);
 
   const deadlinesByDay = useMemo(() => {
     const grouped = new Map();
@@ -270,318 +328,261 @@ function Dashboard() {
     return grouped;
   }, [deadlines, currentMonthInfo]);
 
-  const selectedDeadlines = useMemo(() => (
-    deadlinesByDay.get(selectedDay) || []
-  ), [deadlinesByDay, selectedDay]);
+  const selectedDeadlines = useMemo(
+    () => deadlinesByDay.get(selectedDay) || [],
+    [deadlinesByDay, selectedDay]
+  );
 
   const hasEvent = (day) => deadlinesByDay.has(day);
 
+  const monthDay = new Date().toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const profileInitial = (user.username || 'A').charAt(0).toUpperCase();
+
   return (
-    <div className="dashboard-container">
-      <div className="dashboard-content">
-        {/* Main Layout */}
-        <div className="main-layout">
-          {/* Left Sidebar */}
-          <div className="left-sidebar">
-            {/* User Profile Card */}
-            <div className="user-profile-card">
-              <div className="user-avatar">
-                {user.username.charAt(0).toUpperCase()}
+    <div className="dashboard-page">
+      <div className="dashboard-layout">
+        <aside className="dashboard-sidebar">
+          <section className="dash-card profile-card">
+            <div className="profile-avatar">
+              <div className="avatar-ph">{profileInitial}</div>
+            </div>
+            <h2 className="profile-name">{user.username || 'Ada User'}</h2>
+            <p className="profile-email">{user.email || '—'}</p>
+            <div className="profile-meta">
+              <div className="profile-row">
+                <span className="profile-row-label">Member since</span>
+                <span className="profile-row-value">{user.joinedDate || '—'}</span>
               </div>
-              <div className="user-name">{user.username}</div>
-              <div className="user-email">{user.email}</div>
-              <div className="user-stats">
-                <div className="user-stat-item">
-                  <span className="user-stat-label">Member since</span>
-                  <span className="user-stat-value">{user.joinedDate}</span>
-                </div>
-                <div className="user-stat-item">
-                  <span className="user-stat-label">Workspaces</span>
-                  <span className="user-stat-value">{stats.workspaces}</span>
-                </div>
-                <div className="user-stat-item">
-                  <span className="user-stat-label">Documents</span>
-                  <span className="user-stat-value">{stats.documents}</span>
-                </div>
+              <div className="profile-row">
+                <span className="profile-row-label">Workspaces</span>
+                <span className="profile-row-value">{stats.workspaces}</span>
+              </div>
+              <div className="profile-row">
+                <span className="profile-row-label">Documents</span>
+                <span className="profile-row-value">{stats.documents}</span>
               </div>
               {user.status && (
-                <div className="user-status">
-                  <div className="user-status-label">Status</div>
-                  <div className="user-status-text">"{user.status}"</div>
+                <div className="profile-row profile-row-status">
+                  <span className="profile-row-label">Status</span>
+                  <span className="profile-row-value profile-row-status-value">&quot;{user.status}&quot;</span>
                 </div>
               )}
             </div>
+          </section>
 
-            {/* Calendar */}
-            <div className="calendar-container">
-              <div className="calendar-header">
-                <h2 className="calendar-title">Calendar</h2>
-                <div className="calendar-nav">
-                  <button
-                    type="button"
-                    className="calendar-nav-btn"
-                    aria-label="Previous month"
-                    disabled
-                  >
-                    ←
-                  </button>
-                  <span className="calendar-month" aria-live="polite">
-                    {currentMonth}
-                  </span>
-                  <button
-                    type="button"
-                    className="calendar-nav-btn"
-                    aria-label="Next month"
-                    disabled
-                  >
-                    →
-                  </button>
-                </div>
+          <section className="dash-card calendar-card">
+            <header className="cal-header">
+              <span className="cal-title">Calendar</span>
+              <div className="cal-nav">
+                <button className="cal-nav-btn" type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="cal-month">{currentMonth}</span>
+                <button className="cal-nav-btn" type="button" aria-label="Next month" onClick={() => shiftMonth(1)}>
+                  <ChevronRight size={14} />
+                </button>
               </div>
-              <div className="calendar-grid">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="calendar-day header">{day}</div>
+            </header>
+
+            <div className="cal-grid">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                <span key={day} className="cal-label">{day}</span>
+              ))}
+              {calendarDays.map((day, index) => {
+                const showEvent = !day.inactive && hasEvent(day.day);
+                return (
+                  <button
+                    key={`${day.day}-${index}`}
+                    type="button"
+                    disabled={day.inactive}
+                    className={`cal-day ${day.inactive ? 'muted' : ''} ${day.today ? 'today' : ''} ${showEvent ? 'has-event' : ''} ${selectedDay === day.day && !day.inactive ? 'selected' : ''}`}
+                    onClick={() => !day.inactive && setSelectedDay(day.day)}
+                  >
+                    <span>{day.day}</span>
+                    {showEvent && <span className="cal-event-dot" />}
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedDeadlines.length > 0 && (
+              <div className="calendar-due-list">
+                <div className="calendar-due-label">Due on {currentMonth.split(' ')[0]} {selectedDay}</div>
+                {selectedDeadlines.map((deadline) => (
+                  <button
+                    key={deadline.id}
+                    type="button"
+                    className="calendar-due-item"
+                    onClick={() => handleDeadlineClick(deadline)}
+                  >
+                    <span className="calendar-due-title">{deadline.title}</span>
+                    <span className="calendar-due-meta">{deadline.due_in}</span>
+                  </button>
                 ))}
-                {calendarDays.map((day, index) => {
-                  const showEvent = !day.inactive && hasEvent(day.day);
-                  return (
-                    <div
-                      key={index}
-                      className={`calendar-day ${day.inactive ? 'inactive' : 'active'} ${day.today ? 'today' : ''} ${showEvent ? 'has-event' : ''}`}
-                      onClick={() => !day.inactive && setSelectedDay(day.day)}
-                    >
-                      <span className="calendar-day-number">{day.day}</span>
-                      {showEvent && <span className="calendar-event-dot" aria-label="Due items" />}
-                    </div>
-                  );
-                })}
               </div>
-              {selectedDeadlines.length > 0 && (
-                <div className="calendar-due-list" aria-live="polite">
-                  <div className="calendar-due-label">
-                    Due on {currentMonth.split(' ')[0]} {selectedDay}
-                  </div>
-                  {selectedDeadlines.map((deadline) => (
-                    <button
-                      key={deadline.id}
-                      type="button"
-                      className="calendar-due-item"
-                      onClick={() => handleDeadlineClick(deadline)}
-                      title={`View ${deadline.title}`}
-                      aria-label={`View ${deadline.title}`}
-                    >
-                      <span className="calendar-due-title">{deadline.title}</span>
-                      <span className="calendar-due-meta">{deadline.due_in}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+            )}
+          </section>
+        </aside>
 
-          {/* Right Content */}
-          <div>
-            {/* Dashboard Grid */}
-            <div className="dashboard-grid">
-          {/* Overview Card */}
-          <div className="dashboard-card">
-            <div className="card-header">
-              <h2 className="card-title">Overview</h2>
-              <span className="card-badge">Status</span>
+        <section className="dashboard-top-grid">
+          <article className="dash-card data-card">
+            <div className="data-card-header">
+              <h3 className="data-card-title">Overview</h3>
+              <span className="data-card-badge">Status</span>
             </div>
-            <div className="card-content">
-              <div className="status-items">
-                <div className="status-item">
-                  <span className="status-label">Recent Items</span>
-                  <span className="status-count">{stats.recentItems}</span>
-                </div>
-                <div className="status-item">
-                  <span className="status-label">Open Tasks</span>
-                  <span className="status-count">{stats.openTasks}</span>
-                </div>
-                <div className="status-item overdue">
-                  <span className="status-label">Overdue</span>
-                  <span className="status-count">{stats.overdueTasks}</span>
-                </div>
+            <div className="data-card-body">
+              <div className="overview-row">
+                <span className="overview-label">Recent Items</span>
+                <span className="overview-value">{stats.recentItems}</span>
+              </div>
+              <div className="overview-row">
+                <span className="overview-label">Open Tasks</span>
+                <span className="overview-value">{stats.openTasks}</span>
+              </div>
+              <div className="overview-row">
+                <span className="overview-label">Overdue</span>
+                <span className="overview-value overdue">{stats.overdueTasks}</span>
               </div>
             </div>
-          </div>
+          </article>
 
-          {/* Accomplishments Card */}
-          <div className="dashboard-card">
-            <div className="card-header">
-              <h2 className="card-title">Accomplishments</h2>
-              <span className="card-badge" title="Completed from recent activity" aria-label="Completed from recent activity">
-                <CheckCircle size={16} />
+          <article className="dash-card data-card">
+            <div className="data-card-header">
+              <h3 className="data-card-title">Accomplishments</h3>
+              <span className="data-card-badge">
+                <CheckCircle size={12} />
                 {accomplishments.length} completed from activity
               </span>
             </div>
-            <div className="card-content">
-              <div className="accomplishment-list">
-                {accomplishments.length === 0 ? (
-                  <div className="empty-state">
-                    <p className="empty-state-text">No completed items yet</p>
+            <div className="data-card-body">
+              {accomplishments.length === 0 ? (
+                <p className="empty-line">No completed items yet</p>
+              ) : (
+                accomplishments.slice(0, 4).map((item, index) => (
+                  <div key={`${item.title || item.action}-${index}`} className="overview-row">
+                    <span className="accomplish-text">{item.title || item.meta || formatActivityAction(item.action) || 'Completed item'}</span>
+                    <span className="accomplish-time">{item.time || '—'}</span>
                   </div>
-                ) : (
-                  accomplishments.map((item, index) => (
-                    <div key={index} className="accomplishment-item">
-                      <div className="accomplishment-text">{item.title || item.meta || 'Completed item'}</div>
-                      <div className="accomplishment-time">{item.time || '—'}</div>
-                    </div>
-                  ))
-                )}
-              </div>
+                ))
+              )}
             </div>
-          </div>
+          </article>
 
-          {/* Issues Card */}
-          <div className="dashboard-card">
-            <div className="card-header">
-              <h2 className="card-title">Open Issues</h2>
-              <span className="card-badge" title="Open and in-progress issues" aria-label="Open and in-progress issues">
-                <AlertCircle size={16} />
+          <article className="dash-card data-card">
+            <div className="data-card-header">
+              <h3 className="data-card-title">Open Issues</h3>
+              <span className="data-card-badge">
+                <AlertCircle size={12} />
                 {issues.length} issues
               </span>
             </div>
-            <div className="card-content">
-              <div className="issues-list">
-                {issues.length === 0 ? (
-                  <div className="empty-state">
-                    <p className="empty-state-text">No open issues</p>
+            <div className="data-card-body">
+              {issues.length === 0 ? (
+                <p className="empty-line">No open issues</p>
+              ) : (
+                issues.slice(0, 4).map((issue) => (
+                  <div
+                    key={issue.id || issue.number}
+                    className="overview-row overview-row-clickable issue-row"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleIssueClick(issue)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleIssueClick(issue);
+                      }
+                    }}
+                  >
+                    <span className="issue-id">#{issue.number || issue.id}</span>
+                    <span className="issue-title">{issue.title}</span>
+                    <span className={`issue-priority ${getPriorityClass(issue.priority)}`}>
+                      {getPriorityIcon(issue.priority)}
+                      {getPriorityLabel(issue.priority)}
+                    </span>
                   </div>
-                ) : (
-                  issues.map((issue, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      className="issue-item"
-                      onClick={() => handleIssueClick(issue)}
-                      title="View issue details"
-                      aria-label={`View issue ${issue.number}`}
-                    >
-                      <span
-                        className="issue-meta-pill"
-                        title={`Issue #${issue.number}`}
-                        aria-label={`Issue number ${issue.number}`}
-                      >
-                        #{issue.number}
-                      </span>
-                      <div className="issue-main">
-                        <div className="issue-title">{issue.title}</div>
-                      </div>
-                      <div className="issue-pills">
-                        <span
-                          className={`issue-priority-pill ${getPriorityClass(issue.priority)}`}
-                          title={`Priority ${getPriorityLabel(issue.priority)}`}
-                          aria-label={`Priority ${getPriorityLabel(issue.priority)}`}
-                        >
-                          {getPriorityIcon(issue.priority)}
-                          <span className="issue-priority-label">{getPriorityLabel(issue.priority)}</span>
-                        </span>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
+                ))
+              )}
             </div>
-          </div>
+          </article>
 
-          {/* Deadlines Card */}
-          <div className="dashboard-card">
-            <div className="card-header">
-              <h2 className="card-title">Upcoming Deadlines</h2>
-              <span className="card-badge" title="Upcoming and overdue deadlines" aria-label="Upcoming and overdue deadlines">
-                <Clock size={16} />
+          <article className="dash-card data-card">
+            <div className="data-card-header">
+              <h3 className="data-card-title">Upcoming Deadlines</h3>
+              <span className="data-card-badge">
+                <Clock size={12} />
                 {deadlines.length} deadlines
               </span>
             </div>
-            <div className="card-content">
-              <div className="deadlines-list">
-                {deadlines.length === 0 ? (
-                  <div className="empty-state">
-                    <p className="empty-state-text">No upcoming deadlines</p>
+            <div className="data-card-body">
+              {deadlines.length === 0 ? (
+                <p className="empty-line">No upcoming deadlines</p>
+              ) : (
+                deadlines.slice(0, 4).map((deadline) => (
+                  <div
+                    key={deadline.id}
+                    className="overview-row overview-row-clickable deadline-row"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleDeadlineClick(deadline)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleDeadlineClick(deadline);
+                      }
+                    }}
+                  >
+                    <span className="deadline-title">{deadline.title}</span>
+                    <span className={`deadline-badge ${getDeadlineClass(deadline.due_in, deadline.is_overdue)}`}>{deadline.due_in}</span>
                   </div>
-                ) : (
-                  deadlines.map((deadline, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      className="deadline-item"
-                      onClick={() => handleDeadlineClick(deadline)}
-                      title="View deadline details"
-                      aria-label={`View deadline ${deadline.title}`}
-                    >
-                      <div className="deadline-title">{deadline.title}</div>
-                      <span
-                        className={`deadline-pill ${getDeadlineClass(deadline.due_in)}`}
-                        title={`Due ${deadline.due_in}`}
-                        aria-label={`Due ${deadline.due_in}`}
-                      >
-                        {deadline.due_in}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
+                ))
+              )}
             </div>
-          </div>
-        </div>
+          </article>
+        </section>
 
-            {/* Activity Timeline */}
-            <div className="bottom-section">
-              <div className="activity-workspace">
-                <div className="workspace-header">
-                  <div className="activity-header">
-                    <h2 className="workspace-title">Recent Activity</h2>
-                    <button className="activity-view-all">
-                      View All
-                    </button>
-                  </div>
-                  <div className="activity-filters">
-                    <button className={`filter-btn ${activityFilter === 'all' ? 'active' : ''}`} onClick={() => setActivityFilter('all')}>All</button>
-                    <button className={`filter-btn ${activityFilter === 'documents' ? 'active' : ''}`} onClick={() => setActivityFilter('documents')}>Documents</button>
-                    <button className={`filter-btn ${activityFilter === 'searches' ? 'active' : ''}`} onClick={() => setActivityFilter('searches')}>Searches</button>
-                    <button className={`filter-btn ${activityFilter === 'summaries' ? 'active' : ''}`} onClick={() => setActivityFilter('summaries')}>Summaries</button>
-                    <button className={`filter-btn ${activityFilter === 'workspaces' ? 'active' : ''}`} onClick={() => setActivityFilter('workspaces')}>Workspaces</button>
-                  </div>
-                </div>
-                                <div className="activity-timeline">
-                  {(() => {
-                    const today = new Date();
-                    const monthDay = today.toLocaleDateString('en-US', { 
-                      month: 'long', 
-                      day: 'numeric'
-                    });
-                    
-                    return [
-                      <div key="header" className="activity-month-header">
-                        {monthDay}
-                      </div>,
-                      ...filteredActivity.map((activity, index) => (
-                        <div key={`item-${index}`} className="timeline-item">
-                          <div 
-                            className={`timeline-marker ${getActivityStatusClass(activity.status)}`}
-                          >
-                            <span className={`timeline-icon ${getActivityStatusClass(activity.status)}`}>
-                              {getActivityIcon(activity.type)}
-                            </span>
-                          </div>
-                          <div className="timeline-content">
-                            <div className="timeline-username">{activity.username || 'User'}</div>
-                            <div className="timeline-action-description">
-                              {activity.action || activity.title}
-                            </div>
-                          </div>
-                          <div className="timeline-time-right">{activity.time}</div>
-                        </div>
-                      ))
-                    ];
-                  })()}
-                </div>
-              </div>
+        <section className="dashboard-bottom">
+          <article className="dash-card activity-card">
+            <div className="activity-header-row">
+              <h3 className="activity-title">Recent Activity</h3>
+              <button type="button" className="view-all-btn">View All</button>
             </div>
-          </div>
-        </div>
+
+            <div className="activity-tabs">
+              <button className={`activity-tab ${activityFilter === 'all' ? 'active' : ''}`} onClick={() => setActivityFilter('all')}>All</button>
+              <button className={`activity-tab ${activityFilter === 'documents' ? 'active' : ''}`} onClick={() => setActivityFilter('documents')}>Documents</button>
+              <button className={`activity-tab ${activityFilter === 'searches' ? 'active' : ''}`} onClick={() => setActivityFilter('searches')}>Searches</button>
+              <button className={`activity-tab ${activityFilter === 'summaries' ? 'active' : ''}`} onClick={() => setActivityFilter('summaries')}>Summaries</button>
+              <button className={`activity-tab ${activityFilter === 'workspaces' ? 'active' : ''}`} onClick={() => setActivityFilter('workspaces')}>Workspaces</button>
+            </div>
+
+            <div className="activity-date">{monthDay}</div>
+
+            <div className="activity-list">
+              {filteredActivity.length === 0 ? (
+                <p className="empty-line">No recent activity</p>
+              ) : (
+                filteredActivity.map((activity, index) => (
+                  <div key={`${activity.action}-${index}`} className="activity-item">
+                    <div className={`activity-icon ${getActivityTypeClass(activity.type)}`}>
+                      {getActivityIcon(activity.type)}
+                    </div>
+                    <div className="activity-body">
+                      <div className="activity-user">{activity.username || user.username || 'User'}</div>
+                      <div className="activity-desc">{activity.title || formatActivityAction(activity.action)}</div>
+                      {activity.meta && <div className="activity-excerpt">{activity.meta}</div>}
+                    </div>
+                    <span className="activity-time">{activity.time || '—'}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </article>
+        </section>
       </div>
     </div>
   );

@@ -15,7 +15,7 @@
 .search-eyebrow {
   margin: 0 0 0.75rem;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -65,7 +65,7 @@
 .search-field label {
   font-size: 0.84rem;
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .search-input,
@@ -134,7 +134,7 @@
   color: var(--accent-contrast);
   border: none;
   border-radius: var(--radius-base);
-  font-weight: 600;
+  font-weight: 400;
   font-family: var(--font-ui);
   transition: background 0.2s ease;
 }

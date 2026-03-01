@@ -253,7 +253,7 @@ async def get_dashboard_deadlines(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Dict[str, List[Dict[str, Any]]]:
-    """Get upcoming deadlines for workspaces the user is a member of"""
+    """Get upcoming due dates from deadline or issue tasks assigned to the user."""
     
     # Get user's workspace IDs
     user_workspace_ids = db.query(WorkspaceMember.workspace_id).filter(
@@ -261,19 +261,29 @@ async def get_dashboard_deadlines(
         WorkspaceMember.status == MemberStatus.ACTIVE
     ).subquery()
     
-    # Get upcoming deadlines (not completed, ordered by due_date)
-    deadlines = db.query(Task).filter(
+    # Get assigned tasks with due dates that aren't completed/closed, ordered by due_date.
+    # Include both explicit deadlines and issues that have due dates.
+    deadlines = db.query(Task).outerjoin(
+        TaskAssignee, TaskAssignee.task_id == Task.id
+    ).filter(
         Task.workspace_id.in_(user_workspace_ids),
-        Task.type == TaskType.DEADLINE,
-        Task.status != TaskStatus.COMPLETED
-    ).order_by(Task.due_date).limit(limit).all()
+        Task.type.in_([TaskType.DEADLINE, TaskType.ISSUE]),
+        Task.due_date.isnot(None),
+        Task.status.notin_([TaskStatus.COMPLETED, TaskStatus.CLOSED]),
+        ((TaskAssignee.user_id == current_user.id) | (Task.assigned_to == current_user.id)),
+    ).distinct().order_by(Task.due_date).limit(limit).all()
     
     now_utc = datetime.now(timezone.utc)
+    today_utc = now_utc.date()
     deadlines_data = []
     for deadline in deadlines:
         # Calculate days until deadline
         if deadline.due_date:
-            days_until = (deadline.due_date - now_utc).days
+            due_date_utc = deadline.due_date
+            if due_date_utc.tzinfo is None:
+                due_date_utc = due_date_utc.replace(tzinfo=timezone.utc)
+            days_until = (due_date_utc.date() - today_utc).days
+            is_overdue = days_until < 0
             if days_until < 0:
                 due_in = f"Overdue by {abs(days_until)} days"
             elif days_until == 0:
@@ -284,12 +294,14 @@ async def get_dashboard_deadlines(
                 due_in = f"Due in {days_until} days"
         else:
             due_in = "No due date"
+            is_overdue = False
         
         deadlines_data.append({
             "id": deadline.id,
             "title": deadline.title,
             "due_date": deadline.due_date.isoformat() if deadline.due_date else None,
             "due_in": due_in,
+            "is_overdue": is_overdue,
             "status": deadline.status,
             "workspace_id": deadline.workspace_id
         })

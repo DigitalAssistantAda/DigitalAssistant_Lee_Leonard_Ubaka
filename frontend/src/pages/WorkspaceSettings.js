@@ -1,30 +1,50 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { X, Plus, Trash2 } from 'lucide-react';
+import { X, Plus, Trash2, Check } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
+import { normalizeHexColor, buildAccentStyleVars } from '../utils/accentAccessibility';
 import './WorkspaceSettings.css';
 
-function WorkspaceSettings({ workspaceId, onClose }) {
+function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
   const { id } = useParams();
   const [workspace, setWorkspace] = useState(null);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState('');
-  const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
+  const [inviteMessage, setInviteMessage] = useState('');
   const [workspaceAccent, setWorkspaceAccent] = useState('');
   const [savingAccent, setSavingAccent] = useState(false);
+  const [savingName, setSavingName] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
+  const DEFAULT_ACCENT = '#EBC7D8';
+  const ACCENT_PRESETS = ['#DDB9CD', '#9FCFE5', '#BFE3A1', '#EBC6B9'];
+
   const getDefaultAccent = () => {
     const value = getComputedStyle(document.documentElement)
       .getPropertyValue('--accent-primary')
       .trim();
-    return value || '#8f2f5a';
+    return normalizeHexColor(value) || DEFAULT_ACCENT;
+  };
+
+  const formatMemberJoinDate = (value) => {
+    if (!value) return 'recently';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'recently';
+    return parsed.toLocaleDateString([], { month: 'short', year: 'numeric' });
+  };
+
+  const getMemberInitials = (member) => {
+    const source = member?.username || member?.email || '';
+    const clean = source.split('@')[0].trim();
+    if (!clean) return '??';
+    const parts = clean.split(/[._\s-]+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase();
   };
 
   const resolvedWorkspaceId = useMemo(() => {
@@ -35,16 +55,7 @@ function WorkspaceSettings({ workspaceId, onClose }) {
     return null;
   }, [workspaceId, id]);
 
-  useEffect(() => {
-    if (!resolvedWorkspaceId) {
-      setError('Invalid workspace id');
-      setLoading(false);
-      return;
-    }
-    fetchWorkspaceData();
-  }, [resolvedWorkspaceId, API_URL, token]);
-
-  const fetchWorkspaceData = async () => {
+  const fetchWorkspaceData = useCallback(async () => {
     try {
       setLoading(true);
       // Fetch workspace details
@@ -59,7 +70,7 @@ function WorkspaceSettings({ workspaceId, onClose }) {
       const wsData = await wsResponse.json();
       setWorkspace(wsData);
       setNewName(wsData.name);
-      setWorkspaceAccent(wsData.accent_color || '');
+      setWorkspaceAccent(normalizeHexColor(wsData.accent_color) || '');
 
       // Fetch members
       const membersResponse = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}/members`, {
@@ -79,17 +90,29 @@ function WorkspaceSettings({ workspaceId, onClose }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_URL, resolvedWorkspaceId, token]);
+
+  useEffect(() => {
+    if (!resolvedWorkspaceId) {
+      setError('Invalid workspace id');
+      setLoading(false);
+      return;
+    }
+    fetchWorkspaceData();
+  }, [resolvedWorkspaceId, fetchWorkspaceData]);
 
   const handleUpdateWorkspaceName = async () => {
+    if (!newName.trim() || !workspace) return;
+
     try {
+      setSavingName(true);
       const response = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify({ name: newName.trim(), accent_color: workspaceAccent || null }),
       });
       if (!response.ok) {
         const message = await getApiErrorMessage(response, 'Failed to update workspace name');
@@ -98,15 +121,18 @@ function WorkspaceSettings({ workspaceId, onClose }) {
       }
       const updated = await response.json();
       setWorkspace(updated);
-      setEditingName(false);
+      setNewName(updated.name);
     } catch (err) {
       setError('Failed to update workspace name');
       console.error(err);
+    } finally {
+      setSavingName(false);
     }
   };
 
   const handleUpdateWorkspaceAccent = async () => {
     if (!workspace) return;
+    const normalizedAccent = normalizeHexColor(workspaceAccent);
     try {
       setSavingAccent(true);
       const response = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}`, {
@@ -117,7 +143,7 @@ function WorkspaceSettings({ workspaceId, onClose }) {
         },
         body: JSON.stringify({
           name: workspace.name,
-          accent_color: workspaceAccent || null,
+          accent_color: normalizedAccent || null,
         }),
       });
       if (!response.ok) {
@@ -127,7 +153,7 @@ function WorkspaceSettings({ workspaceId, onClose }) {
       }
       const updated = await response.json();
       setWorkspace(updated);
-      setWorkspaceAccent(updated.accent_color || '');
+      setWorkspaceAccent(normalizeHexColor(updated.accent_color) || '');
     } catch (err) {
       setError('Failed to update workspace accent');
       console.error(err);
@@ -137,8 +163,9 @@ function WorkspaceSettings({ workspaceId, onClose }) {
   };
 
   const handleInviteMember = async () => {
+    setInviteMessage('');
     if (!inviteEmail.trim()) {
-      setError('Please enter an email');
+      setInviteMessage('Please enter an email or user ID.');
       return;
     }
 
@@ -156,16 +183,16 @@ function WorkspaceSettings({ workspaceId, onClose }) {
       });
       if (!response.ok) {
         const message = await getApiErrorMessage(response, 'Failed to add member');
-        setError(message);
+        setInviteMessage(message);
         return;
       }
       const newMember = await response.json();
       setMembers([...members, newMember]);
       setInviteEmail('');
       setInviteRole('member');
-      setShowInviteModal(false);
+      setInviteMessage('Member invited.');
     } catch (err) {
-      setError('Failed to add member');
+      setInviteMessage('Failed to add member');
       console.error(err);
     }
   };
@@ -213,80 +240,146 @@ function WorkspaceSettings({ workspaceId, onClose }) {
     }
   };
 
-  if (loading) return <div className="settings-modal-overlay"><div className="settings-modal-content">Loading...</div></div>;
+  const selectedAccent = normalizeHexColor(workspaceAccent) || getDefaultAccent();
+  const savedAccent = normalizeHexColor(workspace?.accent_color) || '';
+  const canSaveAccent = !savingAccent && (savedAccent !== (normalizeHexColor(workspaceAccent) || ''));
+  const previewStyle = useMemo(() => {
+    if (!selectedAccent) return undefined;
+    const rootStyles = getComputedStyle(document.documentElement);
+    const bg = rootStyles.getPropertyValue('--bg-secondary').trim() || '#FFFFFF';
+    return buildAccentStyleVars(selectedAccent, bg);
+  }, [selectedAccent]);
+
+  const handleOverlayClose = () => {
+    if (!inline && typeof onClose === 'function') {
+      onClose();
+    }
+  };
+
+  if (loading) {
+    if (inline) {
+      return (
+        <div className="settings-inline-shell">
+          <div className="settings-modal-content settings-inline-content">Loading...</div>
+        </div>
+      );
+    }
+    return <div className="settings-modal-overlay"><div className="settings-modal-content">Loading...</div></div>;
+  }
 
   return (
-    <div className="settings-modal-overlay" onClick={onClose}>
-      <div className="settings-modal-content" onClick={(e) => e.stopPropagation()}>
+    <div className={inline ? 'settings-inline-shell' : 'settings-modal-overlay'} style={previewStyle} onClick={inline ? undefined : handleOverlayClose}>
+      <div className={`settings-modal-content ${inline ? 'settings-inline-content' : ''}`} onClick={inline ? undefined : (e) => e.stopPropagation()}>
         <div className="settings-header">
-          <h2>Workspace Settings</h2>
-          <button className="close-btn" onClick={onClose} title="Close" aria-label="Close settings">
-            <X size={20} />
-          </button>
+          <div>
+            <h2>Workspace Settings</h2>
+            <p>Manage access and preferences for '{workspace?.name || 'this workspace'}'.</p>
+          </div>
+          {!inline && (
+            <button className="close-btn" onClick={handleOverlayClose} title="Close" aria-label="Close settings">
+              <X size={20} />
+            </button>
+          )}
         </div>
 
         {error && <div className="error-message">{error}</div>}
 
         {workspace && (
           <div className="settings-form">
-            {/* Workspace Name */}
             <div className="settings-section">
-              <h3>Workspace Name</h3>
+              <h3 className="settings-eyebrow">Identity</h3>
               <div className="form-group">
-                {editingName ? (
-                  <div className="edit-row">
-                    <input
-                      type="text"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      className="form-input"
-                      placeholder="Workspace name"
-                    />
-                    <button onClick={handleUpdateWorkspaceName} className="btn-save">Save</button>
-                    <button onClick={() => setEditingName(false)} className="btn-cancel">Cancel</button>
-                  </div>
-                ) : (
-                  <div className="edit-row">
-                    <div className="readonly-value">{workspace.name}</div>
-                    <button onClick={() => setEditingName(true)} className="btn-edit">Edit</button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="settings-section">
-              <h3>Accent Color</h3>
-              <div className="form-group">
-                <label htmlFor="workspace-accent">Workspace Accent (Owner/Admin)</label>
-                <div className="accent-row">
+                <label htmlFor="workspace-name-input">Workspace Name</label>
+                <div className="inline-control-row">
                   <input
-                    id="workspace-accent"
-                    type="color"
-                    value={workspaceAccent || getDefaultAccent()}
-                    onChange={(e) => setWorkspaceAccent(e.target.value)}
-                    className="accent-input"
-                    aria-label="Workspace accent color"
-                  />
-                  <input
+                    id="workspace-name-input"
                     type="text"
-                    value={workspaceAccent || getDefaultAccent()}
-                    onChange={(e) => setWorkspaceAccent(e.target.value)}
-                    className="form-input accent-text"
-                    placeholder="#RRGGBB"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className="form-input"
+                    placeholder="Workspace name"
                   />
-                  <button onClick={handleUpdateWorkspaceAccent} className="btn-save" disabled={savingAccent}>Save</button>
+                  <button onClick={handleUpdateWorkspaceName} className="btn-save" disabled={savingName || !newName.trim() || newName.trim() === workspace.name}>
+                    {savingName ? 'Saving…' : 'Save'}
+                  </button>
                 </div>
               </div>
             </div>
 
-            {/* Members */}
+            <div className="settings-section">
+              <h3 className="settings-eyebrow">Accent Color</h3>
+              <div className="form-group">
+                <div className="accent-palette-row">
+                  <div className="accent-current" style={{ background: selectedAccent }} aria-hidden="true">
+                    <Check size={18} />
+                  </div>
+                  <div className="accent-divider" aria-hidden="true" />
+
+                  <div className="accent-options" role="listbox" aria-label="Accent color options">
+                    {ACCENT_PRESETS.map((color) => {
+                      const normalized = color.toUpperCase();
+                      const active = selectedAccent === normalized;
+                      return (
+                        <button
+                          key={color}
+                          type="button"
+                          className={`accent-swatch ${active ? 'active' : ''}`}
+                          style={{ background: color }}
+                          onClick={() => setWorkspaceAccent(color)}
+                          title={`Set accent ${color}`}
+                          aria-label={`Set accent ${color}`}
+                          aria-pressed={active}
+                        />
+                      );
+                    })}
+
+                    <label className="accent-custom" title="Choose custom accent">
+                      <Plus size={16} />
+                      <input
+                        id="workspace-accent"
+                        type="color"
+                        value={selectedAccent}
+                        onChange={(e) => setWorkspaceAccent(normalizeHexColor(e.target.value) || '')}
+                        aria-label="Custom workspace accent color"
+                      />
+                    </label>
+                  </div>
+
+                  <button onClick={handleUpdateWorkspaceAccent} className="btn-save" disabled={!canSaveAccent}>
+                    {savingAccent ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div className="settings-section">
               <div className="section-header">
-                <h3>Members</h3>
-                <button onClick={() => setShowInviteModal(true)} className="btn-add-member" title="Add member" aria-label="Add member">
-                  <Plus size={16} /> Invite
+                <h3 className="settings-eyebrow">Members ({members.length}/{workspace.member_limit || 10})</h3>
+              </div>
+
+              <div className="invite-inline-row">
+                <input
+                  id="invite-email"
+                  type="text"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="form-input"
+                  placeholder="Email or user ID"
+                />
+                <select
+                  id="invite-role"
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  className="form-input invite-role-input"
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button onClick={handleInviteMember} className="btn-add-member" title="Invite member" aria-label="Invite member">
+                  Invite
                 </button>
               </div>
+              {inviteMessage && <p className="invite-message-inline">{inviteMessage}</p>}
 
               <div className="members-list">
                 {members.length === 0 ? (
@@ -294,69 +387,40 @@ function WorkspaceSettings({ workspaceId, onClose }) {
                 ) : (
                   members.map((member) => (
                     <div key={member.user_id} className="member-row">
+                      <div className="member-avatar">{getMemberInitials(member)}</div>
                       <div className="member-info">
-                        <div className="member-email">{member.email || `User ${member.user_id}`}</div>
-                        <div className="member-joined">Joined {member.joined_at || 'recently'}</div>
+                        <div className="member-email">{member.email || member.username || `User ${member.user_id}`}</div>
+                        <div className="member-joined">Joined {formatMemberJoinDate(member.joined_at)}</div>
                       </div>
                       <div className="member-controls">
-                        <select
-                          value={member.role}
-                          onChange={(e) => handleUpdateRole(member.user_id, e.target.value)}
-                          className="role-select"
-                          title="Change role"
-                        >
-                          <option value="member">Member</option>
-                          <option value="admin">Admin</option>
-                          <option value="owner">Owner</option>
-                        </select>
-                        <button
-                          onClick={() => handleRemoveMember(member.user_id)}
-                          className="btn-remove"
-                          title="Remove member"
-                          aria-label="Remove member"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {member.role === 'owner' ? (
+                          <span className="owner-badge">Owner</span>
+                        ) : (
+                          <>
+                            <select
+                              value={member.role}
+                              onChange={(e) => handleUpdateRole(member.user_id, e.target.value)}
+                              className="role-select"
+                              title="Change role"
+                            >
+                              <option value="member">Member</option>
+                              <option value="admin">Admin</option>
+                              <option value="owner">Owner</option>
+                            </select>
+                            <button
+                              onClick={() => handleRemoveMember(member.user_id)}
+                              className="btn-remove"
+                              title="Remove member"
+                              aria-label="Remove member"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))
                 )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Invite Modal */}
-        {showInviteModal && (
-          <div className="modal-overlay" onClick={() => setShowInviteModal(false)}>
-            <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-              <h3>Invite Member</h3>
-              <div className="form-group">
-                <label htmlFor="invite-email">Email Address</label>
-                <input
-                  id="invite-email"
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  className="form-input"
-                  placeholder="user@example.com"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="invite-role">Role</label>
-                <select
-                  id="invite-role"
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="form-input"
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </div>
-              <div className="modal-actions">
-                <button onClick={handleInviteMember} className="btn-primary">Invite</button>
-                <button onClick={() => setShowInviteModal(false)} className="btn-secondary">Cancel</button>
               </div>
             </div>
           </div>

@@ -8,6 +8,7 @@ function NotificationsPage() {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('pending'); // pending, approved, denied, all
   const navigate = useNavigate();
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
   useEffect(() => {
     fetchNotifications();
@@ -16,22 +17,28 @@ function NotificationsPage() {
   const fetchNotifications = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/v1/deletion-requests/pending', {
+      const endpoint = filter === 'pending' ? 'pending' : 'all';
+      const response = await fetch(`${API_URL}/api/v1/deletion-requests/${endpoint}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
+      if (!response.ok) {
+        setNotifications([]);
+        return;
+      }
       const data = await response.json();
       setNotifications(data.requests || []);
     } catch (error) {
       console.error('Error fetching notifications:', error);
+      setNotifications([]);
     }
     setLoading(false);
   };
 
   const handleApprove = async (requestId) => {
     try {
-      const response = await fetch(`/api/v1/deletion-requests/${requestId}/approve`, {
+      const response = await fetch(`${API_URL}/api/v1/deletion-requests/${requestId}/approve`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -47,7 +54,7 @@ function NotificationsPage() {
 
   const handleDeny = async (requestId) => {
     try {
-      const response = await fetch(`/api/v1/deletion-requests/${requestId}/deny`, {
+      const response = await fetch(`${API_URL}/api/v1/deletion-requests/${requestId}/deny`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -80,6 +87,8 @@ function NotificationsPage() {
 
   const pendingNotifications = notifications.filter(n => n.status === 'pending');
   const respondedNotifications = notifications.filter(n => n.status !== 'pending');
+  const displayNotifications = filter === 'pending' ? pendingNotifications : notifications;
+  const displayResponded = displayNotifications.filter(n => n.status !== 'pending');
 
   return (
     <div className="notifications-page">
@@ -118,7 +127,7 @@ function NotificationsPage() {
             </div>
           )}
 
-          {!loading && notifications.length === 0 && (
+          {!loading && displayNotifications.length === 0 && (
             <div className="empty-state">
               <Clock size={48} />
               <h2>No notifications</h2>
@@ -169,10 +178,10 @@ function NotificationsPage() {
             </>
           )}
 
-          {!loading && respondedNotifications.length > 0 && (
+          {!loading && displayResponded.length > 0 && (
             <>
               <div className="section-title">History</div>
-              {respondedNotifications.map(notification => (
+              {displayResponded.map(notification => (
                 <div key={notification.id} className="notification-card responded-card">
                   <div className="notification-content">
                     <div className="notification-header">

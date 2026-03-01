@@ -25,6 +25,26 @@ class RegisterRequest(BaseModel):
         return value
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, value: str) -> str:
+        if len(value) < 12:
+            raise ValueError("Password must be at least 12 characters long")
+        if not any(c.islower() for c in value):
+            raise ValueError("Password must include a lowercase letter")
+        if not any(c.isupper() for c in value):
+            raise ValueError("Password must include an uppercase letter")
+        if not any(c.isdigit() for c in value):
+            raise ValueError("Password must include a number")
+        if not any(c in "!@#$%^&*()-_=+[]{};:,.?/" for c in value):
+            raise ValueError("Password must include a special character")
+        return value
+
+
 class LoginRequest(BaseModel):
     email_or_username: str
     password: str

@@ -1,8 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, FileText, Bot, AlertCircle, Sparkles, CheckCircle, User } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  Send,
+  AlertCircle,
+  User,
+  Search,
+  Plus,
+  Loader2,
+  Paperclip,
+  Link2,
+  ChevronRight,
+  X,
+  Upload,
+  MessageCircle,
+  Trash2,
+} from 'lucide-react';
 import './AIAssistant.css';
 
 function AIAssistant() {
+  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
   const [containers, setContainers] = useState([]);
@@ -14,9 +30,17 @@ function AIAssistant() {
   const [selectedDocuments, setSelectedDocuments] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingThread, setLoadingThread] = useState(false);
+  const [creatingConversation, setCreatingConversation] = useState(false);
+  const [deletingConversationId, setDeletingConversationId] = useState(null);
+  const [contextSearch, setContextSearch] = useState('');
   const [error, setError] = useState(null);
   const chatAreaRef = useRef(null);
+  const inputRef = useRef(null);
+  const contextSearchRef = useRef(null);
   const shouldAutoScrollRef = useRef(true);
+  const isCreatingConversationRef = useRef(false);
+  const lastConversationCreateAtRef = useRef(0);
 
   const API_URL = (process.env.REACT_APP_API_URL || localStorage.getItem('api_url') || 'http://localhost:8000').replace(/\/+$/, '');
   const token = localStorage.getItem('token');
@@ -52,18 +76,22 @@ function AIAssistant() {
   };
 
   useEffect(() => {
+    document.title = 'Chat with Ada · Ada';
     fetchWorkspaces();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
     fetchWorkspaceContainers(activeWorkspaceId);
     fetchConversations(activeWorkspaceId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspaceId]);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
     fetchDocuments(activeWorkspaceId, activeContainerId || null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspaceId, activeContainerId]);
 
   useEffect(() => {
@@ -74,6 +102,49 @@ function AIAssistant() {
       chatArea.scrollTop = chatArea.scrollHeight;
     }
   }, [messages, loading]);
+
+  const getTimeGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 18) return 'Good afternoon';
+    return 'Good evening';
+  };
+
+  const getDisplayName = () => {
+    let persistedUser = null;
+
+    try {
+      const rawUser = localStorage.getItem('user');
+      persistedUser = rawUser ? JSON.parse(rawUser) : null;
+    } catch {
+      persistedUser = null;
+    }
+
+    const primary = (
+      persistedUser?.username
+      || persistedUser?.name
+      || localStorage.getItem('username')
+      || localStorage.getItem('user_name')
+      || persistedUser?.email
+      || localStorage.getItem('email')
+      || ''
+    ).trim();
+
+    if (!primary) return 'Ada User';
+
+    const base = primary.includes('@') ? primary.split('@')[0] : primary;
+    const firstToken = base.split(' ')[0]?.trim();
+    if (!firstToken) return 'Ada User';
+
+    return firstToken.charAt(0).toUpperCase() + firstToken.slice(1);
+  };
+
+  const formatFileSize = (bytesValue) => {
+    const bytes = Number(bytesValue || 0);
+    if (!Number.isFinite(bytes) || bytes <= 0) return '—';
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(1)}MB`;
+  };
 
   const fetchWorkspaces = async () => {
     try {
@@ -145,6 +216,7 @@ function AIAssistant() {
   const fetchConversations = async (workspaceId) => {
     try {
       setError(null);
+      setLoadingThread(true);
       const response = await fetch(`${API_URL}/api/v1/conversations/${workspaceId}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -159,19 +231,22 @@ function AIAssistant() {
 
       if (items.length > 0) {
         setActiveConversation(items[0]);
-        fetchConversationMessages(workspaceId, items[0].id);
+        await fetchConversationMessages(workspaceId, items[0].id);
       } else {
         setActiveConversation(null);
         setMessages([]);
       }
     } catch (err) {
       setError(getFriendlyErrorMessage(err, 'Failed to load conversations'));
+    } finally {
+      setLoadingThread(false);
     }
   };
 
   const fetchConversationMessages = async (workspaceId, conversationId) => {
     try {
       setError(null);
+      setLoadingThread(true);
       const response = await fetch(`${API_URL}/api/v1/conversations/${workspaceId}/${conversationId}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -184,6 +259,8 @@ function AIAssistant() {
       setMessages(Array.isArray(data?.messages) ? data.messages : []);
     } catch (err) {
       setError(getFriendlyErrorMessage(err, 'Failed to load messages'));
+    } finally {
+      setLoadingThread(false);
     }
   };
 
@@ -212,6 +289,7 @@ function AIAssistant() {
 
     setLoading(true);
     setError(null);
+    shouldAutoScrollRef.current = true;
 
     try {
       let conversation = activeConversation;
@@ -241,11 +319,91 @@ function AIAssistant() {
       await response.json();
       await fetchConversationMessages(activeWorkspaceId, conversation.id);
       setInput('');
-      setLoading(false);
     } catch (err) {
       setError(getFriendlyErrorMessage(err, 'Failed to send message'));
+    } finally {
       setLoading(false);
     }
+  };
+
+  const handleConversationSelect = async (conversation) => {
+    if (!activeWorkspaceId) return;
+    setActiveConversation(conversation);
+    await fetchConversationMessages(activeWorkspaceId, conversation.id);
+  };
+
+  const handleCreateConversation = async () => {
+    if (!activeWorkspaceId || isCreatingConversationRef.current) return;
+
+    const now = Date.now();
+    if (now - lastConversationCreateAtRef.current < 1000) {
+      return;
+    }
+
+    isCreatingConversationRef.current = true;
+    lastConversationCreateAtRef.current = now;
+
+    setError(null);
+    setCreatingConversation(true);
+    try {
+      setLoadingThread(true);
+      const conversation = await createConversation(activeWorkspaceId);
+      setMessages([]);
+      setConversations((prev) => {
+        const deduped = prev.filter((item) => item.id !== conversation.id);
+        return [conversation, ...deduped];
+      });
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, 'Failed to create conversation'));
+    } finally {
+      setLoadingThread(false);
+      setCreatingConversation(false);
+      isCreatingConversationRef.current = false;
+    }
+  };
+
+  const handleDeleteConversation = async (conversation) => {
+    if (!activeWorkspaceId || !conversation?.id || deletingConversationId) return;
+
+    const conversationLabel = conversation.title || 'this conversation';
+    const confirmed = window.confirm(`Delete "${conversationLabel}"? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setError(null);
+    setDeletingConversationId(conversation.id);
+
+    try {
+      const response = await fetch(`${API_URL}/api/v1/conversations/${activeWorkspaceId}/${conversation.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete conversation');
+      }
+
+      const remaining = conversations.filter((item) => item.id !== conversation.id);
+      setConversations(remaining);
+
+      if (activeConversation?.id === conversation.id) {
+        const nextConversation = remaining[0] || null;
+        setActiveConversation(nextConversation);
+        if (nextConversation) {
+          await fetchConversationMessages(activeWorkspaceId, nextConversation.id);
+        } else {
+          setMessages([]);
+        }
+      }
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, 'Failed to delete conversation'));
+    } finally {
+      setDeletingConversationId(null);
+    }
+  };
+
+  const handleQuickPrompt = (text) => {
+    setInput(text);
+    inputRef.current?.focus();
   };
 
   const handleWorkspaceChange = (event) => {
@@ -271,6 +429,40 @@ function AIAssistant() {
   const pendingSelectedDocuments = selectedDocumentRecords.filter(
     (doc) => String(doc.status || '').toLowerCase() !== 'ready'
   );
+  const selectedWorkspaceName = workspaces.find((ws) => ws.id === activeWorkspaceId)?.name || 'Workspace';
+  const greeting = getTimeGreeting();
+  const viewerName = getDisplayName();
+
+  const filteredDocuments = documents.filter((document) => {
+    const haystack = `${document.filename || document.name || ''} ${document.status || ''}`.toLowerCase();
+    return haystack.includes(contextSearch.trim().toLowerCase());
+  });
+
+  const activeContextDocuments = filteredDocuments.filter((document) => selectedDocuments.includes(document.id));
+  const availableContextDocuments = filteredDocuments.filter((document) => !selectedDocuments.includes(document.id));
+  const readyDocumentCount = documents.filter((doc) => String(doc.status || '').toLowerCase() === 'ready').length;
+
+  const quickPrompts = [
+    'Summarize the Q3 goals',
+    'Find risks in the current contract',
+    'Draft an email to the team',
+    'Create a key dates timeline',
+  ];
+
+  const getSourceLabel = (source) => {
+    if (typeof source === 'string') return source;
+    if (source && typeof source === 'object') {
+      return source.filename || source.document_name || source.name || 'Source';
+    }
+    return 'Source';
+  };
+
+  const handleInputKeyDown = (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleSendMessage();
+    }
+  };
 
   const handleChatScroll = () => {
     const chatArea = chatAreaRef.current;
@@ -280,54 +472,313 @@ function AIAssistant() {
   };
 
   return (
-    <div className="ai-assistant-container">
-      <div className="ai-shell">
-        {/* Header */}
-        <div className="ai-header">
-          <div className="ai-header-left">
-            <Bot size={24} className="ai-icon" />
-            <h1>Chat with Ada</h1>
-          </div>
-        </div>
+    <div className="ada-chat-page">
+      <div className="ada-chat-shell">
+        <aside className="ada-left-rail" aria-label="Conversation navigation">
+          <button
+            type="button"
+            className="ada-new-chat-btn"
+            onClick={handleCreateConversation}
+            disabled={!activeWorkspaceId || loadingThread || creatingConversation}
+          >
+            <Plus size={16} />
+            New Investigation
+          </button>
 
-        <div className="ai-content">
-          {/* Sidebar: Document Selection */}
-          <div className="ai-sidebar">
-            {error && <div className="error-message">{error}</div>}
-            {!activeWorkspaceId && (
-              <div className="empty-state">
-                <AlertCircle size={24} />
-                <p>No workspace available yet.</p>
+          <div className="ada-left-section">
+            <p className="ada-section-label">Knowledge Base</p>
+            <button type="button" className="ada-nav-item active">
+              <MessageCircle size={14} />
+              <span>Current Chat</span>
+            </button>
+            <button type="button" className="ada-nav-item" onClick={() => navigate('/documents')}>
+              <span>All Documents</span>
+            </button>
+            <button type="button" className="ada-nav-item" onClick={() => navigate('/search')}>
+              <span>Search Knowledge</span>
+            </button>
+          </div>
+
+          <div className="ada-left-section">
+            <p className="ada-section-label">Recent History</p>
+            <div className="ada-history-list">
+              {conversations.length === 0 ? (
+                <p className="ada-muted-line">No previous investigations</p>
+              ) : (
+                conversations.slice(0, 8).map((conversation) => (
+                  <div
+                    key={conversation.id}
+                    className={`ada-history-item ${activeConversation?.id === conversation.id ? 'active' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      className="ada-history-open-btn"
+                      onClick={() => handleConversationSelect(conversation)}
+                    >
+                      {conversation.title || 'Untitled conversation'}
+                    </button>
+                    <button
+                      type="button"
+                      className="ada-history-delete-btn"
+                      onClick={() => handleDeleteConversation(conversation)}
+                      disabled={deletingConversationId === conversation.id}
+                      aria-label={`Delete ${conversation.title || 'conversation'}`}
+                    >
+                      {deletingConversationId === conversation.id ? <Loader2 size={12} className="spin" /> : <Trash2 size={12} />}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="ada-left-footer">
+            <div className="ada-presence-row">
+              <span className="ada-avatar-chip small">{viewerName.charAt(0).toUpperCase()}</span>
+              <div>
+                <p className="ada-footer-name">{viewerName}</p>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <main className="ada-main-stage">
+          <header className="ada-stage-topbar">
+            <div className="ada-breadcrumbs" aria-label="Current scope">
+              <span>Work Brain</span>
+              <ChevronRight size={12} />
+              <strong>{selectedWorkspaceName}</strong>
+            </div>
+          </header>
+
+          {error && (
+            <div className="ada-error-banner" role="alert">
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <section className="ada-chat-scroll" ref={chatAreaRef} onScroll={handleChatScroll}>
+            {loadingThread ? (
+              <div className="ada-thread-skeleton" aria-live="polite" aria-busy="true">
+                <div className="skeleton ada-skeleton-line" />
+                <div className="skeleton ada-skeleton-line short" />
+                <div className="skeleton ada-skeleton-line" />
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="ada-empty-stage">
+                <h2>
+                  {greeting}, <span className="ada-name-accent">{viewerName}</span>.
+                </h2>
+                <p>
+                  I&apos;ve analyzed {readyDocumentCount} ready document{readyDocumentCount !== 1 ? 's' : ''} in {selectedWorkspaceName}. I&apos;m ready to synthesize insights.
+                </p>
+
+                <div className="ada-prompt-grid">
+                  {quickPrompts.map((prompt, index) => {
+                    const mappedDoc = documents[index];
+                    return (
+                      <button key={prompt} type="button" className="ada-prompt-card" onClick={() => handleQuickPrompt(prompt)}>
+                        <span>{prompt}</span>
+                        <small>
+                          {mappedDoc
+                            ? `From ${mappedDoc.filename || mappedDoc.name}`
+                            : 'From selected context'}
+                        </small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="ada-thread-list">
+                {messages.map((message) => (
+                  <article key={message.id} className={`ada-message ${message.role}`}>
+                    <div className="ada-message-avatar">{message.role === 'user' ? <User size={14} /> : 'A'}</div>
+                    <div className="ada-message-body">
+                      <p className="ada-message-text">{message.content}</p>
+                      {message.sources && message.sources.length > 0 && (
+                        <div className="ada-source-row">
+                          {message.sources.map((source, index) => (
+                            <span key={`${source}-${index}`} className="ada-source-chip">
+                              {getSourceLabel(source)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="ada-message-meta">{formatMessageTime(message.created_at)}</div>
+                    </div>
+                  </article>
+                ))}
+
+                {loading && (
+                  <article className="ada-message assistant">
+                    <div className="ada-message-avatar">A</div>
+                    <div className="ada-message-body">
+                      <div className="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </div>
+                    </div>
+                  </article>
+                )}
               </div>
             )}
-            {activeWorkspaceId && workspaces.length > 0 && (
-              <div className="selection-summary">
-                <CheckCircle size={16} />
-                Workspace: {workspaces.find((ws) => ws.id === activeWorkspaceId)?.name || 'Selected'}
-              </div>
-            )}
-            {workspaces.length > 0 && (
-              <div className="field-group">
-                <label htmlFor="ai-workspace-select" className="field-label">Workspace</label>
-                <select
-                  id="ai-workspace-select"
-                  className="field-select"
-                  value={activeWorkspaceId ?? ''}
-                  onChange={handleWorkspaceChange}
-                >
-                  {workspaces.map((workspace) => (
-                    <option key={workspace.id} value={workspace.id}>
-                      {workspace.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="field-group">
-              <label htmlFor="ai-container-select" className="field-label">Container</label>
+          </section>
+
+          <footer className="ada-composer">
+            <div className="ada-composer-context-row">
+              {selectedDocumentRecords.slice(0, 2).map((document) => (
+                <span key={document.id} className="ada-context-chip">
+                  {document.filename || document.name}
+                  <button type="button" onClick={() => toggleDocumentSelection(document.id)} aria-label={`Remove ${document.filename || document.name}`}>
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+              {selectedDocumentRecords.length > 2 && (
+                <span className="ada-context-chip muted">+{selectedDocumentRecords.length - 2} more</span>
+              )}
+              <button type="button" className="ada-add-context-btn" onClick={() => contextSearchRef.current?.focus()}>
+                <Plus size={12} />
+                Add Context
+              </button>
+            </div>
+
+            <div className="ada-composer-input-row">
+              <Paperclip size={16} className="ada-composer-icon" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={handleInputKeyDown}
+                placeholder="Ask Ada..."
+                disabled={loading || !activeWorkspaceId}
+              />
+              <button
+                type="button"
+                className="ada-send-btn"
+                onClick={handleSendMessage}
+                disabled={loading || !input.trim() || !activeWorkspaceId}
+                aria-label="Send message"
+              >
+                {loading ? <Loader2 size={18} className="spin" /> : <Send size={16} />}
+              </button>
+            </div>
+          </footer>
+        </main>
+
+        <aside className="ada-right-context" aria-label="Document context panel">
+          <div className="ada-context-header-row">
+            <h3>Context</h3>
+          </div>
+
+          <div className="ada-context-search-row">
+            <Search size={14} />
+            <input
+              ref={contextSearchRef}
+              type="text"
+              value={contextSearch}
+              onChange={(event) => setContextSearch(event.target.value)}
+              placeholder="Search knowledge..."
+              aria-label="Search knowledge"
+            />
+          </div>
+
+          <div className="ada-right-section">
+            <div className="ada-right-section-header">
+              <p>Active in Chat ({activeContextDocuments.length})</p>
+              <button type="button" onClick={() => setSelectedDocuments([])}>Clear</button>
+            </div>
+
+            <div className="ada-context-list">
+              {activeContextDocuments.length === 0 ? (
+                <p className="ada-muted-line">No documents selected.</p>
+              ) : (
+                activeContextDocuments.map((document) => (
+                  <button
+                    key={document.id}
+                    type="button"
+                    className="ada-context-item active"
+                    onClick={() => toggleDocumentSelection(document.id)}
+                  >
+                    <div>
+                      <strong>{document.filename || document.name}</strong>
+                      <small>
+                        {String(document.status || 'uploaded').toLowerCase()} • {formatFileSize(document.file_size || document.size_bytes)}
+                      </small>
+                    </div>
+                    <Link2 size={14} />
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="ada-right-section">
+            <div className="ada-right-section-header">
+              <p>Available Library</p>
+              <button type="button" onClick={() => navigate('/documents')}>View All</button>
+            </div>
+
+            <div className="ada-context-list">
+              {availableContextDocuments.length === 0 ? (
+                <p className="ada-muted-line">No matching documents found.</p>
+              ) : (
+                availableContextDocuments.slice(0, 8).map((document) => (
+                  <label key={document.id} className="ada-context-item selectable">
+                    <input
+                      type="checkbox"
+                      checked={selectedDocuments.includes(document.id)}
+                      onChange={() => toggleDocumentSelection(document.id)}
+                    />
+                    <div>
+                      <strong>{document.filename || document.name}</strong>
+                      <small>{String(document.status || 'uploaded').toLowerCase()}</small>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <button type="button" className="ada-upload-context-btn" onClick={() => navigate('/documents')}>
+            <Upload size={16} />
+            <span>Upload to Context</span>
+            <small>PDF, DOCX, TXT up to 50MB</small>
+          </button>
+
+          {pendingSelectedDocuments.length > 0 && (
+            <div className="ada-warning-note" role="status">
+              <AlertCircle size={14} />
+              <span>
+                {pendingSelectedDocuments.length} selected document{pendingSelectedDocuments.length !== 1 ? 's are' : ' is'} still processing. Responses may be limited.
+              </span>
+            </div>
+          )}
+
+          <div className="ada-rail-controls">
+            <div className="ada-field">
+              <label htmlFor="ai-workspace-select">Workspace</label>
+              <select
+                id="ai-workspace-select"
+                value={activeWorkspaceId ?? ''}
+                onChange={handleWorkspaceChange}
+                disabled={workspaces.length === 0}
+              >
+                {workspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="ada-field">
+              <label htmlFor="ai-container-select">Container</label>
               <select
                 id="ai-container-select"
-                className="field-select"
                 value={activeContainerId}
                 onChange={handleContainerChange}
                 disabled={!activeWorkspaceId}
@@ -340,146 +791,8 @@ function AIAssistant() {
                 ))}
               </select>
             </div>
-            <h3>Select Documents</h3>
-            <p className="sidebar-description">Choose documents for context</p>
-            <div className="document-list">
-              {documents.map((doc) => (
-                <div
-                  key={doc.id}
-                  className={`document-item ${selectedDocuments.includes(doc.id) ? 'selected' : ''}`}
-                  onClick={() => toggleDocumentSelection(doc.id)}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedDocuments.includes(doc.id)}
-                    onChange={() => {}}
-                    className="doc-checkbox"
-                  />
-                  <FileText size={16} />
-                  <span className="doc-name">{doc.filename || doc.name}</span>
-                  <span className={`doc-status ${String(doc.status || '').toLowerCase() === 'ready' ? 'ready' : 'pending'}`}>
-                    {String(doc.status || 'uploaded').toLowerCase()}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {selectedDocuments.length > 0 && (
-              <div className="selection-summary">
-                <CheckCircle size={16} />
-                {selectedDocuments.length} document{selectedDocuments.length !== 1 ? 's' : ''} selected
-              </div>
-            )}
-
-            {pendingSelectedDocuments.length > 0 && (
-              <div className="selection-warning">
-                <AlertCircle size={16} />
-                {pendingSelectedDocuments.length} selected document{pendingSelectedDocuments.length !== 1 ? 's are' : ' is'} still processing. Chat answers may be limited until status is ready.
-              </div>
-            )}
-
-            {/* AI Status */}
-            <div className="ai-status">
-              <AlertCircle size={16} />
-              <div className="status-text">
-                <strong>AI Service:</strong> Retrieval Mode
-                <p className="status-note">
-                  Responses are generated from semantically retrieved workspace documents
-                </p>
-              </div>
-            </div>
           </div>
-
-          {/* Main Area */}
-          <div className="ai-main">
-            {/* Chat Messages */}
-            <div className="chat-area" ref={chatAreaRef} onScroll={handleChatScroll}>
-              {messages.length === 0 ? (
-                <div className="empty-chat">
-                  <Sparkles size={48} />
-                  <h2>Ask me anything about your documents</h2>
-                  <p>I can help you find information, summarize content, and answer questions based on your uploaded documents.</p>
-                  <div className="suggestions">
-                    <button onClick={() => setInput('Summarize the selected documents')}>
-                      Summarize the selected documents
-                    </button>
-                    <button onClick={() => setInput('What are the main requirements?')}>
-                      What are the main requirements?
-                    </button>
-                    <button onClick={() => setInput('What deadlines are mentioned?')}>
-                      What deadlines are mentioned?
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="messages-container">
-                  {messages.map((msg) => (
-                    <div key={msg.id} className={`message ${msg.role}`}>
-                      <div className="message-icon">
-                        {msg.role === 'user' ? <User size={18} /> : <Bot size={18} />}
-                      </div>
-                      <div className="message-content">
-                        <div className="message-text">{msg.content}</div>
-                        {msg.sources && msg.sources.length > 0 && (
-                          <div className="message-sources">
-                            <strong>Sources:</strong>
-                            {msg.sources.map((source, idx) => (
-                              <span key={idx} className="source-badge">
-                                {source}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {msg.role === 'assistant' && (
-                          <div className="message-meta-source">
-                            Source: {msg.model_used || 'retrieval'}
-                          </div>
-                        )}
-                        <div className="message-time">{formatMessageTime(msg.created_at)}</div>
-                      </div>
-                    </div>
-                  ))}
-                  {loading && (
-                    <div className="message assistant">
-                      <div className="message-icon">
-                        <Bot size={18} />
-                      </div>
-                      <div className="message-content">
-                        <div className="typing-indicator">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Chat Input */}
-            <div className="chat-input-area">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder="Ask a question about your documents..."
-                className="chat-input"
-                disabled={loading}
-              />
-              <button
-                onClick={handleSendMessage}
-                className="btn-send"
-                disabled={loading || !input.trim()}
-                title="Send message"
-                aria-label="Send message"
-              >
-                <Send size={18} />
-              </button>
-            </div>
-          </div>
-        </div>
+        </aside>
       </div>
     </div>
   );

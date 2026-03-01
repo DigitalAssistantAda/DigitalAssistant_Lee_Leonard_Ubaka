@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, CheckCircle, Clock, Pencil, Search as SearchIcon } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, Pencil, Search as SearchIcon } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
 import './WorkspaceIssues.css';
 
@@ -56,14 +56,43 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     return map;
   }, [members]);
 
-  const normalizedIssues = useMemo(() => issues.map((issue) => ({
-    ...issue,
-    status: issue.status || 'open',
-  })), [issues]);
+  const getEffectiveStatus = (issue) => {
+    const rawStatus = issue?.status || 'open';
+    if (rawStatus === 'completed' || rawStatus === 'closed') return rawStatus;
+    if (!issue?.due_date) return rawStatus;
+
+    const dueDate = new Date(issue.due_date);
+    if (Number.isNaN(dueDate.getTime())) return rawStatus;
+
+    const dueUtcDate = Date.UTC(
+      dueDate.getUTCFullYear(),
+      dueDate.getUTCMonth(),
+      dueDate.getUTCDate()
+    );
+    const now = new Date();
+    const todayUtcDate = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate()
+    );
+
+    if (dueUtcDate < todayUtcDate) return 'overdue';
+    return rawStatus;
+  };
+
+  const normalizedIssues = useMemo(() => issues.map((issue) => {
+    const status = issue.status || 'open';
+    return {
+      ...issue,
+      status,
+      effectiveStatus: getEffectiveStatus({ ...issue, status }),
+    };
+  }), [issues]);
 
   const statusCounts = useMemo(() => {
     return normalizedIssues.reduce((acc, issue) => {
-      acc[issue.status] = (acc[issue.status] || 0) + 1;
+      const key = issue.effectiveStatus || issue.status;
+      acc[key] = (acc[key] || 0) + 1;
       return acc;
     }, {});
   }, [normalizedIssues]);
@@ -71,7 +100,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const filteredIssues = useMemo(() => {
     let result = normalizedIssues;
     if (statusFilter !== 'all') {
-      result = result.filter((issue) => issue.status === statusFilter);
+      result = result.filter((issue) => (issue.effectiveStatus || issue.status) === statusFilter);
     }
     if (searchQuery.trim()) {
       const query = searchQuery.trim().toLowerCase();
@@ -414,19 +443,6 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'open':
-        return <AlertCircle size={16} className="status-icon open" />;
-      case 'in_progress':
-        return <Clock size={16} className="status-icon in-progress" />;
-      case 'completed':
-        return <CheckCircle size={16} className="status-icon completed" />;
-      default:
-        return <AlertCircle size={16} className="status-icon" />;
-    }
-  };
-
   const getPriorityClass = (priority) => {
     if (!priority) return 'priority-neutral';
     return `priority-${priority}`;
@@ -450,10 +466,32 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     [normalizedIssues, selectedIssueId]
   );
 
+  const currentWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === resolvedWorkspaceId) || null,
+    [workspaces, resolvedWorkspaceId]
+  );
+
   if (loading) return <div className="issues-container"><p>Loading issues...</p></div>;
 
   return (
     <div className="issues-container">
+      <div className="issues-top-nav">
+        <button
+          type="button"
+          className="issues-back-link"
+          onClick={() => navigate(`/workspace/${resolvedWorkspaceId}`)}
+        >
+          &larr; Back to {currentWorkspace?.name || 'Workspace'}
+        </button>
+        <button
+          type="button"
+          className="issues-back-link"
+          onClick={() => navigate('/dashboard')}
+        >
+          Back to Dashboard
+        </button>
+      </div>
+
       <div className="issues-header">
         <h2>{taskType === 'issue' ? 'Issues' : 'Deadlines'}</h2>
         <button
@@ -583,8 +621,8 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                     <div className="issue-row-meta">
                       <span className="issue-row-number">#{issue.id}</span>
                       <span className="issue-row-status">
-                        <span className={`issue-row-status-dot ${getStatusClass(issue.status)}`} />
-                        {getStatusLabel(issue.status)}
+                        <span className={`issue-row-status-dot ${getStatusClass(issue.effectiveStatus || issue.status)}`} />
+                        {getStatusLabel(issue.effectiveStatus || issue.status)}
                       </span>
                       <span className="issue-row-assignee">
                         {assigneeLabel}

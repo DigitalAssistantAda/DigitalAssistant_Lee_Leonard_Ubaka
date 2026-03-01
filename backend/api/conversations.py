@@ -20,6 +20,7 @@ from schemas.conversation import (
     MessageCreate,
     MessageResponse,
 )
+from schemas.auth import SuccessResponse
 from utils.auth import get_current_user
 from utils.authorization import require_workspace_access
 from utils.embeddings import embeddings_service
@@ -418,6 +419,37 @@ async def get_conversation(
     response.messages = [MessageResponse.model_validate(m) for m in messages]
     
     return response
+
+
+@router.delete("/{workspace_id}/{conversation_id}", response_model=SuccessResponse)
+async def delete_conversation(
+    workspace_id: int,
+    conversation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a conversation and all its messages"""
+
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        check_workspace_exists=False,
+    )
+
+    conversation = db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.workspace_id == workspace_id,
+    ).first()
+
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    db.query(AIMessage).filter(AIMessage.conversation_id == conversation_id).delete(synchronize_session=False)
+    db.delete(conversation)
+    db.commit()
+
+    return SuccessResponse(message="Conversation deleted successfully")
 
 
 @router.post("/{workspace_id}/{conversation_id}/messages", response_model=MessageResponse)

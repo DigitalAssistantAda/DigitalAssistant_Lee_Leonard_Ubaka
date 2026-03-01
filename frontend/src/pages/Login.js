@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
-import { getApiErrorMessage, parseApiErrorMessage } from '../utils/apiError';
-import '../styles/shared.css';
+import { ArrowLeft, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { parseApiErrorMessage } from '../utils/apiError';
+import adaLogo from '../ada_logo.png';
+import './Login.css';
 
 function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -11,39 +12,28 @@ function Login({ onLogin }) {
     email: '',
     password: '',
   });
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [errorMessages, setErrorMessages] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [adaMode, setAdaMode] = useState(false);
-  const adaTimerRef = useRef(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
-
-    // Easter egg: typing 'ada' as username floats petals upward
-    if (name === 'username' && value.toLowerCase() === 'ada') {
-      setAdaMode(true);
-      clearTimeout(adaTimerRef.current);
-      // Dispatch multiple float waves
-      for (let wave = 0; wave < 3; wave++) {
-        setTimeout(() => {
-          window.dispatchEvent(
-            new CustomEvent('ada:petalfloat', {
-              detail: { x: window.innerWidth / 2, y: window.innerHeight * 0.75, count: 10 },
-            })
-          );
-        }, wave * 600);
-      }
-      adaTimerRef.current = setTimeout(() => setAdaMode(false), 3000);
-    } else if (name === 'username' && adaMode) {
-      setAdaMode(false);
-    }
   };
 
-  // Clean up timer on unmount
-  useEffect(() => () => clearTimeout(adaTimerRef.current), []);
+  useEffect(() => {
+    setErrorMessages([]);
+    setShowPassword(false);
+  }, [isRegister]);
+
+  const handleForgotPassword = () => {
+    setErrorMessages([
+      'Password reset is not configured yet. Please contact your workspace administrator.',
+    ]);
+  };
 
   const buildRegisterErrors = (errorData) => {
     const detail = errorData?.detail;
@@ -108,86 +98,146 @@ function Login({ onLogin }) {
   };
 
   return (
-    <div className={`auth-container${adaMode ? ' ada-mode' : ''}`}>
-      <Link to="/" className="back-link">
-        <ArrowLeft size={20} />
-        <span>Back to Home</span>
-      </Link>
-      <h1 className="auth-title">{isRegister ? 'Create Account' : 'Welcome Back'}</h1>
-      <p className="auth-subtitle">
-        {isRegister ? 'Join Ada to organize your knowledge' : 'Sign in to continue to Ada'}
-      </p>
-      
-      <form className="auth-form" onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label className="form-label">Username</label>
-          <input
-            type="text"
-            name="username"
-            value={formData.username}
-            onChange={handleInputChange}
-            required
-            className="form-input"
-            placeholder="Enter your username"
-          />
-        </div>
-
-        {isRegister && (
-          <div className="form-group">
-            <label className="form-label">Email</label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleInputChange}
-              required
-              className="form-input"
-              placeholder="Enter your email"
-            />
+    <div className="login-page">
+      <div className="login-card">
+        <aside className="login-brand-panel">
+          <div className="login-brand-header">
+            <span className="login-brand-name">Ada</span>
           </div>
-        )}
 
-        <div className="form-group">
-          <label className="form-label">Password</label>
-          <input
-            type="password"
-            name="password"
-            value={formData.password}
-            onChange={handleInputChange}
-            required
-            className="form-input"
-            placeholder="Enter your password"
-          />
-        </div>
+          <div className="login-brand-center" aria-hidden="true">
+            <div className="login-flower-ring">
+              <img src={adaLogo} alt="" className="login-brand-flower" />
+            </div>
+          </div>
 
-        {errorMessages.length > 0 && (
-          <div className="error-message">
-            {errorMessages.length === 1 ? (
-              errorMessages[0]
-            ) : (
-              <ul className="error-list">
-                {errorMessages.map((message) => (
-                  <li key={message}>{message}</li>
-                ))}
-              </ul>
+          <div className="login-brand-footer">
+            <p className="login-brand-quote">
+              The <em>warmest</em> way to find what your team already knows.
+            </p>
+            <div className="login-brand-trust">
+              <span className="login-trust-dot" />
+              Built for secure internal knowledge workflows.
+            </div>
+          </div>
+        </aside>
+
+        <section className="login-form-panel">
+          <div className="login-panel-top">
+            <Link to="/" className="login-back-link">
+              <ArrowLeft size={18} />
+              <span>Back to Home</span>
+            </Link>
+          </div>
+
+          <header className="login-form-header">
+            <h1>{isRegister ? 'Join us' : 'Welcome back'}</h1>
+            <p>
+              {isRegister
+                ? 'Set up your team\'s private knowledge hub.'
+                : 'Enter your credentials to access your workspace.'}
+            </p>
+          </header>
+
+          <form className="login-form-body" onSubmit={handleSubmit}>
+            <div className="login-field-group">
+              <div className="login-input-wrapper">
+                <input
+                  type="text"
+                  name="username"
+                  value={formData.username}
+                  onChange={handleInputChange}
+                  required
+                  className="login-input"
+                  placeholder={isRegister ? 'Username' : 'Email or Username'}
+                  autoComplete={isRegister ? 'username' : 'username'}
+                />
+              </div>
+
+              {isRegister && (
+                <div className="login-input-wrapper">
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
+                    required
+                    className="login-input"
+                    placeholder="Work Email"
+                    autoComplete="email"
+                  />
+                </div>
+              )}
+
+              <div className="login-input-wrapper">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  value={formData.password}
+                  onChange={handleInputChange}
+                  required
+                  className="login-input login-input-password"
+                  placeholder={isRegister ? 'Create password' : 'Password'}
+                  autoComplete={isRegister ? 'new-password' : 'current-password'}
+                />
+                <button
+                  type="button"
+                  className="login-input-toggle"
+                  onClick={() => setShowPassword((current) => !current)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {!isRegister && (
+              <div className="login-meta-row">
+                <label className="login-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(event) => setRememberMe(event.target.checked)}
+                  />
+                  <span>Remember me</span>
+                </label>
+                <button type="button" className="login-meta-link" onClick={handleForgotPassword}>Forgot password?</button>
+              </div>
             )}
-          </div>
-        )}
 
-        <button 
-          type="submit" 
-          disabled={loading}
-          className="btn-primary"
-        >
-          {loading ? 'Processing...' : (isRegister ? 'Create Account' : 'Sign In')}
-        </button>
-      </form>
+            {errorMessages.length > 0 && (
+              <div className="login-error-message">
+                {errorMessages.length === 1 ? (
+                  errorMessages[0]
+                ) : (
+                  <ul>
+                    {errorMessages.map((message) => (
+                      <li key={message}>{message}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
-      <div className="auth-toggle">
-        {isRegister ? 'Already have an account? ' : "Don't have an account? "}
-        <button onClick={() => setIsRegister(!isRegister)}>
-          {isRegister ? 'Sign In' : 'Create Account'}
-        </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="login-submit-btn"
+            >
+              <span>{loading ? 'Processing...' : (isRegister ? 'Create Account' : 'Sign In')}</span>
+              {!loading && <ArrowRight size={16} />}
+            </button>
+          </form>
+
+          <footer className="login-footer">
+            <p>
+              {isRegister ? 'Already have an account?' : "Don't have an account?"}
+            </p>
+            <button type="button" onClick={() => setIsRegister(!isRegister)}>
+              {isRegister ? 'Sign In' : 'Create Account'}
+            </button>
+          </footer>
+        </section>
       </div>
     </div>
   );

@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import './App.css';
 
 import Navigation from './components/Navigation';
-import PetalRain from './components/PetalRain';
 import PetalSpinner from './components/PetalSpinner';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -155,6 +154,14 @@ function App() {
     return rgbToHex(hslToRgb({ ...hsl, l: next }));
   };
 
+  const adjustSaturation = (hex, delta) => {
+    const rgb = hexToRgb(hex);
+    if (!rgb) return hex;
+    const hsl = rgbToHsl(rgb);
+    const next = Math.min(1, Math.max(0, hsl.s + delta));
+    return rgbToHex(hslToRgb({ ...hsl, s: next }));
+  };
+
   const mixHex = (hexA, hexB, weight) => {
     const rgbA = hexToRgb(hexA);
     const rgbB = hexToRgb(hexB);
@@ -211,13 +218,29 @@ function App() {
     const lumSecondary = relativeLuminance(bgSecondary);
     const targetBg = lumPrimary >= lumSecondary ? bgPrimary : bgSecondary;
     const isLightTheme = lumPrimary > 0.5;
-    const minRatio = isLightTheme ? 3.2 : 4.5;
+
+    if (!isLightTheme) {
+      const minRatio = 4.5;
+      const accent = ensureContrast(hex, targetBg, minRatio);
+      const hover = adjustHex(accent, -18);
+      const secondary = adjustLightness(accent, -0.14);
+      const highlight = mixHex(accent, targetBg, 0.22);
+      const contrast = pickTextColor(accent);
+      return { accent, hover, secondary, highlight, contrast };
+    }
+
+    const minRatio = 2.8;
     const contrastSafe = ensureContrast(hex, targetBg, minRatio);
-    const softened = isLightTheme ? mixHex(contrastSafe, targetBg, 0.88) : contrastSafe;
-    const accent = isLightTheme ? ensureContrast(softened, targetBg, minRatio) : softened;
-    const hover = isLightTheme ? adjustHex(accent, -8) : adjustHex(accent, -18);
-    const secondary = adjustLightness(accent, isLightTheme ? 0.08 : -0.14);
-    const highlight = mixHex(accent, targetBg, isLightTheme ? 0.08 : 0.22);
+    const baseRgb = hexToRgb(contrastSafe);
+    const baseSaturation = baseRgb ? rgbToHsl(baseRgb).s : 0.4;
+    const isHighSaturation = baseSaturation > 0.55;
+
+    const toned = adjustSaturation(contrastSafe, isHighSaturation ? -0.30 : -0.08);
+    const softened = mixHex(toned, targetBg, isHighSaturation ? 0.62 : 0.82);
+    const accent = ensureContrast(softened, targetBg, minRatio);
+    const hover = adjustLightness(accent, isHighSaturation ? -0.04 : -0.03);
+    const secondary = mixHex(accent, targetBg, isHighSaturation ? 0.28 : 0.46);
+    const highlight = mixHex(accent, targetBg, isHighSaturation ? 0.14 : 0.22);
     const contrast = pickTextColor(accent);
     return { accent, hover, secondary, highlight, contrast };
   };
@@ -408,7 +431,6 @@ function App() {
   return (
     <Router>
       <div className="App">
-        <PetalRain />
         <Navigation user={user} onLogout={handleLogout} />
         
         <Routes>

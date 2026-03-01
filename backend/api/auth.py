@@ -7,6 +7,7 @@ from schemas.auth import (
     RegisterResponse,
     LoginRequest,
     LoginResponse,
+    ChangePasswordRequest,
     MeResponse,
     SuccessResponse,
     UserResponse,
@@ -152,3 +153,46 @@ async def get_me(current_user: User = Depends(get_current_user), db: Session = D
     return MeResponse(
         user=UserResponse.model_validate(current_user)
     )
+
+
+@router.post("/change-password", response_model=SuccessResponse)
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Change the current user's password"""
+    if not current_user.hashed_password:
+        raise AppError(
+            code="PASSWORD_CHANGE_UNAVAILABLE",
+            message="Password change is unavailable for this account.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not verify_password(request.current_password, current_user.hashed_password):
+        raise AppError(
+            code="INVALID_CURRENT_PASSWORD",
+            message="Current password is incorrect.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if verify_password(request.new_password, current_user.hashed_password):
+        raise AppError(
+            code="PASSWORD_UNCHANGED",
+            message="New password must be different from your current password.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    current_user.hashed_password = get_password_hash(request.new_password)
+    db.add(current_user)
+    db.commit()
+
+    create_audit_log(
+        db,
+        current_user,
+        action="user.password_changed",
+        object_type="user",
+        object_id=current_user.id,
+    )
+
+    return SuccessResponse()

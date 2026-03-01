@@ -43,7 +43,7 @@
 
 .auth-title {
     font-size: 2rem;
-    font-weight: 700;
+    font-weight: 400;
     color: var(--text-primary);
     margin-bottom: 0.5rem;
     text-align: center;
@@ -71,7 +71,7 @@
 
 .form-label {
     color: var(--text-primary);
-    font-weight: 500;
+    font-weight: 300;
     font-size: 0.9rem;
 }
 
@@ -132,15 +132,15 @@
     border: 1px solid var(--accent-primary);
     border-radius: var(--radius-base);
     font-size: 1rem;
-    font-weight: 600;
+    font-weight: 400;
     cursor: pointer;
     transition: all 0.2s ease;
     font-family: var(--font-ui);
 }
 
 .btn-primary:hover {
-    background: var(--accent-primary);
-    transform: none;
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
 }
 
 .btn-primary:active {
@@ -160,7 +160,7 @@
     border: 1px solid var(--border-color);
     border-radius: var(--radius-base);
     font-size: 1rem;
-    font-weight: 600;
+    font-weight: 400;
     cursor: pointer;
     transition: all 0.2s ease;
     font-family: var(--font-ui);
@@ -182,11 +182,11 @@
     background: none;
     border: none;
     color: var(--accent-primary);
-    font-weight: 600;
+    font-weight: 400;
     cursor: pointer;
     text-decoration: underline;
     font-size: 0.9rem;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-ui);
 }
 
 .auth-toggle button:hover {
@@ -203,7 +203,7 @@
 
 .page-title {
     font-size: 2rem;
-    font-weight: 700;
+    font-weight: 400;
     color: var(--text-primary);
     margin-bottom: 0.5rem;
     font-family: var(--font-display);
@@ -231,7 +231,7 @@
 
 .card-title {
     font-size: 1.25rem;
-    font-weight: 600;
+    font-weight: 400;
     color: var(--text-primary);
     font-family: var(--font-display);
     margin-bottom: 1rem;

@@ -7,7 +7,19 @@ from utils.auth import get_current_user
 from utils.audit import create_audit_log, AuditActions
 from datetime import datetime, timezone
 
-router = APIRouter(prefix="/api/v1/deletion-requests", tags=["deletion-requests"])
+router = APIRouter(prefix="/deletion-requests", tags=["deletion-requests"])
+
+
+def _serialize_deletion_request(request: DocumentDeletionRequest):
+    return {
+        "id": request.id,
+        "document_id": request.document_id,
+        "requested_by": request.requested_by,
+        "reason": request.reason,
+        "status": request.status,
+        "created_at": request.created_at,
+        "responded_at": request.responded_at,
+    }
 
 @router.get("/pending")
 async def get_pending_deletion_requests(
@@ -22,17 +34,23 @@ async def get_pending_deletion_requests(
     
     return {
         "count": len(requests),
-        "requests": [
-            {
-                "id": r.id,
-                "document_id": r.document_id,
-                "requested_by": r.requested_by,
-                "reason": r.reason,
-                "status": r.status,
-                "created_at": r.created_at
-            }
-            for r in requests
-        ]
+        "requests": [_serialize_deletion_request(r) for r in requests]
+    }
+
+
+@router.get("/all")
+async def get_all_deletion_requests(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all deletion requests for documents owned by current user"""
+    requests = db.query(DocumentDeletionRequest).filter(
+        DocumentDeletionRequest.document_owner == current_user.id
+    ).order_by(DocumentDeletionRequest.created_at.desc()).all()
+
+    return {
+        "count": len(requests),
+        "requests": [_serialize_deletion_request(r) for r in requests]
     }
 
 @router.post("/{request_id}/approve")

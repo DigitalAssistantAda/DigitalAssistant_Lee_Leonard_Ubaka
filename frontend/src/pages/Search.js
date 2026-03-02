@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Search as SearchIcon } from 'lucide-react';
-import { getApiErrorMessage } from '../utils/apiError';
 import './Search.css';
+import { apiFetch } from '../utils/apiClient';
 
 function Search() {
   const [workspaces, setWorkspaces] = useState([]);
@@ -14,29 +14,18 @@ function Search() {
   const [error, setError] = useState(null);
   const location = useLocation();
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
   const fetchWorkspaces = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/workspaces`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        setWorkspaces(items);
-        if (items.length > 0) {
-          setSelectedWorkspace(String(items[0].id));
-        }
+      const data = await apiFetch('/api/v1/workspaces');
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      setWorkspaces(items);
+      if (items.length > 0) {
+        setSelectedWorkspace(String(items[0].id));
       }
     } catch (err) {
       console.error('Error fetching workspaces:', err);
     }
-  }, [API_URL]);
+  }, []);
 
   useEffect(() => {
     fetchWorkspaces();
@@ -55,33 +44,21 @@ function Search() {
     setSearchResults([]);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/search`, {
+      const data = await apiFetch('/api/v1/search', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+        body: {
           workspace_id: Number(workspaceId),
           query: trimmedQuery,
           limit: 10,
-        }),
+        },
       });
-
-      if (!response.ok) {
-        const message = await getApiErrorMessage(response, 'Search failed');
-        throw new Error(message);
-      }
-
-      const data = await response.json();
       setSearchResults(data.items || []);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [API_URL]);
+  }, []);
 
   const handleSearch = async (e) => {
     e.preventDefault();

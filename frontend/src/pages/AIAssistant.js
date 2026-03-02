@@ -21,7 +21,7 @@ function AIAssistant() {
   const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
-  const [containers, setContainers] = useState([]);
+  const [containers, setContainers] = useState({ workspace: [], personal: [] });
   const [activeContainerId, setActiveContainerId] = useState('');
   const [conversations, setConversations] = useState([]);
   const [activeConversation, setActiveConversation] = useState(null);
@@ -35,6 +35,7 @@ function AIAssistant() {
   const [deletingConversationId, setDeletingConversationId] = useState(null);
   const [contextSearch, setContextSearch] = useState('');
   const [error, setError] = useState(null);
+  const [retryingDocId, setRetryingDocId] = useState(null);
   const chatAreaRef = useRef(null);
   const inputRef = useRef(null);
   const contextSearchRef = useRef(null);
@@ -172,20 +173,30 @@ function AIAssistant() {
   const fetchWorkspaceContainers = async (workspaceId) => {
     try {
       setError(null);
-      const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/containers`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
+      const [wsResponse, allResponse] = await Promise.all([
+        fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/containers`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+        fetch(`${API_URL}/api/v1/containers`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+      ]);
 
-      if (!response.ok) {
-        throw new Error('Failed to load containers');
+      if (!wsResponse.ok) throw new Error('Failed to load workspace containers');
+      const wsData = await wsResponse.json();
+      const workspaceItems = Array.isArray(wsData?.items) ? wsData.items : Array.isArray(wsData) ? wsData : [];
+
+      const personalItems = [];
+      if (allResponse.ok) {
+        const allData = await allResponse.json();
+        const allItems = Array.isArray(allData?.items) ? allData.items : Array.isArray(allData) ? allData : [];
+        personalItems.push(...allItems.filter((c) => c.workspace_id == null || c.workspace_id === undefined));
       }
 
-      const data = await response.json();
-      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-      setContainers(items);
+      setContainers({ workspace: workspaceItems, personal: personalItems });
       setActiveContainerId('');
     } catch (err) {
-      setContainers([]);
+      setContainers({ workspace: [], personal: [] });
       setError(getFriendlyErrorMessage(err, 'Failed to load containers'));
     }
   };
@@ -212,6 +223,35 @@ function AIAssistant() {
       setError(getFriendlyErrorMessage(err, 'Failed to load documents'));
     }
   };
+
+  const handleRetryIndexing = async (docId, event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    if (!token || !docId) return;
+    try {
+      setRetryingDocId(docId);
+      setError(null);
+      const response = await fetch(`${API_URL}/api/v1/documents/${docId}/retry-indexing`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Failed to retry indexing');
+      }
+      await fetchDocuments(activeWorkspaceId, activeContainerId || null);
+    } catch (err) {
+      setError(getFriendlyErrorMessage(err, 'Could not retry indexing'));
+    } finally {
+      setRetryingDocId(null);
+    }
+  };
+
+  const isDocumentFailed = (doc) =>
+    String(doc.status || '').toLowerCase() === 'failed' ||
+    (doc.status_label && doc.status_label.toLowerCase().includes("couldn't index"));
 
   const fetchConversations = async (workspaceId) => {
     try {
@@ -698,20 +738,36 @@ function AIAssistant() {
                 <p className="ada-muted-line">No documents selected.</p>
               ) : (
                 activeContextDocuments.map((document) => (
-                  <button
-                    key={document.id}
-                    type="button"
-                    className="ada-context-item active"
-                    onClick={() => toggleDocumentSelection(document.id)}
-                  >
-                    <div>
-                      <strong>{document.filename || document.name}</strong>
-                      <small>
-                        {String(document.status || 'uploaded').toLowerCase()} • {formatFileSize(document.file_size || document.size_bytes)}
-                      </small>
-                    </div>
-                    <Link2 size={14} />
-                  </button>
+                  <div key={document.id} className="ada-context-item-wrap active">
+                    <button
+                      type="button"
+                      className="ada-context-item active"
+                      onClick={() => toggleDocumentSelection(document.id)}
+                    >
+                      <div>
+                        <strong>{document.filename || document.name}</strong>
+                        <small title={document.status_detail || undefined}>
+                          {document.status_label || String(document.status || 'uploaded').toLowerCase()} • {formatFileSize(document.file_size || document.size_bytes)}
+                        </small>
+                      </div>
+                      <Link2 size={14} />
+                    </button>
+                    {isDocumentFailed(document) && (
+                      <button
+                        type="button"
+                        className="ada-retry-index-btn"
+                        onClick={(e) => { e.stopPropagation(); handleRetryIndexing(document.id, e); }}
+                        disabled={retryingDocId === document.id}
+                        title={document.status_detail || 'Try indexing again'}
+                      >
+                        {retryingDocId === document.id ? (
+                          <Loader2 size={14} className="spin" />
+                        ) : (
+                          'Try again'
+                        )}
+                      </button>
+                    )}
+                  </div>
                 ))
               )}
             </div>
@@ -736,8 +792,25 @@ function AIAssistant() {
                     />
                     <div>
                       <strong>{document.filename || document.name}</strong>
-                      <small>{String(document.status || 'uploaded').toLowerCase()}</small>
+                      <small title={document.status_detail || undefined}>
+                        {document.status_label || String(document.status || 'uploaded').toLowerCase()}
+                      </small>
                     </div>
+                    {isDocumentFailed(document) && (
+                      <button
+                        type="button"
+                        className="ada-retry-index-btn"
+                        onClick={(e) => handleRetryIndexing(document.id, e)}
+                        disabled={retryingDocId === document.id}
+                        title={document.status_detail || 'Try indexing again'}
+                      >
+                        {retryingDocId === document.id ? (
+                          <Loader2 size={14} className="spin" />
+                        ) : (
+                          'Try again'
+                        )}
+                      </button>
+                    )}
                   </label>
                 ))
               )}
@@ -776,7 +849,7 @@ function AIAssistant() {
               </select>
             </div>
             <div className="ada-field">
-              <label htmlFor="ai-container-select">Container</label>
+              <label htmlFor="ai-container-select">Folder</label>
               <select
                 id="ai-container-select"
                 value={activeContainerId}
@@ -784,11 +857,24 @@ function AIAssistant() {
                 disabled={!activeWorkspaceId}
               >
                 <option value="">All workspace documents</option>
-                {containers.map((container) => (
-                  <option key={container.id} value={container.id}>
-                    {container.name}
-                  </option>
-                ))}
+                {(containers.workspace || []).length > 0 && (
+                  <optgroup label="Workspace folders">
+                    {(containers.workspace || []).map((container) => (
+                      <option key={container.id} value={container.id}>
+                        {container.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {(containers.personal || []).length > 0 && (
+                  <optgroup label="My folders">
+                    {(containers.personal || []).map((container) => (
+                      <option key={container.id} value={container.id}>
+                        {container.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
           </div>

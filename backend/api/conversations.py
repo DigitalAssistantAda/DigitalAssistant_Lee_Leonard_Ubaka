@@ -118,24 +118,54 @@ def _format_summary_block(filename: str, summary_text: str, detailed: bool) -> s
     return "\n".join(lines)
 
 
+def _is_simple_greeting_or_small_talk(text: str) -> bool:
+    """Detect short greetings or small talk that don't need document context."""
+    t = (text or "").strip().lower()
+    if not t or len(t) > 80:
+        return False
+    # Normalize: only letters and spaces
+    normalized = re.sub(r"[^a-z\s]", "", t)
+    normalized = " ".join(normalized.split())
+    greetings = {
+        "hi", "hello", "hey", "hi there", "hello there", "hey there",
+        "good morning", "good afternoon", "good evening",
+        "thanks", "thank you", "thx", "ok", "okay", "yes", "no",
+        "how are you", "whats up", "sup", "yo",
+    }
+    return normalized in greetings or normalized.startswith(("hi ", "hey ", "hello "))
+
+
 def _build_assistant_message_content(
     user_query: str,
     workspace_id: int,
     db: Session,
     requested_document_ids: list[int] | None = None,
     conversation_id: int | None = None,
+    current_user_id: int | None = None,
 ) -> tuple[str, list[int], list[int]]:
-    """Build an assistant response grounded in workspace documents."""
+    """Build an assistant response grounded in workspace and user's personal documents."""
     query_text = (user_query or "").strip()
     if not query_text:
-        return ("Please provide a question so I can search your workspace documents.", [], [])
+        return ("Please provide a question so I can search your documents.", [], [])
+
+    if _is_simple_greeting_or_small_talk(query_text):
+        return (
+            "Hi! I'm Ada. Ask me anything about your documents—I can search, summarize, or answer questions using what you've uploaded here.",
+            [],
+            [],
+        )
 
     scoped_document_ids = []
     if requested_document_ids:
+        # Include docs in this workspace OR user's personal (non-workspace) docs they can access
+        scope_filter = (
+            (Document.workspace_id == workspace_id)
+            | ((Document.workspace_id.is_(None)) & (Document.uploaded_by == current_user_id))
+        ) if current_user_id else (Document.workspace_id == workspace_id)
         scoped_docs = db.query(Document.id).filter(
-            Document.workspace_id == workspace_id,
             Document.id.in_(requested_document_ids),
             Document.status != DocumentStatus.DELETED,
+            scope_filter,
         ).all()
         scoped_document_ids = [row[0] for row in scoped_docs]
 
@@ -148,9 +178,10 @@ def _build_assistant_message_content(
         similar_docs = embeddings_service.find_similar_embeddings(
             query_embedding,
             workspace_id,
-            limit=5,
+            limit=12,
             threshold=0.2,
             db=db,
+            user_id=current_user_id,
         )
         if scoped_document_ids:
             similar_docs = [
@@ -175,15 +206,19 @@ def _build_assistant_message_content(
         for _chunk_id, doc_id, _score in similar_docs:
             if doc_id not in document_ids:
                 document_ids.append(doc_id)
-            if len(document_ids) == 3:
+            if len(document_ids) == 6:
                 break
 
         if not document_ids:
             pattern = f"%{query_text}%"
+            doc_scope = (
+                (Document.workspace_id == workspace_id)
+                | ((Document.workspace_id.is_(None)) & (Document.uploaded_by == current_user_id))
+            ) if current_user_id else (Document.workspace_id == workspace_id)
             chunk_query = db.query(DocumentChunk, Document).join(
                 Document, Document.id == DocumentChunk.document_id
             ).filter(
-                Document.workspace_id == workspace_id,
+                doc_scope,
                 Document.status != DocumentStatus.DELETED,
                 or_(
                     DocumentChunk.text.ilike(pattern),
@@ -222,7 +257,9 @@ def _build_assistant_message_content(
                     [],
                 )
 
-        selected_scope_note = " in the selected documents" if scoped_document_ids else " in this workspace"
+        selected_scope_note = (
+            " in the selected documents" if scoped_document_ids else " in this workspace or your personal folders"
+        )
         return (
             f"I couldn't find relevant content{selected_scope_note} yet. Try a different query or make sure your documents are processed.",
             [],
@@ -255,6 +292,18 @@ def _build_assistant_message_content(
         for chunk in fallback_chunks:
             chunk_map[chunk.document_id] = chunk
 
+    # Optional: add the next chunk per doc for richer context (same doc, chunk_index + 1)
+    next_chunk_map: dict[int, DocumentChunk] = {}
+    if chunk_map:
+        doc_indices = [(doc_id, chunk_map[doc_id].chunk_index + 1) for doc_id in chunk_map]
+        for doc_id, next_idx in doc_indices:
+            next_chunk = db.query(DocumentChunk).filter(
+                DocumentChunk.document_id == doc_id,
+                DocumentChunk.chunk_index == next_idx,
+            ).first()
+            if next_chunk:
+                next_chunk_map[doc_id] = next_chunk
+
     doc_summaries_map = {}
     if is_summary_request:
         all_chunks = db.query(DocumentChunk).filter(
@@ -283,10 +332,14 @@ def _build_assistant_message_content(
             continue
         snippet = doc_summaries_map.get(doc_id) if is_summary_request else None
         if not snippet:
-            snippet = (chunk.text if chunk else "") or "No preview available"
-            snippet = " ".join(snippet.split())[:220]
+            primary_text = (chunk.text if chunk else "") or ""
+            next_chunk = next_chunk_map.get(doc_id)
+            combined = primary_text + (" " + (next_chunk.text or "") if next_chunk else "")
+            snippet = " ".join(combined.split())[:700] if combined.strip() else "No preview available"
         if chunk:
             chunk_ids.append(chunk.id)
+        if next_chunk_map.get(doc_id):
+            chunk_ids.append(next_chunk_map[doc_id].id)
         if is_summary_request:
             dedupe_key = (document.filename.lower(), re.sub(r"\s+", " ", snippet.lower())[:180])
             if dedupe_key in used_summary_keys:
@@ -490,17 +543,19 @@ async def send_message(
     db.commit()
     db.refresh(user_message)
     
-    # Generate assistant response grounded in workspace documents
+    # Generate assistant response grounded in workspace and user's personal documents
     assistant_content, assistant_doc_ids, assistant_chunk_ids = _build_assistant_message_content(
         request.content,
         workspace_id,
         db,
         request.document_ids or [],
         conversation_id,
+        current_user_id=current_user.id,
     )
 
     assistant_source = "retrieval"
-    if summary_generation_service.is_available():
+    is_greeting_reply = _is_simple_greeting_or_small_talk(request.content) and not assistant_doc_ids
+    if not is_greeting_reply and summary_generation_service.is_available():
         try:
             assistant_content = summary_generation_service.generate_grounded_response(
                 user_query=request.content,

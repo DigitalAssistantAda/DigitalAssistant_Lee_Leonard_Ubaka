@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FileText, MessageSquare, AlertCircle, Settings } from 'lucide-react';
+import { LayoutDashboard, FileText, MessageSquare, AlertCircle, Settings } from 'lucide-react';
 import WorkspaceSettings from './WorkspaceSettings';
 import LoadingState from '../components/LoadingState';
 import AccessState from '../components/AccessState';
@@ -14,7 +14,7 @@ function WorkspaceDetail() {
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('discussion');
+  const [activeTab, setActiveTab] = useState('overview');
   const [liveMemberCount, setLiveMemberCount] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
@@ -65,7 +65,7 @@ function WorkspaceDetail() {
     return timestamp >= cutoff;
   };
 
-  const documentCount = workspace?.document_count || 0;
+  const documentCount = workspace?.document_count ?? 0;
   const memberCount = Number.isFinite(liveMemberCount)
     ? liveMemberCount
     : (workspace?.member_count || 0);
@@ -311,8 +311,26 @@ function WorkspaceDetail() {
         <div className="detail-layout">
           <aside className="detail-sidebar">
             <button
+              className={`detail-nav-item ${activeTab === 'overview' ? 'active' : ''}`}
+              onClick={() => setActiveTab('overview')}
+              type="button"
+              title="Overview"
+              aria-label="Overview"
+            >
+              <span className="detail-nav-icon" aria-hidden="true"><LayoutDashboard size={16} /></span>
+              <span className="detail-nav-label">Overview</span>
+              <span className="detail-nav-meta" />
+            </button>
+            <button
               className="detail-nav-item"
-              onClick={() => navigate(`/documents?workspaceId=${id}`)}
+              onClick={() => {
+                const containerId = workspace?.default_container_id;
+                if (containerId != null) {
+                  navigate(`/documents/${containerId}`);
+                } else {
+                  navigate(`/documents?workspaceId=${id}`);
+                }
+              }}
               type="button"
               title="Documents"
               aria-label="Documents"
@@ -365,6 +383,40 @@ function WorkspaceDetail() {
           </aside>
 
           <div className="detail-content">
+            {activeTab === 'overview' && (
+              <div className="tab-overview">
+                <div className="overview-head">
+                  <h2>Workspace overview</h2>
+                  <p className="overview-subtitle">Key details for {workspace.name}</p>
+                </div>
+                <div className="overview-stats">
+                  <div className="overview-stat">
+                    <span className="overview-stat-label">Created</span>
+                    <span className="overview-stat-value">
+                      {workspace.created_at
+                        ? new Date(workspace.created_at).toLocaleDateString(undefined, {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric',
+                          })
+                        : '—'}
+                    </span>
+                  </div>
+                  <div className="overview-stat">
+                    <span className="overview-stat-label">Members</span>
+                    <span className="overview-stat-value">{memberCount}</span>
+                  </div>
+                  <div className="overview-stat">
+                    <span className="overview-stat-label">Documents</span>
+                    <span className="overview-stat-value">{documentCount}</span>
+                  </div>
+                  <div className="overview-stat">
+                    <span className="overview-stat-label">Workspace ID</span>
+                    <span className="overview-stat-value">{workspace.id}</span>
+                  </div>
+                </div>
+              </div>
+            )}
             {activeTab === 'discussion' && (
               <div className="tab-discussion">
                 <div className="discussion-head">

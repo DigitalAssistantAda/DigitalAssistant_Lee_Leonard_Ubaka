@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime
 
 from database import SessionLocal
-from models.document import Document
+from models.document import Document, DocumentStatus
 from models.document_chunk import DocumentChunk
 from models.chunk_embedding import ChunkEmbedding
 from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
@@ -168,7 +168,7 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         db.commit()
         
         # Update document status
-        document.status = "ready"
+        document.status = DocumentStatus.READY
         db.commit()
         
         logger.info(f"Completed embedding job for document {document_id}")
@@ -182,20 +182,21 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
     
     except Exception as e:
         db.rollback()
-        logger.exception("Error processing document_id=%s", document_id)
+        error_msg = str(e) or "Document processing failed."
+        logger.exception("Error processing document_id=%s: %s", document_id, error_msg)
         
-        # Update job with error
+        # Update job with actual error so users can see why it failed
         job = db.query(EmbeddingJob).filter(EmbeddingJob.document_id == document_id).first()
         if job:
             job.status = EmbeddingJobStatus.FAILED
-            job.error_message = "Document processing failed."
+            job.error_message = error_msg[:2000]  # cap length for DB
             job.retry_count = self.request.retries
             db.commit()
         
         # Update document status
         document = db.query(Document).filter(Document.id == document_id).first()
         if document:
-            document.status = "failed"
+            document.status = DocumentStatus.FAILED
             db.commit()
         
         # Retry with exponential backoff
@@ -205,7 +206,7 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         return {
             "document_id": document_id,
             "status": "failed",
-            "error": "Document processing failed.",
+            "error": error_msg,
             "retries": self.request.retries,
         }
     

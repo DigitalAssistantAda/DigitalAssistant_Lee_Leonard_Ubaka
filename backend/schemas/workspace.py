@@ -16,6 +16,7 @@ class WorkspaceResponse(BaseModel):
     created_at: datetime
     member_count: Optional[int] = 0
     document_count: Optional[int] = 0
+    default_container_id: Optional[int] = None
 
     class Config:
         from_attributes = True

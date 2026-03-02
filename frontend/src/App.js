@@ -4,6 +4,7 @@ import './App.css';
 
 import Navigation from './components/Navigation';
 import PetalSpinner from './components/PetalSpinner';
+import { apiFetch } from './utils/apiClient';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -284,54 +285,42 @@ function App() {
   };
 
   useEffect(() => {
-    // Fetch current user from /me endpoint
     const fetchCurrentUser = async () => {
       const token = localStorage.getItem('token');
-      
-      if (token) {
-        try {
-          const response = await fetch(`${API_URL}/api/v1/auth/me`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          });
-          
-          if (response.ok) {
-            const userData = await response.json();
-            setUser(userData.user);
-            localStorage.setItem('user', JSON.stringify(userData.user));
-          } else {
-            // Token invalid, clear it
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-          }
-        } catch (err) {
-          console.error('Error fetching user:', err);
+
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const userData = await apiFetch('/api/v1/auth/me');
+        if (userData?.user) {
+          setUser(userData.user);
+          localStorage.setItem('user', JSON.stringify(userData.user));
+        } else {
           localStorage.removeItem('token');
           localStorage.removeItem('user');
         }
+      } catch (err) {
+        console.error('Error fetching user:', err);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      } finally {
+        setLoading(false);
       }
-      
-      setLoading(false);
     };
-    
+
     fetchCurrentUser();
-  }, [API_URL]);
+  }, []);
 
   useEffect(() => {
     const fetchPreferences = async () => {
       const token = localStorage.getItem('token');
       if (!token) return;
       try {
-        const response = await fetch(`${API_URL}/api/v1/users/preferences`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        if (response.ok) {
-          const data = await response.json();
-          applyAccentColor(data.accent_color || null);
-        }
+        const data = await apiFetch('/api/v1/users/preferences');
+        applyAccentColor(data.accent_color || null);
       } catch (err) {
         console.error('Error fetching preferences:', err);
       }
@@ -342,7 +331,7 @@ function App() {
     } else {
       applyAccentColor(null);
     }
-  }, [user, API_URL]);
+  }, [user]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -406,12 +395,8 @@ function App() {
     try {
       const token = localStorage.getItem('token');
       if (token) {
-        // Call backend logout endpoint
-        await fetch('http://localhost:8000/api/v1/auth/logout', {
+        await apiFetch('/api/v1/auth/logout', {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
         });
       }
     } catch (err) {

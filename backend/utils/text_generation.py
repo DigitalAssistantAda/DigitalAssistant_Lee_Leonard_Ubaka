@@ -6,6 +6,12 @@ import requests
 
 from config import settings
 
+# User-facing message when the combined prompt exceeds the configured input limit
+REQUEST_TOO_LARGE_MESSAGE = (
+    "This request is too large: the retrieved context from your documents exceeds the limit. "
+    "Try asking a more specific question, or select fewer documents in Context to narrow the scope."
+)
+
 
 class SummaryGenerationService:
     def __init__(self):
@@ -75,17 +81,22 @@ class SummaryGenerationService:
             raise RuntimeError("Summary LLM service is not configured")
 
         system_prompt = (
-            "You are Ada, a secure assistant for internal knowledge work. "
-            "Answer using only the provided retrieved context. "
-            "If the context is insufficient, state that clearly and ask a concise follow-up. "
-            "Do not invent facts."
+            "You are Ada, a helpful assistant for internal knowledge work. "
+            "Answer the user's question based on the retrieved context below. "
+            "Use the context when it is relevant; synthesize and explain clearly. "
+            "Do not invent facts or cite information that is not in the context. "
+            "If the context genuinely does not contain information needed to answer, say so briefly and suggest rephrasing or checking other documents—do not over-explain or repeat that the context is brief."
         )
         user_prompt = (
             f"User question: {user_query}\n\n"
-            "Retrieved context:\n"
+            "Retrieved context from the user's documents:\n"
             f"{retrieved_context}\n\n"
-            "Write a clear, concise answer for the user."
+            "Provide a clear, direct answer based on the context above."
         )
+
+        max_chars = getattr(settings, "summary_llm_max_input_chars", 12000)
+        if len(system_prompt) + len(user_prompt) > max_chars:
+            return REQUEST_TOO_LARGE_MESSAGE
 
         return self._generate_from_messages(
             messages=[

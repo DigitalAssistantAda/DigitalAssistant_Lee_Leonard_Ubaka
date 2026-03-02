@@ -14,6 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import './Dashboard.css';
+import { apiFetch } from '../utils/apiClient';
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -40,8 +41,6 @@ function Dashboard() {
   const [selectedDay, setSelectedDay] = useState(() => new Date().getDate());
   const [activityFilter, setActivityFilter] = useState('all');
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
   const monthIndexMap = {
     January: 0,
     February: 1,
@@ -65,41 +64,12 @@ function Dashboard() {
   }, [currentMonth]);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    const fetchDashboardData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
-    fetch(`${API_URL}/api/v1/dashboard/activity?limit=8${filterParam}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (data) {
-          setRecentActivity(data.items || []);
-        }
-      })
-      .catch((err) => console.error('Error fetching filtered activity:', err));
-  }, [activityFilter, API_URL]);
-
-  const fetchDashboardData = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const statsResponse = await fetch(`${API_URL}/api/v1/dashboard/stats`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (statsResponse.ok) {
-        const statsData = await statsResponse.json();
+        const statsData = await apiFetch('/api/v1/dashboard/stats');
         setStats({
           workspaces: statsData.workspaces,
           documents: statsData.documents,
@@ -113,55 +83,50 @@ function Dashboard() {
           joinedDate: statsData.member_since,
           status: statsData.status_message || '',
         });
-      }
 
-      const activityResponse = await fetch(`${API_URL}/api/v1/dashboard/activity?limit=8`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (activityResponse.ok) {
-        const activityData = await activityResponse.json();
+        const activityData = await apiFetch('/api/v1/dashboard/activity?limit=8');
         setRecentActivity(activityData.items || []);
-      }
 
-      const issuesResponse = await fetch(`${API_URL}/api/v1/dashboard/issues`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (issuesResponse.ok) {
-        const issuesData = await issuesResponse.json();
-        const items = issuesData.items || [];
-        setIssues(items);
+        const issuesData = await apiFetch('/api/v1/dashboard/issues');
+        const issueItems = issuesData.items || [];
+        setIssues(issueItems);
         setStats((prev) => ({
           ...prev,
-          openTasks: items.length,
+          openTasks: issueItems.length,
         }));
-      }
 
-      const deadlinesResponse = await fetch(`${API_URL}/api/v1/dashboard/deadlines`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (deadlinesResponse.ok) {
-        const deadlinesData = await deadlinesResponse.json();
-        const items = deadlinesData.items || [];
-        const overdueCount = items.filter((deadline) => deadline?.is_overdue).length;
-        setDeadlines(items);
+        const deadlinesData = await apiFetch('/api/v1/dashboard/deadlines');
+        const deadlineItems = deadlinesData.items || [];
+        const overdueCount = deadlineItems.filter((deadline) => deadline?.is_overdue).length;
+        setDeadlines(deadlineItems);
         setStats((prev) => ({
           ...prev,
           overdueTasks: overdueCount,
         }));
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
       }
-    } catch (err) {
-      console.error('Error fetching dashboard data:', err);
-    }
-  };
+    };
+
+    fetchDashboardData();
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const fetchFilteredActivity = async () => {
+      try {
+        const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
+        const data = await apiFetch(`/api/v1/dashboard/activity?limit=8${filterParam}`);
+        setRecentActivity(data.items || []);
+      } catch (err) {
+        console.error('Error fetching filtered activity:', err);
+      }
+    };
+
+    fetchFilteredActivity();
+  }, [activityFilter]);
 
   const shiftMonth = (direction) => {
     const [monthName, yearValue] = currentMonth.split(' ');

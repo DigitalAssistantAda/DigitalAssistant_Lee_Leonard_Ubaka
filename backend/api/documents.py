@@ -22,7 +22,8 @@ from models.document_hint import DocumentHint
 from models.document_duplicate import DocumentDuplicate
 from models.summary import Summary
 from models.job import Job
-from models.embedding_job import EmbeddingJob
+from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
+from sqlalchemy import desc
 from schemas.document import (
     DocumentResponse,
     DocumentListResponse,
@@ -158,6 +159,49 @@ def _validate_container_access(
         )
 
     return container
+
+
+def _user_friendly_status(document: Document, job: EmbeddingJob | None) -> tuple[str, str | None]:
+    """
+    Return (status_label, status_detail) for UI. On-brand, friendly, no internal paths or stack traces.
+    """
+    status = (document.status.value if hasattr(document.status, "value") else str(document.status or "")).lower()
+    err = (job.error_message or "").strip() if job else ""
+
+    if status == "ready":
+        return ("Ready to search", None)
+    if status == "uploaded":
+        if job and getattr(job.status, "value", str(job.status)) == EmbeddingJobStatus.PROCESSING.value:
+            if job.total_chunks and job.chunks_processed is not None:
+                return ("Indexing…", f"Making it searchable ({job.chunks_processed}/{job.total_chunks})")
+            return ("Indexing…", "Making it searchable.")
+        return ("In the queue", "We'll index it in a moment.")
+    if status == "processing":
+        if job and job.total_chunks and job.chunks_processed is not None:
+            return ("Indexing…", f"Making it searchable ({job.chunks_processed}/{job.total_chunks})")
+        return ("Indexing…", "Making it searchable.")
+    if status == "failed":
+        # Map known backend errors to friendly, safe messages
+        err_lower = err.lower()
+        fn = (document.filename or "").lower()
+        if fn.endswith(".dock"):
+            return ("Couldn't index", "The .dock extension isn't supported. If this is a Word doc, save it as .docx and upload again.")
+        if "format is not supported" in err_lower or "not supported" in err_lower:
+            return ("Couldn't index", "This file type isn't supported yet. Try PDF, DOCX, or plain text.")
+        if "no extractable text" in err_lower or "no text" in err_lower:
+            return ("Couldn't index", "No text could be read (e.g. image-only or scanned PDF).")
+        if "text chunking produced no chunks" in err_lower or "no chunks" in err_lower:
+            return ("Couldn't index", "File appears empty or unreadable. Try another file.")
+        if "content could not be processed" in err_lower or "could not be processed" in err_lower:
+            return ("Couldn't index", "File may be corrupted or in an unexpected format.")
+        if "voyage" in err_lower or "api" in err_lower or "timeout" in err_lower or "rate" in err_lower:
+            return ("Couldn't index", "Indexing service is busy. Try again in a little bit.")
+        if "cannot embed empty" in err_lower or "empty" in err_lower:
+            return ("Couldn't index", "No text could be extracted. Try a different file.")
+        # Generic fallback — never expose raw error to UI
+        return ("Couldn't index", "Something went wrong. Try re-uploading or a different file.")
+
+    return ("Processing", None)
 
 
 @router.post("/workspaces/{workspace_id}/documents", response_model=DocumentResponse)
@@ -440,10 +484,24 @@ async def list_documents(
         query = query.filter(Document.container_id == container_id)
 
     documents = query.order_by(Document.created_at.desc()).all()
-    
-    return DocumentListResponse(
-        items=[DocumentResponse.model_validate(d) for d in documents]
-    )
+    doc_ids = [d.id for d in documents]
+    job_by_doc = {}
+    if doc_ids:
+        jobs = (
+            db.query(EmbeddingJob)
+            .filter(EmbeddingJob.document_id.in_(doc_ids))
+            .order_by(desc(EmbeddingJob.created_at))
+            .all()
+        )
+        for j in jobs:
+            if j.document_id not in job_by_doc:
+                job_by_doc[j.document_id] = j
+    items = []
+    for d in documents:
+        r = DocumentResponse.model_validate(d)
+        r.status_label, r.status_detail = _user_friendly_status(d, job_by_doc.get(d.id))
+        items.append(r)
+    return DocumentListResponse(items=items)
 
 
 @router.get("/containers/{container_id}/documents", response_model=DocumentListResponse)
@@ -463,10 +521,24 @@ async def list_documents_for_container(
         query = query.filter(Document.workspace_id == container.workspace_id)
 
     documents = query.order_by(Document.created_at.desc()).all()
-
-    return DocumentListResponse(
-        items=[DocumentResponse.model_validate(d) for d in documents]
-    )
+    doc_ids = [d.id for d in documents]
+    job_by_doc = {}
+    if doc_ids:
+        jobs = (
+            db.query(EmbeddingJob)
+            .filter(EmbeddingJob.document_id.in_(doc_ids))
+            .order_by(desc(EmbeddingJob.created_at))
+            .all()
+        )
+        for j in jobs:
+            if j.document_id not in job_by_doc:
+                job_by_doc[j.document_id] = j
+    items = []
+    for d in documents:
+        r = DocumentResponse.model_validate(d)
+        r.status_label, r.status_detail = _user_friendly_status(d, job_by_doc.get(d.id))
+        items.append(r)
+    return DocumentListResponse(items=items)
 
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)
@@ -480,7 +552,15 @@ async def get_document(
     document = check_document_access(current_user, document_id, db)
     if document.status == DocumentStatus.DELETED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    return DocumentResponse.model_validate(document)
+    job = (
+        db.query(EmbeddingJob)
+        .filter(EmbeddingJob.document_id == document_id)
+        .order_by(desc(EmbeddingJob.created_at))
+        .first()
+    )
+    r = DocumentResponse.model_validate(document)
+    r.status_label, r.status_detail = _user_friendly_status(document, job)
+    return r
 
 
 @router.put("/documents/{document_id}", response_model=DocumentResponse)
@@ -519,6 +599,38 @@ async def update_document(
     )
     
     return DocumentResponse.model_validate(document)
+
+
+@router.post("/documents/{document_id}/retry-indexing", response_model=DocumentResponse)
+async def retry_document_indexing(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-run indexing for a failed or stuck document. Clears existing chunks/embeddings and re-queues the job."""
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    chunk_ids = [row[0] for row in db.query(DocumentChunk.id).filter(
+        DocumentChunk.document_id == document_id
+    ).all()]
+    if chunk_ids:
+        db.query(ChunkEmbedding).filter(
+            ChunkEmbedding.chunk_id.in_(chunk_ids)
+        ).delete(synchronize_session=False)
+    db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete(synchronize_session=False)
+    db.query(EmbeddingJob).filter(EmbeddingJob.document_id == document_id).delete(synchronize_session=False)
+
+    document.status = DocumentStatus.UPLOADED
+    db.commit()
+    db.refresh(document)
+
+    process_document_embeddings.delay(document_id, current_user.id)
+
+    r = DocumentResponse.model_validate(document)
+    r.status_label, r.status_detail = _user_friendly_status(document, None)
+    return r
 
 
 @router.get("/documents/{document_id}/download", response_model=DownloadResponse)

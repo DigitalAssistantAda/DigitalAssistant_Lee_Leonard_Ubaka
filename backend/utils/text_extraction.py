@@ -56,7 +56,19 @@ async def extract_text_from_storage(document: Document) -> str:
 
         try:
             doc = DocxDocument(BytesIO(data))
-            return "\n".join(p.text for p in doc.paragraphs).strip()
+            parts = []
+            for p in doc.paragraphs:
+                if p.text and p.text.strip():
+                    parts.append(p.text.strip())
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = []
+                    for cell in row.cells:
+                        if cell.text and cell.text.strip():
+                            row_text.append(cell.text.strip())
+                    if row_text:
+                        parts.append(" | ".join(row_text))
+            return "\n".join(parts).strip()
         except Exception as exc:
             raise ValueError("Document content could not be processed.") from exc
 

@@ -676,6 +676,10 @@
   justify-content: flex-start;
 }
 
+.ada-context-item.selectable .ada-retry-index-btn {
+  margin-left: auto;
+}
+
 .ada-context-item.selectable input {
   margin-top: 2px;
 }
@@ -693,6 +697,49 @@
   font-size: 11px;
   line-height: 16px;
   color: var(--text-muted);
+}
+
+.ada-context-item-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.ada-context-item-wrap .ada-context-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.ada-retry-index-btn {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ada-retry-index-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary));
+  color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
+}
+
+.ada-retry-index-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.ada-retry-index-btn .spin {
+  animation: ada-spin 0.8s linear infinite;
+}
+
+@keyframes ada-spin {
+  to { transform: rotate(360deg); }
 }
 
 .ada-upload-context-btn {

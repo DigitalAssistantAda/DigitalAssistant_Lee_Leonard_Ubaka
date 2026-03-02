@@ -50,6 +50,16 @@ function Documents() {
     const value = Number(params.get('workspaceId'));
     return Number.isFinite(value) && value > 0 ? value : null;
   }, [location.search]);
+
+  /** User-friendly status for a document (from backend status_label/status_detail or fallback). */
+  const getDocumentStatusDisplay = (doc) => {
+    const label = doc.status_label || (doc.status ? String(doc.status).replace(/_/g, ' ') : 'Uploaded');
+    const detail = doc.status_detail || null;
+    const statusKey = (doc.status && String(doc.status).toLowerCase()) || 'uploaded';
+    const key = ['ready', 'processing', 'failed', 'uploaded'].includes(statusKey) ? statusKey : 'uploaded';
+    return { label, detail, statusKey: key };
+  };
+
   const currentUserId = useMemo(() => {
     try {
       const raw = localStorage.getItem('user');
@@ -1343,11 +1353,13 @@ const handleCreateContainer = async (e) => {
                 <div className="col-icon"></div>
                 <div className="col-name">Name</div>
                 <div className="col-size">Size</div>
+                <div className="col-status">Status</div>
                 <div className="col-modified">Last Modified</div>
                 <div className="col-opened">Opened</div>
                 <div className="col-actions"></div>
               </div>
                 {sortedFolderDocuments.map((doc) => {
+                const statusDisplay = getDocumentStatusDisplay(doc);
                 return (
                   <div
                     key={doc.id}
@@ -1366,6 +1378,15 @@ const handleCreateContainer = async (e) => {
                     </div>
                     <div className="col-name">{doc.filename}</div>
                     <div className="col-size">{doc.size_bytes ? `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB` : doc.size || '-'}</div>
+                    <div className="col-status">
+                      <span
+                        className={`document-status document-status--tag ${statusDisplay.statusKey}`}
+                        title={statusDisplay.detail || undefined}
+                        aria-label={`Status: ${statusDisplay.label}${statusDisplay.detail ? `. ${statusDisplay.detail}` : ''}`}
+                      >
+                        {statusDisplay.label}
+                      </span>
+                    </div>
                     <div className="col-modified">{new Date(doc.created_at).toLocaleDateString()}</div>
                     <div className="col-opened">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>
                                         <div className="col-actions">

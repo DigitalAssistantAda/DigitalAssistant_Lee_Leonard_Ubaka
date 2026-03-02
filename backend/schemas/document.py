@@ -13,6 +13,9 @@ class DocumentResponse(BaseModel):
     size_bytes: int
     status: str
     created_at: datetime
+    # User-friendly status for UI (no internal/security-sensitive details)
+    status_label: Optional[str] = None
+    status_detail: Optional[str] = None
 
     class Config:
         from_attributes = True

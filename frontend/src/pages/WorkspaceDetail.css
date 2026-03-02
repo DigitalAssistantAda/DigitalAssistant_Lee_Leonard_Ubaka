@@ -495,6 +495,55 @@
   color: var(--text-secondary, #6c757d);
 }
 
+/* Overview Tab */
+.tab-overview {
+  padding: 0.25rem 0;
+}
+
+.overview-head {
+  margin-bottom: 1.5rem;
+}
+
+.overview-head h2 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.overview-subtitle {
+  margin: 0.4rem 0 0;
+  font-size: 0.9rem;
+  color: var(--text-secondary, #6c757d);
+}
+
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 1rem;
+}
+
+.overview-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color, #e0e6ed);
+  border-radius: 12px;
+}
+
+.overview-stat-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary, #6c757d);
+}
+
+.overview-stat-value {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
 /* Discussion Tab */
 .discussion-head {
   display: flex;

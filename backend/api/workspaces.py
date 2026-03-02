@@ -238,9 +238,22 @@ async def get_workspace(
     db: Session = Depends(get_db)
 ):
     """Retrieves details for a specific workspace"""
-    
     workspace = require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
-    return WorkspaceResponse.model_validate(workspace)
+    default_container = db.query(Container).filter(
+        Container.workspace_id == workspace_id
+    ).order_by(Container.id.asc()).first()
+    member_count = db.query(func.count(WorkspaceMember.id)).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.status == MemberStatus.ACTIVE,
+    ).scalar() or 0
+    document_count = db.query(func.count(Document.id)).filter(
+        Document.workspace_id == workspace_id
+    ).scalar() or 0
+    data = WorkspaceResponse.model_validate(workspace).model_dump()
+    data["default_container_id"] = default_container.id if default_container else None
+    data["member_count"] = member_count
+    data["document_count"] = document_count
+    return WorkspaceResponse(**data)
 
 
 @router.put("/{workspace_id}", response_model=WorkspaceResponse)
@@ -314,7 +327,7 @@ async def delete_workspace(
     # Delete workspace related data in correct order to respect foreign keys
     # 1. Delete conversations and their AI messages
     from models.conversation import Conversation, AIMessage
-    conversation_ids = [c.id for c in db.query(Conversation.id).filter(Conversation.workspace_id == workspace_id).all()]
+    conversation_ids = [row[0] for row in db.query(Conversation.id).filter(Conversation.workspace_id == workspace_id).all()]
     if conversation_ids:
         db.query(AIMessage).filter(AIMessage.conversation_id.in_(conversation_ids)).delete(synchronize_session=False)
         db.query(Conversation).filter(Conversation.workspace_id == workspace_id).delete(synchronize_session=False)
@@ -326,7 +339,7 @@ async def delete_workspace(
     # 3. Delete tasks and their assignees
     from models.task import Task
     from models.task_assignee import TaskAssignee
-    task_ids = [t.id for t in db.query(Task.id).filter(Task.workspace_id == workspace_id).all()]
+    task_ids = [row[0] for row in db.query(Task.id).filter(Task.workspace_id == workspace_id).all()]
     if task_ids:
         db.query(TaskAssignee).filter(TaskAssignee.task_id.in_(task_ids)).delete(synchronize_session=False)
         db.query(Task).filter(Task.workspace_id == workspace_id).delete(synchronize_session=False)
@@ -340,10 +353,10 @@ async def delete_workspace(
     from models.document_chunk import DocumentChunk
     from models.chunk_embedding import ChunkEmbedding
     from models.document_deletion_request import DocumentDeletionRequest
-    document_ids = [d.id for d in db.query(Document.id).filter(Document.workspace_id == workspace_id).all()]
+    document_ids = [row[0] for row in db.query(Document.id).filter(Document.workspace_id == workspace_id).all()]
     if document_ids:
         # Delete chunk embeddings first
-        chunk_ids = [c.id for c in db.query(DocumentChunk.id).filter(DocumentChunk.document_id.in_(document_ids)).all()]
+        chunk_ids = [row[0] for row in db.query(DocumentChunk.id).filter(DocumentChunk.document_id.in_(document_ids)).all()]
         if chunk_ids:
             db.query(ChunkEmbedding).filter(ChunkEmbedding.chunk_id.in_(chunk_ids)).delete(synchronize_session=False)
         # Delete chunks
@@ -496,7 +509,7 @@ async def update_workspace_member(
         required_roles=[WorkspaceRole.OWNER],
     )
 
-    check_workspace_access(workspace_id, current_user, db)
+    check_workspace_access(current_user, workspace_id, db)
 
     current_member = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,

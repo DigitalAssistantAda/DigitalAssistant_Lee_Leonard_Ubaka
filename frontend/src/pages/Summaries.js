@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getApiErrorMessage } from '../utils/apiError';
 import './Summaries.css';
+import { apiFetch } from '../utils/apiClient';
 
 function Summaries() {
   const [documents, setDocuments] = useState([]);
@@ -11,8 +11,6 @@ function Summaries() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [generatingSummary, setGeneratingSummary] = useState(false);
-
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
   useEffect(() => {
     fetchWorkspaces();
@@ -26,20 +24,11 @@ function Summaries() {
 
   const fetchWorkspaces = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/workspaces`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        setWorkspaces(items);
-        if (items.length > 0) {
-          setSelectedWorkspace(items[0].id);
-        }
+      const data = await apiFetch('/api/v1/workspaces');
+      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      setWorkspaces(items);
+      if (items.length > 0) {
+        setSelectedWorkspace(items[0].id);
       }
     } catch (err) {
       console.error('Error fetching workspaces:', err);
@@ -50,42 +39,27 @@ function Summaries() {
     if (!selectedWorkspace) return;
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/workspaces/${selectedWorkspace}/documents`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const items = Array.isArray(data?.documents) ? data.documents : Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        setDocuments(items);
-      }
+      const data = await apiFetch(`/api/v1/workspaces/${selectedWorkspace}/documents`);
+      const items = Array.isArray(data?.documents)
+        ? data.documents
+        : Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data)
+            ? data
+            : [];
+      setDocuments(items);
     } catch (err) {
       console.error('Error fetching documents:', err);
     }
   };
 
   const generateSummary = async (documentId) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch(`${API_URL}/api/v1/summaries`, {
+    const data = await apiFetch('/api/v1/summaries', {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+      body: {
         document_id: Number(documentId),
-      }),
+      },
     });
-
-    if (!response.ok) {
-      const message = await getApiErrorMessage(response, 'Failed to generate summary');
-      throw new Error(message);
-    }
-
-    const data = await response.json();
     setSummary(data);
   };
 

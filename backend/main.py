@@ -27,7 +27,6 @@ from api.dashboard import router as dashboard_router
 from api.messages import router as messages_router
 from api.tasks import router as tasks_router
 from api.conversations import router as conversations_router
-#from api.embeddings import router as embeddings_router
 from api.deletion_requests import router as deletion_requests_router
 
 app = FastAPI(

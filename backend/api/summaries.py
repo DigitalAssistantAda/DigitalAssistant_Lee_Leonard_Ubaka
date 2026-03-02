@@ -5,7 +5,6 @@ import logging
 from database import get_db
 from models.user import User
 from models.document import Document
-from models.workspace import WorkspaceMember, MemberStatus
 from models.document_chunk import DocumentChunk
 from errors import AppError
 from utils.text_extraction import extract_text_from_storage
@@ -14,6 +13,7 @@ from config import settings
 import re
 from schemas.summary import SummaryRequest, SummaryResponse
 from utils.auth import get_current_user
+from utils.authorization import check_document_access
 
 router = APIRouter(tags=["Summaries"])
 logger = logging.getLogger(__name__)
@@ -36,19 +36,8 @@ async def create_summary(
 ):
     """Generates an AI-assisted summary of a document or selected chunks"""
     
-    # Check document access
-    document = db.query(Document).filter(Document.id == request.document_id).first()
-    if not document:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
-    member = db.query(WorkspaceMember).filter(
-        WorkspaceMember.workspace_id == document.workspace_id,
-        WorkspaceMember.user_id == current_user.id,
-        WorkspaceMember.status == MemberStatus.ACTIVE
-    ).first()
-    
-    if not member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    # Check document access, including personal container documents
+    document = check_document_access(current_user, request.document_id, db)
     
     try:
         chunks_query = db.query(DocumentChunk).filter(

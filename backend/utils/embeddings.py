@@ -2,7 +2,7 @@
 Embeddings utility module - handles vector generation and similarity search
 Uses Voyage AI for high-quality, privacy-conscious embeddings
 """
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import requests
 import logging
 from config import settings
@@ -133,24 +133,27 @@ class EmbeddingsService:
             raise RuntimeError(f"Failed to generate Voyage AI batch embeddings: {str(e)}")
     
     def find_similar_embeddings(
-        self, 
+        self,
         query_embedding: List[float],
         workspace_id: int,
         limit: int = 10,
         threshold: float = 0.7,
-        db: Session = None
+        db: Session = None,
+        user_id: Optional[int] = None,
     ) -> List[Tuple[int, int, float]]:
         """
-        Find documents with similar embeddings using pgvector
-        Uses cosine similarity
-        
+        Find documents with similar embeddings using pgvector.
+        Uses cosine similarity. Includes workspace documents and, when user_id
+        is set, the user's personal (non-workspace) documents.
+
         Args:
             query_embedding: Embedding vector to search for
             workspace_id: Workspace to search within
             limit: Max results to return
             threshold: Minimum similarity score (0-1)
             db: Database session
-            
+            user_id: If set, also include documents where workspace_id IS NULL and uploaded_by = user_id
+
         Returns:
             List of (chunk_id, document_id, similarity_score) tuples sorted by similarity DESC
         """
@@ -159,34 +162,47 @@ class EmbeddingsService:
             db = SessionLocal()
 
         vector_param = "[" + ",".join(str(value) for value in query_embedding) + "]"
-        
+
+        if user_id is not None:
+            where_clause = (
+                "(d.workspace_id = :workspace_id OR (d.workspace_id IS NULL AND d.uploaded_by = :user_id))"
+            )
+            params = {
+                "query_embedding": vector_param,
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "threshold": threshold,
+                "model_name": self.model_name,
+                "limit": limit,
+            }
+        else:
+            where_clause = "d.workspace_id = :workspace_id"
+            params = {
+                "query_embedding": vector_param,
+                "workspace_id": workspace_id,
+                "threshold": threshold,
+                "model_name": self.model_name,
+                "limit": limit,
+            }
+
         try:
-            # PostgreSQL pgvector cosine distance: 1 - (a <=> b) = similarity
-            stmt = text("""
-                SELECT 
+            stmt_str = f"""
+                SELECT
                     dc.id as chunk_id,
                     dc.document_id,
                     1 - (CAST(ce.embedding AS vector) <=> CAST(:query_embedding AS vector)) as similarity
                 FROM chunk_embeddings ce
                 JOIN document_chunks dc ON ce.chunk_id = dc.id
                 JOIN documents d ON dc.document_id = d.id
-                WHERE d.workspace_id = :workspace_id
+                WHERE {where_clause}
                     AND 1 - (CAST(ce.embedding AS vector) <=> CAST(:query_embedding AS vector)) > :threshold
                     AND ce.model_name = :model_name
                 ORDER BY similarity DESC
                 LIMIT :limit
-            """).bindparams(
-                query_embedding=vector_param,
-                workspace_id=workspace_id,
-                threshold=threshold,
-                model_name=self.model_name,
-                limit=limit,
-            )
-
+            """
+            stmt = text(stmt_str).bindparams(**params)
             results = db.execute(stmt)
-            
             return results.fetchall()
-            
         finally:
             if owns_session and db:
                 db.close()

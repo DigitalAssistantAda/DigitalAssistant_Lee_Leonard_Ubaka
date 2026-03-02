@@ -292,6 +292,132 @@ async def upload_document(
     return DocumentResponse.model_validate(document)
 
 
+@router.post("/containers/{container_id}/documents", response_model=DocumentResponse)
+async def upload_document_to_container(
+    container_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Uploads a document directly to a container (including personal containers)."""
+
+    container = _validate_container_access(db, current_user, container_id)
+
+    # Validate file
+    if not file.content_type or file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type not allowed. Allowed types: {', '.join(ALLOWED_MIME_TYPES)}"
+        )
+
+    # Read file content to check size
+    content = await file.read()
+    size_bytes = len(content)
+
+    if size_bytes > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB"
+        )
+
+    _validate_upload_content(content, file.content_type)
+
+    # Enforce per-container document limit
+    doc_count = db.query(Document).filter(
+        Document.container_id == container_id,
+        Document.status != DocumentStatus.DELETED
+    ).count()
+
+    if doc_count >= MAX_DOCUMENTS_PER_CONTAINER:
+        raise AppError(
+            code="MAX_DOCUMENTS_REACHED",
+            message=f"You have reached the maximum number of documents ({MAX_DOCUMENTS_PER_CONTAINER}) for this container.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Upload to storage (S3/MinIO)
+    safe_name = _sanitize_filename(file.filename)
+    unique_name = f"{uuid.uuid4().hex}_{safe_name}"
+    storage_path = f"containers/{container_id}/documents/{unique_name}"
+    try:
+        storage_uri = await storage.upload(
+            bucket=settings.storage_bucket,
+            path=storage_path,
+            data=content,
+            content_type=file.content_type
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to store document."
+        )
+
+    document = Document(
+        workspace_id=container.workspace_id,
+        container_id=container_id,
+        uploaded_by=current_user.id,
+        filename=file.filename,
+        mime_type=file.content_type,
+        size_bytes=size_bytes,
+        storage_uri=storage_uri,
+        status=DocumentStatus.UPLOADED
+    )
+    db.add(document)
+
+    try:
+        db.commit()
+    except Exception:
+        try:
+            await storage.delete(bucket=settings.storage_bucket, path=storage_path)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save document metadata"
+        )
+
+    db.refresh(document)
+
+    create_audit_log(
+        db,
+        current_user,
+        action=AuditActions.DOCUMENT_UPLOADED,
+        object_type="document",
+        object_id=document.id,
+        metadata={
+            "filename": file.filename,
+            "size_bytes": size_bytes,
+            "workspace_id": container.workspace_id,
+            "container_id": container_id,
+        },
+        workspace_id=container.workspace_id
+    )
+
+    if settings.environment.lower() == "development":
+        process_document_embeddings.delay(document.id, current_user.id)
+    elif settings.n8n_embeddings_trigger_url and container.workspace_id is not None:
+        try:
+            await run_in_threadpool(
+                _post_n8n_embedding_trigger,
+                {
+                    "document_id": document.id,
+                    "workspace_id": container.workspace_id,
+                    "triggered_by": current_user.id,
+                },
+            )
+        except Exception:
+            logger.warning(
+                "n8n embedding trigger failed for document_id=%s container_id=%s; falling back to celery",
+                document.id,
+                container_id,
+            )
+            process_document_embeddings.delay(document.id, current_user.id)
+    else:
+        process_document_embeddings.delay(document.id, current_user.id)
+
+    return DocumentResponse.model_validate(document)
+
+
 @router.get("/workspaces/{workspace_id}/documents", response_model=DocumentListResponse)
 async def list_documents(
     workspace_id: int,

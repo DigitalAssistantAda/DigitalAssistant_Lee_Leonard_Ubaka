@@ -414,7 +414,16 @@ function PdfPreview({ docId }) {
   const handleFileUpload = async (e) => {
   e.preventDefault();
   const targetWorkspaceId = openedFolder?.workspace_id || selectedWorkspace;
-  if (uploadFiles.length === 0 || !targetWorkspaceId) return;
+  const uploadToPersonalContainer = Boolean(openedFolder?.id && !openedFolder?.workspace_id);
+  if (uploadFiles.length === 0) {
+    setError('Please select at least one file to upload.');
+    return;
+  }
+
+  if (!uploadToPersonalContainer && !targetWorkspaceId) {
+    setError('Please select a workspace before uploading.');
+    return;
+  }
 
   setUploading(true);
   setError(null);
@@ -425,12 +434,16 @@ function PdfPreview({ docId }) {
       try {
         const formData = new FormData();
         formData.append('file', file);
-        if (openedFolder?.id) {
+        if (openedFolder?.id && !uploadToPersonalContainer) {
           formData.append('container_id', String(openedFolder.id));
         }
 
+        const uploadUrl = uploadToPersonalContainer
+          ? `${API_URL}/api/v1/containers/${openedFolder.id}/documents`
+          : `${API_URL}/api/v1/workspaces/${targetWorkspaceId}/documents`;
+
         const response = await fetch(
-          `${API_URL}/api/v1/workspaces/${targetWorkspaceId}/documents`,
+          uploadUrl,
           {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },
@@ -1564,7 +1577,7 @@ const handleCreateContainer = async (e) => {
                   <button
                     type="submit"
                     className="btn btn-primary"
-                    disabled={uploadFiles.length === 0 || !selectedWorkspace || uploading}
+                    disabled={uploadFiles.length === 0 || !((openedFolder?.id && !openedFolder?.workspace_id) || (openedFolder?.workspace_id || selectedWorkspace)) || uploading}
                   >
                     {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/5)`}
                   </button>
@@ -1944,7 +1957,7 @@ const handleCreateContainer = async (e) => {
                 <button 
                   type="submit" 
                   className="btn btn-primary"
-                  disabled={uploadFiles.length === 0 || !selectedWorkspace || uploading}
+                  disabled={uploadFiles.length === 0 || !((openedFolder?.id && !openedFolder?.workspace_id) || (openedFolder?.workspace_id || selectedWorkspace)) || uploading}
                 >
                   {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/5)`}
                 </button>

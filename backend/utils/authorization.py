@@ -128,10 +128,18 @@ def check_document_access(
             status_code=status.HTTP_404_NOT_FOUND,
         )
     
-    # Verify user has access to document's workspace
-    try:
-        check_workspace_access(user, document.workspace_id, db)
-    except AppError:
+    # Verify user has access to document's workspace.
+    # Documents stored in personal containers may not be workspace-scoped.
+    if document.workspace_id is not None:
+        try:
+            check_workspace_access(user, document.workspace_id, db)
+        except AppError:
+            raise AppError(
+                code="DOCUMENT_NOT_ACCESSIBLE",
+                message="Document not found or you do not have access.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+    elif document.uploaded_by != user.id:
         raise AppError(
             code="DOCUMENT_NOT_ACCESSIBLE",
             message="Document not found or you do not have access.",

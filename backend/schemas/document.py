@@ -5,7 +5,7 @@ from datetime import datetime
 
 class DocumentResponse(BaseModel):
     id: int
-    workspace_id: int
+    workspace_id: Optional[int] = None
     container_id: Optional[int] = None
     uploaded_by: int
     filename: str

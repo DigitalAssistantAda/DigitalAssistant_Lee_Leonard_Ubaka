@@ -85,11 +85,16 @@
   border-radius: var(--radius-base);
   font-family: inherit;
   color: var(--text-primary, #1a1f35);
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: color 0.2s ease;
 }
 
 .detail-nav-item:hover {
-  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent);
+  background: transparent;
+}
+
+.detail-nav-item:hover .detail-nav-icon,
+.detail-nav-item:focus-visible .detail-nav-icon {
+  color: var(--accent-primary);
 }
 
 .detail-nav-item.active {
@@ -648,6 +653,53 @@
 .message-form button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.message-form-wrap {
+  position: relative;
+}
+
+.message-mention {
+  color: color-mix(in srgb, var(--accent-primary) 82%, var(--text-primary));
+  font-weight: 500;
+}
+
+.message-token {
+  color: inherit;
+}
+
+.mention-suggestions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 0.45rem);
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-color, #e0e6ed));
+  border-radius: 12px;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.mention-suggestion-item {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0.55rem 0.75rem;
+  color: var(--text-primary, #1a1f35);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.mention-suggestion-item:hover {
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+}
+
+.message-error-inline {
+  margin: 0.5rem 0 0;
+  color: #991b1b;
+  font-size: 0.86rem;
 }
 
 /* Empty State */

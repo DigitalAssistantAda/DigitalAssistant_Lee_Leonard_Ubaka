@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Trash2, AlertCircle, Pencil, Search as SearchIcon } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
+import LoadingState from '../components/LoadingState';
 import './WorkspaceIssues.css';
 
 function WorkspaceIssues({ workspaceId, currentUser }) {
@@ -471,7 +472,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     [workspaces, resolvedWorkspaceId]
   );
 
-  if (loading) return <div className="issues-container"><p>Loading issues...</p></div>;
+  if (loading) return <div className="issues-container"><LoadingState message="Loading issues..." size={36} /></div>;
 
   return (
     <div className="issues-container">

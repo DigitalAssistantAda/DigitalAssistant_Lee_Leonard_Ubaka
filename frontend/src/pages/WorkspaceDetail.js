@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FileText, MessageSquare, AlertCircle, Settings } from 'lucide-react';
 import WorkspaceSettings from './WorkspaceSettings';
-import { getApiErrorMessage } from '../utils/apiError';
+import LoadingState from '../components/LoadingState';
+import AccessState from '../components/AccessState';
+import { getApiErrorMessage, isWorkspaceAccessErrorMessage } from '../utils/apiError';
 import { buildAccentStyleVars } from '../utils/accentAccessibility';
 import './WorkspaceDetail.css';
 
@@ -17,8 +19,14 @@ function WorkspaceDetail() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [messageLoading, setMessageLoading] = useState(false);
+  const [messageError, setMessageError] = useState('');
+  const [workspaceMemberUsernames, setWorkspaceMemberUsernames] = useState([]);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [showMentionSuggestions, setShowMentionSuggestions] = useState(false);
+  const [messageCaret, setMessageCaret] = useState(0);
   const [issueCount, setIssueCount] = useState(0);
   const [issueHasUpdates, setIssueHasUpdates] = useState(false);
+  const messageInputRef = useRef(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const currentUsername = useMemo(() => {
@@ -69,6 +77,18 @@ function WorkspaceDetail() {
     const bg = rootStyles.getPropertyValue('--bg-primary').trim() || '#F4F3F1';
     return buildAccentStyleVars(workspace.accent_color, bg);
   }, [workspace?.accent_color]);
+
+  const mentionSuggestions = useMemo(() => {
+    if (!showMentionSuggestions) return [];
+    const normalized = mentionQuery.trim().toLowerCase();
+    const uniqueNames = Array.from(new Set(workspaceMemberUsernames.map((name) => String(name || '').trim()).filter(Boolean)));
+    if (!normalized) {
+      return uniqueNames.slice(0, 6);
+    }
+    return uniqueNames
+      .filter((name) => name.toLowerCase().startsWith(normalized) || name.toLowerCase().includes(normalized))
+      .slice(0, 6);
+  }, [showMentionSuggestions, mentionQuery, workspaceMemberUsernames]);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -125,10 +145,78 @@ function WorkspaceDetail() {
         ? data
         : [];
       setLiveMemberCount(items.length);
+      const usernames = items
+        .map((member) => String(member?.username || '').trim())
+        .filter(Boolean);
+      setWorkspaceMemberUsernames(usernames);
     } catch (err) {
       console.error('Failed to fetch member count:', err);
     }
   }, [API_URL, id]);
+
+  const updateMentionState = useCallback((value, caretPosition) => {
+    const beforeCaret = value.slice(0, caretPosition);
+    const match = beforeCaret.match(/(?:^|\s)@([A-Za-z0-9_.-]{0,50})$/);
+    if (!match) {
+      setMentionQuery('');
+      setShowMentionSuggestions(false);
+      return;
+    }
+    setMentionQuery(match[1] || '');
+    setShowMentionSuggestions(true);
+  }, []);
+
+  const handleMessageInputChange = (event) => {
+    const value = event.target.value;
+    const caretPosition = event.target.selectionStart ?? value.length;
+    setNewMessage(value);
+    setMessageCaret(caretPosition);
+    setMessageError('');
+    updateMentionState(value, caretPosition);
+  };
+
+  const handleMentionSelect = (username) => {
+    const beforeCaret = newMessage.slice(0, messageCaret);
+    const afterCaret = newMessage.slice(messageCaret);
+    const atIndex = beforeCaret.lastIndexOf('@');
+    if (atIndex < 0) return;
+
+    const nextMessage = `${beforeCaret.slice(0, atIndex)}@${username} ${afterCaret}`;
+    const nextCaret = beforeCaret.slice(0, atIndex).length + username.length + 2;
+
+    setNewMessage(nextMessage);
+    setMessageCaret(nextCaret);
+    setMentionQuery('');
+    setShowMentionSuggestions(false);
+
+    setTimeout(() => {
+      if (messageInputRef.current) {
+        messageInputRef.current.focus();
+        messageInputRef.current.setSelectionRange(nextCaret, nextCaret);
+      }
+    }, 0);
+  };
+
+  const renderMessageContent = (content, mentionedUsernames) => {
+    const mentionSet = new Set((Array.isArray(mentionedUsernames) ? mentionedUsernames : []).map((name) => String(name || '').toLowerCase()));
+    const parts = String(content || '').split(/(@[A-Za-z0-9_.-]{1,50})/g);
+    return parts.map((part, index) => {
+      const isToken = /^@[A-Za-z0-9_.-]{1,50}$/.test(part);
+      if (!isToken) {
+        return <React.Fragment key={`text-${index}`}>{part}</React.Fragment>;
+      }
+      const normalized = part.slice(1).toLowerCase();
+      const isMention = mentionSet.has(normalized);
+      return (
+        <span
+          key={`mention-${index}`}
+          className={isMention ? 'message-mention' : 'message-token'}
+        >
+          {part}
+        </span>
+      );
+    });
+  };
 
   useEffect(() => {
     const fetchWorkspaceDetail = async () => {
@@ -161,6 +249,7 @@ function WorkspaceDetail() {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
+    setMessageError('');
     setMessageLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -175,17 +264,37 @@ function WorkspaceDetail() {
 
       if (response.ok) {
         setNewMessage('');
+        setMentionQuery('');
+        setShowMentionSuggestions(false);
         fetchMessages();
+      } else {
+        const message = await getApiErrorMessage(response, 'Failed to send message');
+        setMessageError(message);
       }
     } catch (err) {
       console.error('Failed to send message:', err);
+      setMessageError('Failed to send message');
     } finally {
       setMessageLoading(false);
     }
   };
 
-  if (loading) return <div className="workspace-detail-page"><div className="loading">Loading workspace...</div></div>;
-  if (error) return <div className="workspace-detail-page"><div className="error">{error}</div></div>;
+  if (loading) return <div className="workspace-detail-page"><LoadingState className="loading" message="Loading workspace..." size={40} /></div>;
+  if (error) {
+    if (isWorkspaceAccessErrorMessage(error)) {
+      return (
+        <div className="workspace-detail-page">
+          <AccessState
+            title="This workspace drifted away"
+            message="We couldn’t open this workspace. It may not exist, or you may not have access."
+            primaryLabel="View Workspaces"
+            primaryTo="/workspace"
+          />
+        </div>
+      );
+    }
+    return <div className="workspace-detail-page"><div className="error">{error}</div></div>;
+  }
   if (!workspace) return <div className="workspace-detail-page"><div className="error">Workspace not found</div></div>;
 
   return (
@@ -287,7 +396,9 @@ function WorkspaceDetail() {
                                 <span className="message-author">{isSelf ? 'You' : author}</span>
                                 <span className="message-time">{formatMessageTime(msg.created_at)}</span>
                               </div>
-                              <div className="message-bubble">{msg.content ?? ''}</div>
+                              <div className="message-bubble">
+                                {renderMessageContent(msg.content, msg.mentioned_usernames)}
+                              </div>
                             </div>
                           </div>
                         );
@@ -296,18 +407,62 @@ function WorkspaceDetail() {
                   </div>
                 </div>
 
-                <form onSubmit={handleSendMessage} className="message-form">
-                  <input
-                    type="text"
-                    placeholder="Type a message..."
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    disabled={messageLoading}
-                  />
-                  <button type="submit" disabled={!newMessage.trim() || messageLoading}>
-                    Send
-                  </button>
-                </form>
+                <div className="message-form-wrap">
+                  {showMentionSuggestions && mentionSuggestions.length > 0 && (
+                    <div className="mention-suggestions" role="listbox" aria-label="Mention suggestions">
+                      {mentionSuggestions.map((username) => (
+                        <button
+                          type="button"
+                          key={username}
+                          className="mention-suggestion-item"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleMentionSelect(username)}
+                        >
+                          @{username}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <form onSubmit={handleSendMessage} className="message-form">
+                    <input
+                      ref={messageInputRef}
+                      type="text"
+                      placeholder="Type a message… Use @ to mention"
+                      value={newMessage}
+                      onChange={handleMessageInputChange}
+                      onClick={(event) => {
+                        const caretPosition = event.target.selectionStart ?? newMessage.length;
+                        setMessageCaret(caretPosition);
+                        updateMentionState(newMessage, caretPosition);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape' && showMentionSuggestions) {
+                          setShowMentionSuggestions(false);
+                          setMentionQuery('');
+                        }
+                        if (event.key === 'Enter' && showMentionSuggestions && mentionSuggestions.length > 0) {
+                          event.preventDefault();
+                          handleMentionSelect(mentionSuggestions[0]);
+                        }
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          setShowMentionSuggestions(false);
+                        }, 120);
+                      }}
+                      onFocus={(event) => {
+                        const caretPosition = event.target.selectionStart ?? newMessage.length;
+                        setMessageCaret(caretPosition);
+                        updateMentionState(newMessage, caretPosition);
+                      }}
+                      disabled={messageLoading}
+                    />
+                    <button type="submit" disabled={!newMessage.trim() || messageLoading}>
+                      Send
+                    </button>
+                  </form>
+                </div>
+                {messageError && <p className="message-error-inline">{messageError}</p>}
               </div>
             )}
 

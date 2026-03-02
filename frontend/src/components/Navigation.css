@@ -163,12 +163,39 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s ease, background 0.15s ease;
+  position: relative;
+  transition: color 0.15s ease;
 }
 
 .nav-icon:hover {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  color: var(--accent-primary);
+  background: transparent;
+  border: none;
+}
+
+.nav-icon:focus-visible {
+  color: var(--accent-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+.nav-notification-badge {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: var(--accent-contrast);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  border: 1px solid var(--bg-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 25%, transparent);
 }
 
 /* ── Avatar ── */

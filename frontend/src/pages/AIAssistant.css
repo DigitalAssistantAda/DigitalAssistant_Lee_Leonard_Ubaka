@@ -568,12 +568,26 @@
   height: 28px;
   border-radius: 999px;
   border: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.ada-icon-btn:hover {
+  color: var(--accent-primary);
+  background: transparent;
+  border-color: transparent;
+}
+
+.ada-icon-btn:focus-visible {
+  color: var(--accent-primary);
+  background: transparent;
+  border-color: transparent;
+  outline: none;
 }
 
 .ada-context-search-row {

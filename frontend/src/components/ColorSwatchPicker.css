@@ -1,0 +1,74 @@
+.swatch-picker {
+  display: flex;
+  align-items: center;
+  align-content: flex-start;
+  justify-content: flex-start;
+  gap: 0.55rem;
+}
+
+.swatch-picker-item,
+.swatch-picker-custom {
+  width: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.swatch-picker-item {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.swatch-picker-item.active {
+  border-color: color-mix(in srgb, var(--text-primary) 35%, var(--border-color));
+  box-shadow: 0 0 0 2px var(--bg-primary);
+}
+
+.swatch-picker-custom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-style: dashed;
+  border-color: var(--text-muted);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.swatch-picker-custom::before,
+.swatch-picker-custom::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.swatch-picker-custom::before {
+  width: 14px;
+  height: 3px;
+}
+
+.swatch-picker-custom::after {
+  width: 3px;
+  height: 14px;
+}
+
+.swatch-picker-custom input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}

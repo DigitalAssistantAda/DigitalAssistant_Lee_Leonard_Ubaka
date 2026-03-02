@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from database import get_db
@@ -9,6 +9,7 @@ from schemas.container import CreateContainerRequest, ContainerResponse, Contain
 from utils.auth import get_current_user, create_audit_log
 from utils.authorization import require_workspace_access
 from schemas.auth import SuccessResponse
+from errors import AppError
 
 router = APIRouter()
 
@@ -77,7 +78,11 @@ async def create_workspace_container(
 ):
     # Ensure the workspace path ID and body (if present) are consistent
     if request.workspace_id and request.workspace_id != workspace_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="workspace_id mismatch")
+        raise AppError(
+            code="WORKSPACE_ID_MISMATCH",
+            message="Workspace selection is invalid for this request.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
     # Check access
     require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
@@ -117,7 +122,11 @@ async def delete_container(
 ):
     container = db.query(Container).filter(Container.id == container_id).first()
     if not container:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found")
+        raise AppError(
+            code="CONTAINER_NOT_ACCESSIBLE",
+            message="Container not found or you do not have access.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
 
     # If container belongs to a workspace, ensure user is a member
     if container.workspace_id:
@@ -134,7 +143,11 @@ async def delete_container(
     else:
         # top-level container: only creator can delete
         if container.created_by != current_user.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+            raise AppError(
+                code="CONTAINER_NOT_ACCESSIBLE",
+                message="Container not found or you do not have access.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
 
     db.delete(container)
     db.commit()
@@ -156,7 +169,11 @@ async def delete_workspace_container(
 
     container = db.query(Container).filter(Container.id == container_id, Container.workspace_id == workspace_id).first()
     if not container:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Container not found in workspace")
+        raise AppError(
+            code="CONTAINER_NOT_ACCESSIBLE",
+            message="Container not found or you do not have access.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
 
     # Only the creator, admins, or owners may delete workspace containers
     if container.created_by != current_user.id:

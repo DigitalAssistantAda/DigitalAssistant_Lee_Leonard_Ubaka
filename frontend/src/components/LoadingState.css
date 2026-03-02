@@ -1,0 +1,19 @@
+.ada-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-12, 12px);
+  min-height: 120px;
+  color: var(--text-secondary);
+}
+
+.ada-loading-state .petal-spinner {
+  line-height: 0;
+}
+
+.ada-loading-message {
+  margin: 0;
+  color: inherit;
+  font-size: 0.95rem;
+}

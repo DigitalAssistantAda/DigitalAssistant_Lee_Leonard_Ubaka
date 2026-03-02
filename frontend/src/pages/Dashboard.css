@@ -201,12 +201,20 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .cal-nav-btn:hover {
-  color: var(--dash-gray-800);
-  background: var(--dash-surface-muted);
+  color: var(--dash-rose-500);
+  background: transparent;
+  border: none;
+}
+
+.cal-nav-btn:focus-visible {
+  color: var(--dash-rose-500);
+  background: transparent;
+  border: none;
+  outline: none;
 }
 
 .cal-month {

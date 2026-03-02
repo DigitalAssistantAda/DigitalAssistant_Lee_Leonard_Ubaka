@@ -769,6 +769,40 @@
   background: radial-gradient(circle, rgba(243, 184, 207, 0.1) 0%, transparent 64%);
 }
 
+.dark .landing-cta {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--landing-cta-bg) 76%, var(--landing-dark-bg) 24%) 0%,
+    color-mix(in srgb, var(--landing-dark-bg) 90%, var(--landing-cta-bg) 10%) 100%
+  );
+}
+
+.dark .landing-cta-logo {
+  mix-blend-mode: normal;
+  opacity: 0.9;
+}
+
+.dark .landing-cta-form input {
+  background: color-mix(in srgb, var(--landing-dark-surface) 88%, transparent);
+  border-color: var(--landing-dark-border);
+  color: var(--landing-dark-text);
+}
+
+.dark .landing-cta-form input::placeholder {
+  color: var(--landing-dark-muted);
+}
+
+.dark .landing-cta-form button {
+  background: color-mix(in srgb, var(--landing-dark-surface) 82%, var(--landing-dark-text) 18%);
+  color: var(--landing-dark-text);
+  border: 1px solid var(--landing-dark-border);
+}
+
+.dark .landing-cta-form button:hover {
+  background: color-mix(in srgb, var(--landing-rose-500) 28%, var(--landing-dark-surface) 72%);
+  color: var(--landing-dark-text);
+}
+
 .landing-cta-logo,
 .landing-cta h2,
 .landing-cta p,

@@ -13,6 +13,7 @@ class WorkspaceRole(str, enum.Enum):
 class MemberStatus(str, enum.Enum):
     ACTIVE = "active"
     INACTIVE = "inactive"
+    PENDING = "pending"
 
 
 class Workspace(Base):

@@ -54,6 +54,20 @@ class WorkspaceMemberListResponse(BaseModel):
     next_cursor: Optional[str] = None
 
 
+class WorkspaceInvitationResponse(BaseModel):
+    invitation_id: int
+    workspace_id: int
+    workspace_name: str
+    role: str
+    status: str
+    invited_at: datetime
+
+
+class WorkspaceInvitationListResponse(BaseModel):
+    items: List[WorkspaceInvitationResponse]
+    next_cursor: Optional[str] = None
+
+
 class AddMemberRequest(BaseModel):
     email_or_user_id: str
     role: str

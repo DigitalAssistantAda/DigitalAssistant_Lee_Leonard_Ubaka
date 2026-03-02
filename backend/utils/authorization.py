@@ -7,6 +7,7 @@ from models.user import User
 from models.workspace import WorkspaceMember, WorkspaceRole, MemberStatus
 from models.document import Document
 from typing import Optional
+from errors import AppError
 
 
 class PermissionDenied(HTTPException):
@@ -46,8 +47,7 @@ def check_workspace_access(
         WorkspaceMember record if authorized
         
     Raises:
-        PermissionDenied: If user doesn't have access or insufficient role
-        NotFound: If workspace doesn't exist
+        AppError: If user doesn't have access, workspace doesn't exist, or role is insufficient
     """
     # Verify workspace exists
     workspace = db.query(Workspace).filter(
@@ -55,7 +55,11 @@ def check_workspace_access(
     ).first()
     
     if not workspace:
-        raise NotFound("Workspace not found")
+        raise AppError(
+            code="WORKSPACE_NOT_ACCESSIBLE",
+            message="Workspace not found or you do not have access.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     
     # Check workspace membership
     membership = db.query(WorkspaceMember).filter(
@@ -64,7 +68,11 @@ def check_workspace_access(
     ).first()
     
     if not membership or membership.status != MemberStatus.ACTIVE:
-        raise PermissionDenied("You don't have access to this workspace")
+        raise AppError(
+            code="WORKSPACE_NOT_ACCESSIBLE",
+            message="Workspace not found or you do not have access.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     
     # Check role requirement if specified
     if required_role:
@@ -78,8 +86,10 @@ def check_workspace_access(
         required_level = role_hierarchy.get(required_role, 0)
         
         if user_role_level < required_level:
-            raise PermissionDenied(
-                f"This action requires {required_role.value} role"
+            raise AppError(
+                code="WORKSPACE_PERMISSION_DENIED",
+                message="You do not have permission to perform this action in this workspace.",
+                status_code=status.HTTP_403_FORBIDDEN,
             )
     
     return membership
@@ -104,8 +114,7 @@ def check_document_access(
         Document record if authorized
         
     Raises:
-        PermissionDenied: If user doesn't have access or isn't owner
-        NotFound: If document doesn't exist
+        AppError: If user doesn't have access, document doesn't exist, or isn't owner
     """
     # Get document and verify it belongs to user's accessible workspace
     document = db.query(Document).filter(
@@ -113,14 +122,29 @@ def check_document_access(
     ).first()
     
     if not document:
-        raise NotFound("Document not found")
+        raise AppError(
+            code="DOCUMENT_NOT_ACCESSIBLE",
+            message="Document not found or you do not have access.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     
     # Verify user has access to document's workspace
-    check_workspace_access(user, document.workspace_id, db)
+    try:
+        check_workspace_access(user, document.workspace_id, db)
+    except AppError:
+        raise AppError(
+            code="DOCUMENT_NOT_ACCESSIBLE",
+            message="Document not found or you do not have access.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
     
     # Check ownership if required
     if check_ownership and document.uploaded_by != user.id:
-        raise PermissionDenied("You can only modify documents you uploaded")
+        raise AppError(
+            code="DOCUMENT_PERMISSION_DENIED",
+            message="You do not have permission to modify this document.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
     
     return document
 
@@ -138,7 +162,11 @@ def require_workspace_access(
     if check_workspace_exists:
         workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
         if not workspace:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+            raise AppError(
+                code="WORKSPACE_NOT_ACCESSIBLE",
+                message="Workspace not found or you do not have access.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
 
     membership = db.query(WorkspaceMember).filter(
         WorkspaceMember.workspace_id == workspace_id,
@@ -147,10 +175,18 @@ def require_workspace_access(
     ).first()
 
     if not membership:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=not_member_detail)
+        raise AppError(
+            code="WORKSPACE_NOT_ACCESSIBLE",
+            message="Workspace not found or you do not have access.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
 
     if required_roles and membership.role not in required_roles:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=insufficient_permissions_detail)
+        raise AppError(
+            code="WORKSPACE_PERMISSION_DENIED",
+            message="You do not have permission to perform this action in this workspace.",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
 
     return workspace
 

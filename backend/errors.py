@@ -135,9 +135,26 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
         request.url.path,
         exc.errors(),
     )
+    details = []
+    for item in exc.errors():
+        loc = item.get("loc", [])
+        filtered_loc = [value for value in loc if value not in {"body", "query", "path"}]
+        details.append(
+            {
+                "field": filtered_loc[-1] if filtered_loc else None,
+                "message": item.get("msg", "Invalid value."),
+            }
+        )
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=error_payload("VALIDATION_ERROR", _safe_message_for_status(status.HTTP_422_UNPROCESSABLE_ENTITY)),
+        content={
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": _safe_message_for_status(status.HTTP_422_UNPROCESSABLE_ENTITY),
+                "details": details,
+            }
+        },
     )
 
 

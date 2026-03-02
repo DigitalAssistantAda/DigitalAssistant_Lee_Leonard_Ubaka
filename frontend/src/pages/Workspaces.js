@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, X, Search, ArrowUpRight, MoreVertical } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
+import LoadingState from '../components/LoadingState';
 import './Workspaces.css';
 
 function Workspaces() {
@@ -354,7 +355,7 @@ function Workspaces() {
 
           <div className="workspaces-list">
             {loading ? (
-              <div className="loading">Loading workspaces...</div>
+              <LoadingState className="loading" message="Loading workspaces..." size={36} />
             ) : filteredWorkspaces.length === 0 ? (
               <div className="empty-state">
                 <p>No workspaces found</p>

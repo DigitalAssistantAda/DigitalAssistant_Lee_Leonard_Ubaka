@@ -688,26 +688,6 @@
   padding: 1.25rem 1.5rem;
 }
 
-.color-swatches {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.swatch {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 2px solid rgba(60, 47, 51, 0.06);
-  cursor: pointer;
-}
-
-.swatch.selected {
-  box-shadow: 0 0 0 3px rgba(60, 47, 51, 0.06);
-  transform: translateY(-1px);
-}
-
 
 /* Left sidebar */
 .documents-controls {
@@ -882,85 +862,9 @@
   background: transparent;
 }
 
-.create-container-panel .swatch.selected {
-  box-shadow: 0 0 0 3px rgba(60, 47, 51, 0.06) inset;
-  transform: translateY(-2px);
-}
-
-/* color picker */
 .color-swatches {
-  display: flex;
-  gap: 0.5rem;
   flex-wrap: wrap;
-  align-items: center;
   justify-content: flex-start;
-}
-
-.swatch {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  padding: 0;
-  flex-shrink: 0;
-  background-color: var(--bg-primary);
-}
-
-.swatch:hover {
-  transform: scale(1.1);
-  border-color: var(--text-secondary, #999);
-}
-
-.swatch.selected {
-  border-color: var(--text-primary, #1a1f35);
-  box-shadow: 0 0 0 2px var(--bg-primary, #ffffff), 
-              0 0 0 4px var(--text-primary, #1a1f35);
-  transform: scale(1.15);
-}
-
-.swatch.wheel {
-  border-radius: 50%;
-  background: conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red) !important;
-}
-
-.color-picker-row {
-  display: none !important;
-}
-
-/* Color wheel input styling */
-.swatch.wheel-input {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--border-color, #e0e6ed) 90%, transparent);
-  cursor: pointer;
-  padding: 0;
-  background: conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red) !important;
-  appearance: none;
-  -webkit-appearance: none;
-  overflow: hidden;
-}
-
-.swatch.wheel-input:hover {
-  transform: scale(1.1);
-  border-color: var(--accent-primary);
-}
-
-.swatch.wheel-input::-webkit-color-swatch-wrapper {
-  padding: 0;
-  border-radius: 50%;
-}
-
-.swatch.wheel-input::-webkit-color-swatch {
-  border: none;
-  border-radius: 50%;
-}
-
-.swatch.wheel-input::-moz-color-swatch {
-  border: none;
-  border-radius: 50%;
 }
 
 /* Container cards grid */

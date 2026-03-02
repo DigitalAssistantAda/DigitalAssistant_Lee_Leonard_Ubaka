@@ -165,6 +165,9 @@ class AuditActions:
     WORKSPACE_CREATED = "workspace.created"
     WORKSPACE_UPDATED = "workspace.updated"
     WORKSPACE_DELETED = "workspace.deleted"
+    WORKSPACE_INVITE_SENT = "workspace.invite_sent"
+    WORKSPACE_INVITE_ACCEPTED = "workspace.invite_accepted"
+    WORKSPACE_INVITE_DECLINED = "workspace.invite_declined"
     WORKSPACE_MEMBER_ADDED = "workspace.member_added"
     WORKSPACE_MEMBER_REMOVED = "workspace.member_removed"
     
@@ -192,5 +195,6 @@ class AuditActions:
     
     # Message actions
     MESSAGE_SENT = "message.sent"
+    MESSAGE_MENTIONED = "message.mentioned"
     MESSAGE_EDITED = "message.edited"
     MESSAGE_DELETED = "message.deleted"

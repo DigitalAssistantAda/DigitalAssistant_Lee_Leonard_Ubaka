@@ -13,6 +13,8 @@ from schemas.workspace import (
     WorkspaceListResponse,
     WorkspaceMemberResponse,
     WorkspaceMemberListResponse,
+    WorkspaceInvitationResponse,
+    WorkspaceInvitationListResponse,
     AddMemberRequest,
     UpdateMemberRequest,
 )
@@ -20,6 +22,7 @@ from schemas.auth import SuccessResponse
 from utils.auth import get_current_user, create_audit_log
 from utils.authorization import require_workspace_access, check_workspace_access
 from errors import AppError
+from utils.audit import AuditActions
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
@@ -33,6 +36,17 @@ def build_member_response(member: WorkspaceMember, user: User) -> WorkspaceMembe
         role=member.role,
         joined_at=member.joined_at,
         status=member.status,
+    )
+
+
+def build_invitation_response(member: WorkspaceMember, workspace: Workspace) -> WorkspaceInvitationResponse:
+    return WorkspaceInvitationResponse(
+        invitation_id=member.id,
+        workspace_id=workspace.id,
+        workspace_name=workspace.name,
+        role=member.role,
+        status=member.status,
+        invited_at=member.joined_at,
     )
 
 
@@ -109,6 +123,112 @@ async def list_workspaces(
         workspace_responses.append(WorkspaceResponse(**workspace_dict))
     
     return WorkspaceListResponse(items=workspace_responses)
+
+
+@router.get("/invitations/pending", response_model=WorkspaceInvitationListResponse)
+async def list_pending_workspace_invitations(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List pending workspace invitations for the current user."""
+
+    invitations = db.query(WorkspaceMember, Workspace).join(
+        Workspace, WorkspaceMember.workspace_id == Workspace.id
+    ).filter(
+        WorkspaceMember.user_id == current_user.id,
+        WorkspaceMember.status == MemberStatus.PENDING,
+    ).all()
+
+    return WorkspaceInvitationListResponse(
+        items=[build_invitation_response(member, workspace) for member, workspace in invitations]
+    )
+
+
+@router.post("/invitations/{invitation_id}/accept", response_model=WorkspaceMemberResponse)
+async def accept_workspace_invitation(
+    invitation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Accept a pending workspace invitation for the current user."""
+
+    invitation = db.query(WorkspaceMember).filter(
+        WorkspaceMember.id == invitation_id,
+        WorkspaceMember.user_id == current_user.id,
+    ).first()
+
+    if not invitation:
+        raise AppError(
+            code="INVITATION_NOT_FOUND",
+            message="Invitation not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    if invitation.status != MemberStatus.PENDING:
+        raise AppError(
+            code="INVITATION_NOT_PENDING",
+            message="Invitation is no longer pending.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    invitation.status = MemberStatus.ACTIVE
+    db.commit()
+    db.refresh(invitation)
+
+    create_audit_log(
+        db,
+        current_user,
+        AuditActions.WORKSPACE_INVITE_ACCEPTED,
+        "workspace_member",
+        invitation.id,
+        metadata={"workspace_id": invitation.workspace_id},
+        workspace_id=invitation.workspace_id,
+    )
+
+    return build_member_response(invitation, current_user)
+
+
+@router.post("/invitations/{invitation_id}/decline", response_model=SuccessResponse)
+async def decline_workspace_invitation(
+    invitation_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Decline a pending workspace invitation for the current user."""
+
+    invitation = db.query(WorkspaceMember).filter(
+        WorkspaceMember.id == invitation_id,
+        WorkspaceMember.user_id == current_user.id,
+    ).first()
+
+    if not invitation:
+        raise AppError(
+            code="INVITATION_NOT_FOUND",
+            message="Invitation not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    if invitation.status != MemberStatus.PENDING:
+        raise AppError(
+            code="INVITATION_NOT_PENDING",
+            message="Invitation is no longer pending.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    invitation.status = MemberStatus.INACTIVE
+    db.commit()
+
+    create_audit_log(
+        db,
+        current_user,
+        AuditActions.WORKSPACE_INVITE_DECLINED,
+        "workspace_member",
+        invitation.id,
+        metadata={"workspace_id": invitation.workspace_id},
+        workspace_id=invitation.workspace_id,
+    )
+
+    return SuccessResponse()
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
@@ -284,19 +404,23 @@ async def add_workspace_member(
         workspace_id=workspace_id,
         user=current_user,
         db=db,
-        required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
+        required_roles=[WorkspaceRole.OWNER],
     )
     
-    # Find user by email or ID
-    if request.email_or_user_id.isdigit():
-        target_user = db.query(User).filter(User.id == int(request.email_or_user_id)).first()
+    # Find user by ID, email, or username (case-insensitive for email/username)
+    lookup_value = (request.email_or_user_id or "").strip()
+    if lookup_value.isdigit():
+        target_user = db.query(User).filter(User.id == int(lookup_value)).first()
     else:
-        target_user = db.query(User).filter(User.email == request.email_or_user_id).first()
+        lowered_lookup = lookup_value.lower()
+        target_user = db.query(User).filter(
+            (func.lower(User.email) == lowered_lookup) | (func.lower(User.username) == lowered_lookup)
+        ).first()
     
     if not target_user:
         raise AppError(
             code="MEMBER_NOT_FOUND",
-            message="Unable to invite member. The specified user could not be found.",
+            message="Unable to invite member. No user was found with that email, username, or ID.",
             status_code=status.HTTP_404_NOT_FOUND,
         )
     
@@ -308,23 +432,48 @@ async def add_workspace_member(
     ).first()
     
     if existing:
-        raise AppError(
-            code="MEMBER_EXISTS",
-            message="User is already a member of this workspace.",
-            status_code=status.HTTP_400_BAD_REQUEST,
+        if existing.status == MemberStatus.ACTIVE:
+            raise AppError(
+                code="MEMBER_EXISTS",
+                message="User is already a member of this workspace.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if existing.status == MemberStatus.PENDING:
+            raise AppError(
+                code="INVITATION_ALREADY_PENDING",
+                message="This user already has a pending invitation.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing.role = WorkspaceRole(request.role)
+        existing.status = MemberStatus.PENDING
+        member = existing
+    else:
+        member = WorkspaceMember(
+            workspace_id=workspace_id,
+            user_id=target_user.id,
+            role=WorkspaceRole(request.role),
+            status=MemberStatus.PENDING
         )
-    
-    member = WorkspaceMember(
-        workspace_id=workspace_id,
-        user_id=target_user.id,
-        role=WorkspaceRole(request.role),
-        status=MemberStatus.ACTIVE
-    )
-    db.add(member)
+        db.add(member)
+
     db.commit()
     db.refresh(member)
     
-    create_audit_log(db, current_user, "workspace.member_added", "workspace_member", member.id, workspace_id=workspace_id)
+    create_audit_log(
+        db,
+        current_user,
+        AuditActions.WORKSPACE_INVITE_SENT,
+        "workspace_member",
+        member.id,
+        metadata={
+            "workspace_id": workspace_id,
+            "invited_user_id": target_user.id,
+            "invited_user_email": target_user.email,
+            "invited_role": member.role.value if hasattr(member.role, "value") else str(member.role),
+        },
+        workspace_id=workspace_id,
+    )
     
     return build_member_response(member, target_user)
 
@@ -344,7 +493,7 @@ async def update_workspace_member(
         workspace_id=workspace_id,
         user=current_user,
         db=db,
-        required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
+        required_roles=[WorkspaceRole.OWNER],
     )
 
     check_workspace_access(workspace_id, current_user, db)
@@ -355,10 +504,10 @@ async def update_workspace_member(
         WorkspaceMember.status == MemberStatus.ACTIVE,
     ).first()
 
-    if not current_member or current_member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+    if not current_member or current_member.role != WorkspaceRole.OWNER:
         raise AppError(
             code="INSUFFICIENT_PERMISSIONS",
-            message="You do not have permission to change member roles.",
+            message="Only workspace owners can change member roles.",
             status_code=status.HTTP_403_FORBIDDEN,
         )
 
@@ -403,7 +552,7 @@ async def remove_workspace_member(
         workspace_id=workspace_id,
         user=current_user,
         db=db,
-        required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
+        required_roles=[WorkspaceRole.OWNER],
     )
 
     # Check if user is a member of the workspace
@@ -420,11 +569,11 @@ async def remove_workspace_member(
     if not current_member:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
     
-    # Check if current user has permission to delete members (must be owner or admin)
-    if current_member.role not in [WorkspaceRole.OWNER, WorkspaceRole.ADMIN]:
+    # Check if current user has permission to delete members (must be owner)
+    if current_member.role != WorkspaceRole.OWNER:
         raise AppError(
             code="INSUFFICIENT_PERMISSIONS",
-            message="You do not have permission to delete members from this workspace.",
+            message="Only workspace owners can remove members from this workspace.",
             status_code=status.HTTP_403_FORBIDDEN,
         )
     

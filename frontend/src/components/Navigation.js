@@ -8,9 +8,11 @@ function Navigation({ user, onLogout }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
 
   const location = useLocation();
   const navigate = useNavigate();
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
   const profileInitial = (user?.username || 'A').charAt(0).toUpperCase();
 
@@ -19,6 +21,97 @@ function Navigation({ user, onLogout }) {
     setDarkMode(savedMode);
     if (savedMode) document.documentElement.classList.add('dark');
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchNotificationCount = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const rawUser = localStorage.getItem('user');
+        if (!token || !rawUser) {
+          if (!cancelled) setNotificationCount(0);
+          return;
+        }
+
+        const parsed = JSON.parse(rawUser);
+        const currentUserId = Number(parsed?.id ?? parsed?.user_id ?? NaN);
+        if (!Number.isFinite(currentUserId)) {
+          if (!cancelled) setNotificationCount(0);
+          return;
+        }
+
+        const [mentionsResponse, invitationsResponse, deletionRequestsResponse] = await Promise.all([
+          fetch(`${API_URL}/api/v1/audit-logs?action=message.mentioned&limit=200`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }),
+          fetch(`${API_URL}/api/v1/workspaces/invitations/pending`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }),
+          fetch(`${API_URL}/api/v1/deletion-requests/pending`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }),
+        ]);
+
+        let mentionCount = 0;
+        if (mentionsResponse.ok) {
+          const mentionsData = await mentionsResponse.json();
+          const logs = Array.isArray(mentionsData?.logs) ? mentionsData.logs : [];
+          mentionCount = logs.reduce((total, log) => {
+            let metadata = {};
+            if (typeof log?.metadata_json === 'string') {
+              try {
+                metadata = JSON.parse(log.metadata_json);
+              } catch {
+                metadata = {};
+              }
+            } else if (log?.metadata_json && typeof log.metadata_json === 'object') {
+              metadata = log.metadata_json;
+            }
+
+            const mentionedUserId = Number(metadata?.mentioned_user_id);
+            return mentionedUserId === currentUserId ? total + 1 : total;
+          }, 0);
+        }
+
+        let invitationsCount = 0;
+        if (invitationsResponse.ok) {
+          const invitationsData = await invitationsResponse.json();
+          const invitations = Array.isArray(invitationsData?.items) ? invitationsData.items : [];
+          invitationsCount = invitations.length;
+        }
+
+        let deletionRequestsCount = 0;
+        if (deletionRequestsResponse.ok) {
+          const requestsData = await deletionRequestsResponse.json();
+          const requests = Array.isArray(requestsData?.requests) ? requestsData.requests : [];
+          deletionRequestsCount = requests.length;
+        }
+
+        if (!cancelled) {
+          setNotificationCount(mentionCount + invitationsCount + deletionRequestsCount);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setNotificationCount(0);
+        }
+      }
+    };
+
+    fetchNotificationCount();
+    const intervalId = window.setInterval(fetchNotificationCount, 60000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [API_URL, location.pathname]);
 
   const toggleDarkMode = () => {
     const newMode = !darkMode;
@@ -117,6 +210,11 @@ function Navigation({ user, onLogout }) {
             onClick={() => navigate('/notifications')}
           >
             <Bell size={18} />
+            {notificationCount > 0 && (
+              <span className="nav-notification-badge" aria-label={`${notificationCount} notifications`}>
+                {notificationCount > 99 ? '99+' : notificationCount}
+              </span>
+            )}
           </button>
 
           <button

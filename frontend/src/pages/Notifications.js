@@ -1,14 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Clock, MessageSquare, Users } from 'lucide-react';
+import LoadingState from '../components/LoadingState';
 import './Notifications.css';
 
 function NotificationsPage() {
   const [notifications, setNotifications] = useState([]);
+  const [mentionNotifications, setMentionNotifications] = useState([]);
+  const [workspaceInvitations, setWorkspaceInvitations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('pending'); // pending, approved, denied, all
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+  const currentUserId = (() => {
+    try {
+      const rawUser = localStorage.getItem('user');
+      if (!rawUser) return null;
+      const parsed = JSON.parse(rawUser);
+      const id = parsed?.id ?? parsed?.user_id ?? null;
+      return id == null ? null : Number(id);
+    } catch {
+      return null;
+    }
+  })();
 
   useEffect(() => {
     fetchNotifications();
@@ -17,23 +32,112 @@ function NotificationsPage() {
   const fetchNotifications = async () => {
     setLoading(true);
     try {
-      const endpoint = filter === 'pending' ? 'pending' : 'all';
-      const response = await fetch(`${API_URL}/api/v1/deletion-requests/${endpoint}`, {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/v1/deletion-requests/all`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
       if (!response.ok) {
         setNotifications([]);
-        return;
+      } else {
+        const data = await response.json();
+        setNotifications(data.requests || []);
       }
-      const data = await response.json();
-      setNotifications(data.requests || []);
+
+      const invitationsResponse = await fetch(`${API_URL}/api/v1/workspaces/invitations/pending`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!invitationsResponse.ok) {
+        setWorkspaceInvitations([]);
+      } else {
+        const invitationsData = await invitationsResponse.json();
+        setWorkspaceInvitations(Array.isArray(invitationsData?.items) ? invitationsData.items : []);
+      }
+
+      const mentionsResponse = await fetch(`${API_URL}/api/v1/audit-logs?action=message.mentioned&limit=200`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!mentionsResponse.ok) {
+        setMentionNotifications([]);
+      } else {
+        const mentionsData = await mentionsResponse.json();
+        const logs = Array.isArray(mentionsData?.logs) ? mentionsData.logs : [];
+        const mentionRows = logs
+          .map((log) => {
+            let metadata = {};
+            if (typeof log.metadata_json === 'string') {
+              try {
+                metadata = JSON.parse(log.metadata_json);
+              } catch {
+                metadata = {};
+              }
+            } else if (log.metadata_json && typeof log.metadata_json === 'object') {
+              metadata = log.metadata_json;
+            }
+
+            const mentionedUserId = Number(metadata?.mentioned_user_id);
+            if (!Number.isFinite(mentionedUserId) || (currentUserId != null && mentionedUserId !== currentUserId)) {
+              return null;
+            }
+
+            return {
+              id: `mention-${log.id}`,
+              created_at: log.created_at,
+              workspace_id: Number(log.workspace_id),
+              message_id: metadata?.message_id || log.object_id || null,
+              mentioned_username: metadata?.mentioned_username || '',
+            };
+          })
+          .filter(Boolean);
+
+        setMentionNotifications(mentionRows);
+      }
     } catch (error) {
       console.error('Error fetching notifications:', error);
       setNotifications([]);
+      setMentionNotifications([]);
+      setWorkspaceInvitations([]);
     }
     setLoading(false);
+  };
+
+  const handleAcceptWorkspaceInvite = async (invitationId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/workspaces/invitations/${invitationId}/accept`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (response.ok) {
+        fetchNotifications();
+      }
+    } catch (error) {
+      console.error('Error accepting workspace invitation:', error);
+    }
+  };
+
+  const handleDeclineWorkspaceInvite = async (invitationId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/workspaces/invitations/${invitationId}/decline`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (response.ok) {
+        fetchNotifications();
+      }
+    } catch (error) {
+      console.error('Error declining workspace invitation:', error);
+    }
   };
 
   const handleApprove = async (requestId) => {
@@ -85,10 +189,18 @@ function NotificationsPage() {
     return <span className={`status-badge ${status}`}>{status}</span>;
   };
 
-  const pendingNotifications = notifications.filter(n => n.status === 'pending');
-  const respondedNotifications = notifications.filter(n => n.status !== 'pending');
-  const displayNotifications = filter === 'pending' ? pendingNotifications : notifications;
-  const displayResponded = displayNotifications.filter(n => n.status !== 'pending');
+  const pendingDeletionNotifications = notifications.filter(n => n.status === 'pending');
+  const pendingCount = pendingDeletionNotifications.length + workspaceInvitations.length;
+  const displayResponded = filter === 'all'
+    ? notifications.filter(n => n.status !== 'pending')
+    : [];
+  const displayMentions = filter === 'all' ? mentionNotifications : [];
+  const displayInvitations = workspaceInvitations;
+  const allCount = notifications.length + mentionNotifications.length + workspaceInvitations.length;
+  const hasAnyVisibleNotifications =
+    pendingDeletionNotifications.length > 0 ||
+    displayMentions.length > 0 ||
+    displayInvitations.length > 0;
 
   return (
     <div className="notifications-page">
@@ -110,24 +222,22 @@ function NotificationsPage() {
             className={`filter-tab ${filter === 'pending' ? 'active' : ''}`}
             onClick={() => setFilter('pending')}
           >
-            Pending ({pendingNotifications.length})
+            Pending ({pendingCount})
           </button>
           <button 
             className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
             onClick={() => setFilter('all')}
           >
-            All ({notifications.length})
+            All ({allCount})
           </button>
         </div>
 
         <div className="notifications-list">
           {loading && (
-            <div className="loading-state">
-              <p>Loading notifications...</p>
-            </div>
+            <LoadingState className="loading-state" message="Loading notifications..." size={36} />
           )}
 
-          {!loading && displayNotifications.length === 0 && (
+          {!loading && !hasAnyVisibleNotifications && (
             <div className="empty-state">
               <Clock size={48} />
               <h2>No notifications</h2>
@@ -135,10 +245,10 @@ function NotificationsPage() {
             </div>
           )}
 
-          {!loading && pendingNotifications.length > 0 && (
+          {!loading && pendingDeletionNotifications.length > 0 && (
             <>
               <div className="section-title">Awaiting Your Decision</div>
-              {pendingNotifications.map(notification => (
+              {pendingDeletionNotifications.map(notification => (
                 <div key={notification.id} className="notification-card pending-card">
                   <div className="notification-content">
                     <div className="notification-header">
@@ -178,6 +288,52 @@ function NotificationsPage() {
             </>
           )}
 
+          {!loading && displayInvitations.length > 0 && (
+            <>
+              <div className="section-title">Workspace Invitations</div>
+              {displayInvitations.map((invitation) => (
+                <div key={`workspace-invite-${invitation.invitation_id}`} className="notification-card pending-card invitation-card">
+                  <div className="notification-content">
+                    <div className="notification-header">
+                      <div className="status-with-icon">
+                        <Users size={20} className="status-icon pending" />
+                        <h3>Workspace Invitation</h3>
+                      </div>
+                      <span className="status-badge pending">pending</span>
+                    </div>
+                    <p className="notification-reason">
+                      You were invited to join <strong>{invitation.workspace_name}</strong> as <strong>{invitation.role}</strong>.
+                    </p>
+                    <p className="notification-date">
+                      Invited on {new Date(invitation.invited_at).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                  </div>
+                  <div className="notification-actions">
+                    <button
+                      className="btn btn-approve"
+                      onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)}
+                    >
+                      Accept
+                    </button>
+                    <button
+                      className="btn btn-deny"
+                      onClick={() => handleDeclineWorkspaceInvite(invitation.invitation_id)}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
           {!loading && displayResponded.length > 0 && (
             <>
               <div className="section-title">History</div>
@@ -206,6 +362,46 @@ function NotificationsPage() {
                         : 'Unknown date'
                       }
                     </p>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+
+          {!loading && displayMentions.length > 0 && (
+            <>
+              <div className="section-title">Mentions</div>
+              {displayMentions.map((mention) => (
+                <div key={mention.id} className="notification-card mention-card">
+                  <div className="notification-content">
+                    <div className="notification-header">
+                      <div className="status-with-icon">
+                        <MessageSquare size={20} className="status-icon mention" />
+                        <h3>You were mentioned</h3>
+                      </div>
+                      <span className="status-badge mention">Mention</span>
+                    </div>
+                    <p className="notification-reason">
+                      Mentioned in workspace #{mention.workspace_id}
+                    </p>
+                    <p className="notification-date">
+                      {new Date(mention.created_at).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                  </div>
+                  <div className="notification-actions">
+                    <button
+                      className="btn btn-mention-open"
+                      onClick={() => navigate(`/workspace/${mention.workspace_id}`)}
+                    >
+                      Open discussion
+                    </button>
                   </div>
                 </div>
               ))}

@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, MoreVertical, Eye } from 'lucide-react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { getApiErrorMessage } from '../utils/apiError';
+import AccessState from '../components/AccessState';
+import ColorSwatchPicker from '../components/ColorSwatchPicker';
+import { getApiErrorMessage, isWorkspaceAccessErrorMessage } from '../utils/apiError';
+import { CONTAINER_SWATCH_PRESETS } from '../utils/colorPresets';
+import LoadingState from '../components/LoadingState';
 import './Documents.css';
 
 function Documents() {
@@ -102,7 +106,7 @@ function TxtPreview({ docId }) {
     loadTxt();
   }, [docId]);
 
-  if (loading) return <div className="preview-loading">Loading...</div>;
+  if (loading) return <LoadingState className="preview-loading" message="Loading preview..." size={32} />;
   if (error) return <div className="preview-error">{error}</div>;
 
   return (
@@ -156,7 +160,7 @@ function DocxPreview({ docId }) {
     loadDocx();
   }, [docId]);
 
-  if (loading) return <div className="preview-loading">Loading...</div>;
+  if (loading) return <LoadingState className="preview-loading" message="Loading preview..." size={32} />;
   if (error) return <div className="preview-error">{error}</div>;
 
   return (
@@ -214,7 +218,7 @@ function PdfPreview({ docId }) {
     };
   }, [docId]);
 
-  if (loading) return <div className="preview-loading">Loading PDF...</div>;
+  if (loading) return <LoadingState className="preview-loading" message="Loading preview..." size={32} />;
   if (error) return <div className="preview-error">{error}</div>;
 
   return (
@@ -271,6 +275,11 @@ function PdfPreview({ docId }) {
         const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
         setWorkspaces(items);
         const queryWorkspaceExists = workspaceIdFromQuery && items.some((item) => Number(item.id) === Number(workspaceIdFromQuery));
+        if (!containerIdParam && workspaceIdFromQuery && !queryWorkspaceExists) {
+          setSelectedWorkspace('');
+          setError('Workspace not found or you do not have access.');
+          return;
+        }
         if (!containerIdParam && queryWorkspaceExists) {
           setSelectedWorkspace(workspaceIdFromQuery);
           return;
@@ -981,35 +990,9 @@ const handleCreateContainer = async (e) => {
     return [...containers, ...localOnly];
   }, [containers, createdContainers]);
 
-  useEffect(() => {
-    if (!workspaceIdFromQuery || containerIdParam) return;
-
-    const targetWorkspaceId = Number(workspaceIdFromQuery);
-    if (!Number.isFinite(targetWorkspaceId) || targetWorkspaceId <= 0) return;
-
-    const workspaceContainers = displayedContainers.filter(
-      (container) => Number(container.workspace_id) === targetWorkspaceId
-    );
-    if (!workspaceContainers.length) return;
-
-    const workspace = workspaces.find((item) => Number(item.id) === targetWorkspaceId);
-    const workspaceName = String(workspace?.name || '').trim().toLowerCase();
-
-    const preferredContainer = workspaceContainers.find(
-      (container) => String(container?.name || '').trim().toLowerCase() === workspaceName
-    ) || workspaceContainers[0];
-
-    if (!preferredContainer?.id) return;
-    navigate(`/documents/${preferredContainer.id}?workspaceId=${targetWorkspaceId}`, { replace: true });
-  }, [workspaceIdFromQuery, containerIdParam, displayedContainers, workspaces, navigate]);
-
   const workspaceScopedContainers = useMemo(() => {
-    const numericWorkspaceId = Number(selectedWorkspace);
-    if (!Number.isFinite(numericWorkspaceId) || numericWorkspaceId <= 0) {
-      return displayedContainers;
-    }
-    return displayedContainers.filter((container) => Number(container.workspace_id) === numericWorkspaceId);
-  }, [displayedContainers, selectedWorkspace]);
+    return displayedContainers;
+  }, [displayedContainers]);
 
   useEffect(() => {
     const numericWorkspaceId = Number(selectedWorkspace || workspaceIdFromQuery);
@@ -1085,17 +1068,17 @@ const handleCreateContainer = async (e) => {
   }, [workspaceScopedContainers, ownerFilter, searchQuery, currentUserId, workspaces]);
 
   const emptyStateMessage = useMemo(() => {
-    const hasWorkspaceScope = Number.isFinite(Number(selectedWorkspace)) && Number(selectedWorkspace) > 0;
-    if (workspaceScopedContainers.length === 0) {
-      return hasWorkspaceScope
-        ? 'No folders in this workspace yet.'
-        : 'No folders available yet.';
+    if (filteredDisplayedContainers.length > 0) {
+      return '';
     }
-    if (searchQuery || ownerFilter !== 'all') {
+
+    const hasActiveFilters = Boolean(searchQuery.trim()) || ownerFilter !== 'all';
+    if (hasActiveFilters) {
       return 'No folders match your current filters.';
     }
+
     return 'No folders available yet.';
-  }, [workspaceScopedContainers, selectedWorkspace, searchQuery, ownerFilter]);
+  }, [filteredDisplayedContainers, searchQuery, ownerFilter]);
 
   useEffect(() => {
     if (!containerIdParam) {
@@ -1170,9 +1153,6 @@ const handleCreateContainer = async (e) => {
     }
     return 'Belongs to workspace';
   };
-
-  // Preset colors used in the pick list
-  const presetColors = ['#34d399','#60a5fa','#f472b6','#f59e0b','#a78bfa','#fda4af','#93c5fd','#fb7185'];
 
   const colorInputRef = useRef(null);
 
@@ -1643,6 +1623,19 @@ const handleCreateContainer = async (e) => {
     );
   }
 
+  if (workspaceIdFromQuery && error && isWorkspaceAccessErrorMessage(error)) {
+    return (
+      <div className="documents-page">
+        <AccessState
+          title="Workspace unavailable"
+          message="We couldn’t open documents for this workspace. It may not exist, or you may not have access."
+          primaryLabel="View Workspaces"
+          primaryTo="/workspace"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="documents-page">
       <div className="documents-shell">
@@ -1731,26 +1724,16 @@ const handleCreateContainer = async (e) => {
 
                   <div className="form-group">
                     <label>Pick color</label>
-                    <div className="color-swatches">
-                      {presetColors.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          className={`swatch ${containerColor === color ? 'selected' : ''}`}
-                          style={{ background: color }}
-                          onClick={() => setContainerColor(color)}
-                          aria-label={`Select color ${color}`}
-                        />
-                      ))}
-                      <input
-                        type="color"
-                        value={containerColor}
-                        onChange={(e) => setContainerColor(e.target.value)}
-                        className="swatch wheel-input"
-                        aria-label="Choose custom color from wheel"
-                        title="Click to open color picker"
-                      />
-                    </div>
+                    <ColorSwatchPicker
+                      className="color-swatches"
+                      colors={CONTAINER_SWATCH_PRESETS}
+                      value={containerColor}
+                      onChange={setContainerColor}
+                      ariaLabel="Container color options"
+                      optionAriaLabelPrefix="Select color"
+                      customAriaLabel="Choose custom color from wheel"
+                      customTitle="Click to open color picker"
+                    />
                   </div>
 
                   <div className="panel-actions">

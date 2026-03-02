@@ -35,25 +35,61 @@ function Login({ onLogin }) {
     ]);
   };
 
+  const getValidationDetails = (errorData) => {
+    if (Array.isArray(errorData?.error?.details)) {
+      return errorData.error.details;
+    }
+    if (Array.isArray(errorData?.detail)) {
+      return errorData.detail;
+    }
+    return [];
+  };
+
   const buildRegisterErrors = (errorData) => {
-    const detail = errorData?.detail;
-    if (Array.isArray(detail)) {
-      return detail.map((item) => {
-        const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : null;
-        if (field === 'email') return `Email: ${item.msg}`;
-        if (field === 'username') return `Username: ${item.msg}`;
-        if (field === 'password') return item.msg;
-        return item.msg || 'Invalid registration data.';
+    const validationDetails = getValidationDetails(errorData);
+    if (validationDetails.length > 0) {
+      return validationDetails.map((item) => {
+        const field = item.field || (Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : null);
+        const message = item.message || item.msg || 'Invalid value.';
+        if (field === 'email') return `Email: ${message}`;
+        if (field === 'username') return `Username: ${message}`;
+        if (field === 'password') return `Password: ${message}`;
+        return message;
       });
     }
-    if (typeof detail === 'string' && detail.trim()) {
-      return [detail];
-    }
+
+    const errorCode = errorData?.error?.code;
+    if (errorCode === 'EMAIL_ALREADY_EXISTS') return ['Email: An account with this email already exists.'];
+    if (errorCode === 'USERNAME_ALREADY_EXISTS') return ['Username: This username is already taken.'];
+
     const apiMessage = parseApiErrorMessage(errorData, null);
     if (apiMessage) {
       return [apiMessage];
     }
     return ['Registration failed. Please check your details and try again.'];
+  };
+
+  const buildLoginErrors = (errorData) => {
+    const validationDetails = getValidationDetails(errorData);
+    if (validationDetails.length > 0) {
+      return validationDetails.map((item) => {
+        const field = item.field || (Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : null);
+        const message = item.message || item.msg || 'Invalid value.';
+        if (field === 'email_or_username') return `Email or Username: ${message}`;
+        if (field === 'password') return `Password: ${message}`;
+        return message;
+      });
+    }
+
+    const errorCode = errorData?.error?.code;
+    if (errorCode === 'USER_NOT_FOUND') return ['No account found for that email or username.'];
+    if (errorCode === 'INVALID_PASSWORD') return ['Password is incorrect.'];
+    if (errorCode === 'ACCOUNT_INACTIVE') return ['Your account is inactive. Contact your workspace administrator.'];
+    if (errorCode === 'RATE_LIMITED') return ['Too many attempts. Please wait and try again.'];
+
+    const apiMessage = parseApiErrorMessage(errorData, null);
+    if (apiMessage) return [apiMessage];
+    return ['Authentication failed. Please check your credentials and try again.'];
   };
 
   const handleSubmit = async (e) => {
@@ -80,7 +116,7 @@ function Login({ onLogin }) {
         if (isRegister) {
           setErrorMessages(buildRegisterErrors(errorData));
         } else {
-          setErrorMessages([parseApiErrorMessage(errorData, 'Authentication failed')]);
+          setErrorMessages(buildLoginErrors(errorData));
         }
         setLoading(false);
         return;

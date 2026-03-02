@@ -42,9 +42,22 @@ async def register(request: RegisterRequest, request_context: Request, db: Sessi
         (User.email == request.email) | (User.username == request.username)
     ).first()
     if existing_user:
-        raise HTTPException(
+        if existing_user.email == request.email:
+            raise AppError(
+                code="EMAIL_ALREADY_EXISTS",
+                message="An account with this email already exists.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        if existing_user.username == request.username:
+            raise AppError(
+                code="USERNAME_ALREADY_EXISTS",
+                message="This username is already taken.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        raise AppError(
+            code="ACCOUNT_ALREADY_EXISTS",
+            message="An account with these details already exists.",
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User with this email or username already exists"
         )
     
     # Create user
@@ -110,9 +123,10 @@ async def login(request: LoginRequest, request_context: Request, db: Session = D
     clear_failed_login(f"login:{request.email_or_username.lower()}:{client_ip}")
     
     if not user.is_active or user.is_deleted:
-        raise HTTPException(
+        raise AppError(
+            code="ACCOUNT_INACTIVE",
+            message="Your account is inactive. Contact your workspace administrator.",
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive or deleted"
         )
     
     # Create audit log

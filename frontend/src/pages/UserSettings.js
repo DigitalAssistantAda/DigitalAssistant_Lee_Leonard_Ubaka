@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getApiErrorMessage, parseApiErrorMessage } from '../utils/apiError';
+import ColorSwatchPicker from '../components/ColorSwatchPicker';
+import { normalizeHexColor } from '../utils/accentAccessibility';
+import { ACCENT_SWATCH_PRESETS } from '../utils/colorPresets';
+import LoadingState from '../components/LoadingState';
 import './UserSettings.css';
 
 function UserSettings() {
@@ -35,8 +39,10 @@ function UserSettings() {
     const value = getComputedStyle(document.documentElement)
       .getPropertyValue('--accent-primary')
       .trim();
-    return value || '#8f2f5a';
+    return normalizeHexColor(value) || '#8F2F5A';
   };
+
+  const selectedAccent = normalizeHexColor(accentColor) || getDefaultAccent();
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -265,7 +271,7 @@ function UserSettings() {
         </div>
 
         {!profileLoaded ? (
-          <div className="user-settings-loading">Loading account settings...</div>
+          <LoadingState className="user-settings-loading" message="Loading account settings..." size={34} />
         ) : (
           <div className="user-settings-form">
             {profileError && (
@@ -339,22 +345,24 @@ function UserSettings() {
         </div>
 
         {!accentLoaded ? (
-          <div className="user-settings-loading">Loading settings...</div>
+          <LoadingState className="user-settings-loading" message="Loading settings..." size={34} />
         ) : (
           <div className="user-settings-form">
             {accentError && <div className="user-settings-error">{accentError}</div>}
             <div className="accent-row">
-              <input
-                type="color"
-                value={accentColor || getDefaultAccent()}
-                onChange={(e) => setAccentColor(e.target.value)}
-                className="accent-input"
-                aria-label="Personal accent color"
+              <ColorSwatchPicker
+                colors={ACCENT_SWATCH_PRESETS}
+                value={selectedAccent}
+                onChange={(nextColor) => setAccentColor(normalizeHexColor(nextColor) || '')}
+                ariaLabel="Personal accent color options"
+                optionAriaLabelPrefix="Set accent"
+                customAriaLabel="Personal accent color"
+                customTitle="Choose custom accent"
               />
               <input
                 type="text"
-                value={accentColor || getDefaultAccent()}
-                onChange={(e) => setAccentColor(e.target.value)}
+                value={accentColor || selectedAccent}
+                onChange={(e) => setAccentColor((e.target.value || '').toUpperCase())}
                 className="accent-text-input"
                 placeholder="#RRGGBB"
               />

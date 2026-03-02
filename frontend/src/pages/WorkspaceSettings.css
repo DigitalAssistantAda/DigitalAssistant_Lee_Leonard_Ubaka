@@ -182,56 +182,6 @@
   background: var(--border-color);
 }
 
-.accent-options {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-}
-
-.accent-swatch {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  border: 2px solid transparent;
-  cursor: pointer;
-}
-
-.accent-swatch.active {
-  border-color: color-mix(in srgb, var(--text-primary) 35%, var(--border-color));
-  box-shadow: 0 0 0 2px var(--bg-primary);
-}
-
-.accent-custom {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  border: 1px dashed var(--text-muted);
-  color: var(--text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  position: relative;
-  line-height: 0;
-}
-
-.accent-custom svg {
-  width: 14px;
-  height: 14px;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-
-.accent-custom input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
 .btn-save,
 .btn-cancel,
 .btn-edit {
@@ -346,11 +296,37 @@
   flex: 1;
 }
 
+.member-email-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .member-email {
   font-size: 1.02rem;
   color: var(--text-primary);
   font-weight: 400;
   margin-bottom: 0.2rem;
+}
+
+.member-status-tag {
+  height: 24px;
+  border-radius: 999px;
+  padding: 0 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--border-color);
+}
+
+.member-status-tag.pending {
+  color: color-mix(in srgb, var(--accent-primary) 80%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
 }
 
 .member-joined {

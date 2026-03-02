@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { X, Plus, Trash2, Check } from 'lucide-react';
-import { getApiErrorMessage } from '../utils/apiError';
+import { X, Trash2, Check } from 'lucide-react';
+import AccessState from '../components/AccessState';
+import ColorSwatchPicker from '../components/ColorSwatchPicker';
+import { getApiErrorMessage, isWorkspaceAccessErrorMessage } from '../utils/apiError';
 import { normalizeHexColor, buildAccentStyleVars } from '../utils/accentAccessibility';
+import { ACCENT_SWATCH_PRESETS } from '../utils/colorPresets';
+import LoadingState from '../components/LoadingState';
 import './WorkspaceSettings.css';
 
 function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
@@ -22,7 +26,6 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
   const DEFAULT_ACCENT = '#EBC7D8';
-  const ACCENT_PRESETS = ['#DDB9CD', '#9FCFE5', '#BFE3A1', '#EBC6B9'];
 
   const getDefaultAccent = () => {
     const value = getComputedStyle(document.documentElement)
@@ -54,6 +57,28 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
     if (!Number.isNaN(fromRoute) && Number.isFinite(fromRoute)) return fromRoute;
     return null;
   }, [workspaceId, id]);
+
+  const currentUserId = useMemo(() => {
+    try {
+      const rawUser = localStorage.getItem('user');
+      if (!rawUser) return null;
+      const parsed = JSON.parse(rawUser);
+      const userId = Number(parsed?.id ?? parsed?.user_id ?? NaN);
+      return Number.isFinite(userId) ? userId : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const currentMemberRole = useMemo(() => {
+    if (!currentUserId) return null;
+    const currentMember = members.find((member) => Number(member?.user_id) === currentUserId);
+    const role = String(currentMember?.role || '').toLowerCase();
+    return role || null;
+  }, [members, currentUserId]);
+
+  const canInviteMembers = currentMemberRole === 'owner';
+  const canManageMembers = currentMemberRole === 'owner';
 
   const fetchWorkspaceData = useCallback(async () => {
     try {
@@ -164,9 +189,36 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
 
   const handleInviteMember = async () => {
     setInviteMessage('');
-    if (!inviteEmail.trim()) {
-      setInviteMessage('Please enter an email or user ID.');
+
+    if (!canInviteMembers) {
+      setInviteMessage('Only workspace owners can invite members.');
       return;
+    }
+
+    const inviteTarget = inviteEmail.trim();
+    if (!inviteTarget) {
+      setInviteMessage('Please enter an email, username, or user ID.');
+      return;
+    }
+
+    const normalizedTarget = inviteTarget.toLowerCase();
+    const matchingMember = members.find((member) => {
+      const userIdMatch = String(member?.user_id || '').trim() === inviteTarget;
+      const emailMatch = String(member?.email || '').trim().toLowerCase() === normalizedTarget;
+      const usernameMatch = String(member?.username || '').trim().toLowerCase() === normalizedTarget;
+      return userIdMatch || emailMatch || usernameMatch;
+    });
+
+    if (matchingMember) {
+      const normalizedStatus = String(matchingMember.status || '').toLowerCase();
+      if (normalizedStatus === 'active') {
+        setInviteMessage('User is already a member of this workspace.');
+        return;
+      }
+      if (normalizedStatus === 'pending') {
+        setInviteMessage('This user already has a pending invitation.');
+        return;
+      }
     }
 
     try {
@@ -177,7 +229,7 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          email_or_user_id: inviteEmail,
+          email_or_user_id: inviteTarget,
           role: inviteRole,
         }),
       });
@@ -190,14 +242,24 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
       setMembers([...members, newMember]);
       setInviteEmail('');
       setInviteRole('member');
-      setInviteMessage('Member invited.');
+      setInviteMessage('Invitation sent. The user must accept in Notifications.');
     } catch (err) {
-      setInviteMessage('Failed to add member');
+      const raw = String(err?.message || '').toLowerCase();
+      if (raw.includes('failed to fetch') || raw.includes('networkerror')) {
+        setInviteMessage(`Cannot reach API at ${API_URL}. Check backend/CORS configuration and REACT_APP_API_URL.`);
+      } else {
+        setInviteMessage(err?.message ? `Failed to add member: ${err.message}` : 'Failed to add member');
+      }
       console.error(err);
     }
   };
 
   const handleRemoveMember = async (userId) => {
+    if (!canManageMembers) {
+      setError('Only workspace owners can remove members.');
+      return;
+    }
+
     if (!window.confirm('Remove this member from the workspace?')) return;
 
     try {
@@ -218,6 +280,11 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
   };
 
   const handleUpdateRole = async (userId, newRole) => {
+    if (!canManageMembers) {
+      setError('Only workspace owners can change member roles.');
+      return;
+    }
+
     try {
       const response = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}/members/${userId}`, {
         method: 'PUT',
@@ -260,11 +327,35 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
     if (inline) {
       return (
         <div className="settings-inline-shell">
-          <div className="settings-modal-content settings-inline-content">Loading...</div>
+          <div className="settings-modal-content settings-inline-content">
+            <LoadingState message="Loading workspace settings..." size={36} />
+          </div>
         </div>
       );
     }
-    return <div className="settings-modal-overlay"><div className="settings-modal-content">Loading...</div></div>;
+    return (
+      <div className="settings-modal-overlay">
+        <div className="settings-modal-content">
+          <LoadingState message="Loading workspace settings..." size={40} />
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !workspace && isWorkspaceAccessErrorMessage(error)) {
+    return (
+      <div className={inline ? 'settings-inline-shell' : 'settings-modal-overlay'}>
+        <div className={`settings-modal-content ${inline ? 'settings-inline-content' : ''}`}>
+          <AccessState
+            compact
+            title="Workspace access required"
+            message="You can’t open these settings because this workspace is unavailable or outside your access scope."
+            primaryLabel="View Workspaces"
+            primaryTo="/workspace"
+          />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -315,35 +406,15 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
                   </div>
                   <div className="accent-divider" aria-hidden="true" />
 
-                  <div className="accent-options" role="listbox" aria-label="Accent color options">
-                    {ACCENT_PRESETS.map((color) => {
-                      const normalized = color.toUpperCase();
-                      const active = selectedAccent === normalized;
-                      return (
-                        <button
-                          key={color}
-                          type="button"
-                          className={`accent-swatch ${active ? 'active' : ''}`}
-                          style={{ background: color }}
-                          onClick={() => setWorkspaceAccent(color)}
-                          title={`Set accent ${color}`}
-                          aria-label={`Set accent ${color}`}
-                          aria-pressed={active}
-                        />
-                      );
-                    })}
-
-                    <label className="accent-custom" title="Choose custom accent">
-                      <Plus size={16} />
-                      <input
-                        id="workspace-accent"
-                        type="color"
-                        value={selectedAccent}
-                        onChange={(e) => setWorkspaceAccent(normalizeHexColor(e.target.value) || '')}
-                        aria-label="Custom workspace accent color"
-                      />
-                    </label>
-                  </div>
+                  <ColorSwatchPicker
+                    colors={ACCENT_SWATCH_PRESETS}
+                    value={selectedAccent}
+                    onChange={(nextColor) => setWorkspaceAccent(normalizeHexColor(nextColor) || '')}
+                    ariaLabel="Accent color options"
+                    optionAriaLabelPrefix="Set accent"
+                    customAriaLabel="Custom workspace accent color"
+                    customTitle="Choose custom accent"
+                  />
 
                   <button onClick={handleUpdateWorkspaceAccent} className="btn-save" disabled={!canSaveAccent}>
                     {savingAccent ? 'Saving…' : 'Save'}
@@ -357,28 +428,31 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
                 <h3 className="settings-eyebrow">Members ({members.length}/{workspace.member_limit || 10})</h3>
               </div>
 
-              <div className="invite-inline-row">
-                <input
-                  id="invite-email"
-                  type="text"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  className="form-input"
-                  placeholder="Email or user ID"
-                />
-                <select
-                  id="invite-role"
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value)}
-                  className="form-input invite-role-input"
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <button onClick={handleInviteMember} className="btn-add-member" title="Invite member" aria-label="Invite member">
-                  Invite
-                </button>
-              </div>
+              {canInviteMembers && (
+                <div className="invite-inline-row">
+                  <input
+                    id="invite-email"
+                    type="text"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    className="form-input"
+                    placeholder="Email, username, or user ID"
+                  />
+                  <select
+                    id="invite-role"
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    className="form-input invite-role-input"
+                  >
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                  <button onClick={handleInviteMember} className="btn-add-member" title="Invite member" aria-label="Invite member">
+                    Invite
+                  </button>
+                </div>
+              )}
+              {!canInviteMembers && <p className="invite-message-inline">Only workspace owners can invite members.</p>}
               {inviteMessage && <p className="invite-message-inline">{inviteMessage}</p>}
 
               <div className="members-list">
@@ -389,12 +463,23 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
                     <div key={member.user_id} className="member-row">
                       <div className="member-avatar">{getMemberInitials(member)}</div>
                       <div className="member-info">
-                        <div className="member-email">{member.email || member.username || `User ${member.user_id}`}</div>
-                        <div className="member-joined">Joined {formatMemberJoinDate(member.joined_at)}</div>
+                        <div className="member-email-row">
+                          <div className="member-email">{member.email || member.username || `User ${member.user_id}`}</div>
+                          {String(member.status || '').toLowerCase() === 'pending' && (
+                            <span className="member-status-tag pending">Pending</span>
+                          )}
+                        </div>
+                        <div className="member-joined">
+                          {String(member.status || '').toLowerCase() === 'pending'
+                            ? `Invited ${formatMemberJoinDate(member.joined_at)}`
+                            : `Joined ${formatMemberJoinDate(member.joined_at)}`}
+                        </div>
                       </div>
                       <div className="member-controls">
                         {member.role === 'owner' ? (
                           <span className="owner-badge">Owner</span>
+                        ) : !canManageMembers ? (
+                          <span className="owner-badge">{String(member.role || 'member').charAt(0).toUpperCase() + String(member.role || 'member').slice(1)}</span>
                         ) : (
                           <>
                             <select

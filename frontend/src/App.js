@@ -333,6 +333,43 @@ function App() {
     }
   }, [user]);
 
+  // Real-time: WebSocket for server-push (notifications, workspaces). Not used by Chat with Ada (chat uses REST only).
+  useEffect(() => {
+    if (!user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const base = (API_URL || '').replace(/^https?/, (s) => (s === 'https' ? 'wss' : 'ws')).replace(/\/+$/, '');
+    const wsUrl = `${base}/api/v1/ws?token=${encodeURIComponent(token)}`;
+    let ws = null;
+    let reconnectTimeout = null;
+    const connect = () => {
+      try {
+        ws = new WebSocket(wsUrl);
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg?.type === 'notifications.changed') {
+              window.dispatchEvent(new Event('notifications-updated'));
+            }
+            if (msg?.type === 'workspaces.changed') {
+              window.dispatchEvent(new Event('workspaces-updated'));
+            }
+          } catch (_) {}
+        };
+        ws.onclose = () => {
+          ws = null;
+          reconnectTimeout = window.setTimeout(connect, 5000);
+        };
+        ws.onerror = () => {};
+      } catch (_) {}
+    };
+    connect();
+    return () => {
+      if (reconnectTimeout) window.clearTimeout(reconnectTimeout);
+      if (ws) ws.close();
+    };
+  }, [user, API_URL]);
+
   useEffect(() => {
     const root = document.documentElement;
     const easterClass = 'easter-script';

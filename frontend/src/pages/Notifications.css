@@ -313,6 +313,16 @@
   background: color-mix(in srgb, var(--accent-primary) 20%, var(--bg-secondary));
 }
 
+.btn-dismiss {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border-primary);
+}
+.btn-dismiss:hover {
+  background: color-mix(in srgb, var(--text-secondary) 8%, transparent);
+  color: var(--text-primary);
+}
+
 @media (max-width: 640px) {
   .notifications-header {
     padding: var(--s-16);

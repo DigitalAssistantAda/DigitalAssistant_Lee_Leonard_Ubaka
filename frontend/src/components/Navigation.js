@@ -41,7 +41,7 @@ function Navigation({ user, onLogout }) {
           return;
         }
 
-        const [mentionsResponse, invitationsResponse, deletionRequestsResponse] = await Promise.all([
+        const [mentionsResponse, invitationsResponse, deletionRequestsResponse, prefsResponse] = await Promise.all([
           fetch(`${API_URL}/api/v1/audit-logs?action=message.mentioned&limit=200`, {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -57,13 +57,25 @@ function Navigation({ user, onLogout }) {
               Authorization: `Bearer ${token}`,
             },
           }),
+          fetch(`${API_URL}/api/v1/users/preferences`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }),
         ]);
+
+        const dismissedMentionIds = new Set(
+          prefsResponse.ok
+            ? (await prefsResponse.json())?.dismissed_notification_ids?.mention_ids ?? []
+            : []
+        );
 
         let mentionCount = 0;
         if (mentionsResponse.ok) {
           const mentionsData = await mentionsResponse.json();
           const logs = Array.isArray(mentionsData?.logs) ? mentionsData.logs : [];
           mentionCount = logs.reduce((total, log) => {
+            if (dismissedMentionIds.has(`mention-${log.id}`)) return total;
             let metadata = {};
             if (typeof log?.metadata_json === 'string') {
               try {
@@ -105,11 +117,25 @@ function Navigation({ user, onLogout }) {
     };
 
     fetchNotificationCount();
-    const intervalId = window.setInterval(fetchNotificationCount, 60000);
+    // Slower poll on Chat with Ada so real-time doesn't impact that page; elsewhere use 30s fallback (primary updates via WebSocket + visibility).
+    const isChatPage = location.pathname === '/ai-assistant';
+    const intervalMs = isChatPage ? 120000 : 30000;
+    const intervalId = window.setInterval(fetchNotificationCount, intervalMs);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') fetchNotificationCount();
+    };
+    const onNotificationUpdate = () => {
+      fetchNotificationCount();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('notifications-updated', onNotificationUpdate);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('notifications-updated', onNotificationUpdate);
     };
   }, [API_URL, location.pathname]);
 

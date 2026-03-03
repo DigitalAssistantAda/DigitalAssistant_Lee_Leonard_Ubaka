@@ -28,6 +28,7 @@ from api.messages import router as messages_router
 from api.tasks import router as tasks_router
 from api.conversations import router as conversations_router
 from api.deletion_requests import router as deletion_requests_router
+from api.ws import router as ws_router
 
 app = FastAPI(
     title="Digital Assistant API",
@@ -99,3 +100,4 @@ app.include_router(embeddings_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(webhooks_router)
 app.include_router(deletion_requests_router, prefix="/api/v1")
+app.include_router(ws_router, prefix="/api/v1")

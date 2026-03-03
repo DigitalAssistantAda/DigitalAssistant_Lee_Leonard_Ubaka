@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, Clock, MessageSquare, Users } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2 } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import './Notifications.css';
 
@@ -8,6 +8,7 @@ function NotificationsPage() {
   const [notifications, setNotifications] = useState([]);
   const [mentionNotifications, setMentionNotifications] = useState([]);
   const [workspaceInvitations, setWorkspaceInvitations] = useState([]);
+  const [dismissedIds, setDismissedIds] = useState({ deletion_request_ids: [], mention_ids: [] });
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('pending'); // pending, approved, denied, all
   const navigate = useNavigate();
@@ -28,6 +29,12 @@ function NotificationsPage() {
   useEffect(() => {
     fetchNotifications();
   }, [filter]);
+
+  useEffect(() => {
+    const onUpdate = () => fetchNotifications();
+    window.addEventListener('notifications-updated', onUpdate);
+    return () => window.removeEventListener('notifications-updated', onUpdate);
+  }, []);
 
   const fetchNotifications = async () => {
     setLoading(true);
@@ -99,6 +106,18 @@ function NotificationsPage() {
 
         setMentionNotifications(mentionRows);
       }
+
+      const prefsResponse = await fetch(`${API_URL}/api/v1/users/preferences`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (prefsResponse.ok) {
+        const prefs = await prefsResponse.json();
+        const d = prefs?.dismissed_notification_ids;
+        setDismissedIds(d && typeof d === 'object' ? {
+          deletion_request_ids: Array.isArray(d.deletion_request_ids) ? d.deletion_request_ids : [],
+          mention_ids: Array.isArray(d.mention_ids) ? d.mention_ids : [],
+        } : { deletion_request_ids: [], mention_ids: [] });
+      }
     } catch (error) {
       console.error('Error fetching notifications:', error);
       setNotifications([]);
@@ -118,6 +137,7 @@ function NotificationsPage() {
       });
       if (response.ok) {
         fetchNotifications();
+        window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) {
       console.error('Error accepting workspace invitation:', error);
@@ -134,6 +154,7 @@ function NotificationsPage() {
       });
       if (response.ok) {
         fetchNotifications();
+        window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) {
       console.error('Error declining workspace invitation:', error);
@@ -150,6 +171,7 @@ function NotificationsPage() {
       });
       if (response.ok) {
         fetchNotifications();
+        window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) {
       console.error('Error approving request:', error);
@@ -166,9 +188,54 @@ function NotificationsPage() {
       });
       if (response.ok) {
         fetchNotifications();
+        window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) {
       console.error('Error denying request:', error);
+    }
+  };
+
+  const handleDismissDeletionRequest = async (requestId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/users/notifications-dismiss`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deletion_request_ids: [requestId] }),
+      });
+      if (response.ok) {
+        setDismissedIds((prev) => ({
+          ...prev,
+          deletion_request_ids: [...(prev.deletion_request_ids || []), requestId],
+        }));
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    } catch (error) {
+      console.error('Error dismissing notification:', error);
+    }
+  };
+
+  const handleDismissMention = async (mentionId) => {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/users/notifications-dismiss`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mention_ids: [mentionId] }),
+      });
+      if (response.ok) {
+        setDismissedIds((prev) => ({
+          ...prev,
+          mention_ids: [...(prev.mention_ids || []), mentionId],
+        }));
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    } catch (error) {
+      console.error('Error dismissing mention:', error);
     }
   };
 
@@ -191,16 +258,25 @@ function NotificationsPage() {
 
   const pendingDeletionNotifications = notifications.filter(n => n.status === 'pending');
   const pendingCount = pendingDeletionNotifications.length + workspaceInvitations.length;
+  const drDismissed = dismissedIds.deletion_request_ids || [];
+  const mentionDismissed = dismissedIds.mention_ids || [];
   const displayResponded = filter === 'all'
-    ? notifications.filter(n => n.status !== 'pending')
+    ? notifications.filter(n => n.status !== 'pending' && !drDismissed.includes(n.id))
     : [];
-  const displayMentions = filter === 'all' ? mentionNotifications : [];
+  const displayMentions = filter === 'all'
+    ? mentionNotifications.filter(m => !mentionDismissed.includes(m.id))
+    : [];
   const displayInvitations = workspaceInvitations;
-  const allCount = notifications.length + mentionNotifications.length + workspaceInvitations.length;
+  const allCount =
+    pendingDeletionNotifications.length +
+    displayInvitations.length +
+    displayResponded.length +
+    displayMentions.length;
   const hasAnyVisibleNotifications =
     pendingDeletionNotifications.length > 0 ||
     displayMentions.length > 0 ||
-    displayInvitations.length > 0;
+    displayInvitations.length > 0 ||
+    displayResponded.length > 0;
 
   return (
     <div className="notifications-page">
@@ -363,6 +439,18 @@ function NotificationsPage() {
                       }
                     </p>
                   </div>
+                  <div className="notification-actions">
+                    <button
+                      type="button"
+                      className="btn btn-dismiss"
+                      onClick={() => handleDismissDeletionRequest(notification.id)}
+                      title="Remove from list"
+                      aria-label="Dismiss notification"
+                    >
+                      <Trash2 size={18} />
+                      Dismiss
+                    </button>
+                  </div>
                 </div>
               ))}
             </>
@@ -401,6 +489,16 @@ function NotificationsPage() {
                       onClick={() => navigate(`/workspace/${mention.workspace_id}`)}
                     >
                       Open discussion
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-dismiss"
+                      onClick={() => handleDismissMention(mention.id)}
+                      title="Remove from list"
+                      aria-label="Dismiss mention"
+                    >
+                      <Trash2 size={18} />
+                      Dismiss
                     </button>
                   </div>
                 </div>

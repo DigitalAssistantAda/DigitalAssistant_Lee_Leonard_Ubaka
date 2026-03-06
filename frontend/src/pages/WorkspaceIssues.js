@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, Pencil, Search as SearchIcon } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, Pencil, Search as SearchIcon, List, ListTodo, Columns3 } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
 import LoadingState from '../components/LoadingState';
 import './WorkspaceIssues.css';
@@ -15,11 +15,11 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [assignmentScope, setAssignmentScope] = useState('assigned');
-  const [taskType, setTaskType] = useState('issue');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingIssue, setEditingIssue] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIssueId, setSelectedIssueId] = useState(null);
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'todo' | 'kanban'
   const [workspaces, setWorkspaces] = useState([]);
   const [formData, setFormData] = useState({
     title: '',
@@ -113,6 +113,37 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     return result;
   }, [normalizedIssues, statusFilter, searchQuery]);
 
+  const isAssignedToMe = (issue) => {
+    if (!currentUserId) return false;
+    const assignees = Array.isArray(issue.assignees) && issue.assignees.length
+      ? issue.assignees
+      : (issue.assigned_to ? [issue.assigned_to] : []);
+    return assignees.includes(currentUserId);
+  };
+
+  const todoSortedIssues = useMemo(() => {
+    const assigned = filteredIssues.filter(isAssignedToMe);
+    const completedStatuses = ['completed', 'closed'];
+    const incomplete = assigned.filter(
+      (issue) => !completedStatuses.includes(issue.effectiveStatus || issue.status)
+    );
+    const completed = assigned.filter(
+      (issue) => completedStatuses.includes(issue.effectiveStatus || issue.status)
+    );
+    return [...incomplete, ...completed];
+  }, [filteredIssues, currentUserId]);
+
+  const statusOrder = ['open', 'in_progress', 'overdue', 'completed', 'closed'];
+  const kanbanColumns = useMemo(() => {
+    return statusOrder.map((status) => ({
+      status,
+      label: status.replace('_', ' '),
+      issues: filteredIssues.filter(
+        (issue) => (issue.effectiveStatus || issue.status) === status
+      ),
+    }));
+  }, [filteredIssues]);
+
   const resolvedWorkspaceId = useMemo(() => {
     const fromProp = Number(workspaceId);
     if (!Number.isNaN(fromProp) && Number.isFinite(fromProp)) return fromProp;
@@ -130,17 +161,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     fetchIssues();
     fetchMembers();
     fetchWorkspaces();
-  }, [resolvedWorkspaceId, API_URL, token, assignmentScope, currentUserId, taskType]);
-
-  useEffect(() => {
-    setSelectedIssueId(null);
-    setStatusFilter('all');
-    const params = new URLSearchParams(location.search);
-    if (params.has('issueId')) {
-      params.delete('issueId');
-      navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
-    }
-  }, [taskType]);
+  }, [resolvedWorkspaceId, API_URL, token, assignmentScope, currentUserId]);
 
   useEffect(() => {
     if (!normalizedIssues.length) {
@@ -186,10 +207,16 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     }
   }, [currentUserId, assignmentScope]);
 
+  useEffect(() => {
+    if (viewMode === 'todo' && assignmentScope !== 'assigned') {
+      setViewMode('list');
+    }
+  }, [assignmentScope, viewMode]);
+
   const fetchIssues = async () => {
     try {
       setLoading(true);
-      const query = new URLSearchParams({ task_type: taskType });
+      const query = new URLSearchParams({ task_type: 'issue' });
       if (assignmentScope === 'assigned' && currentUserId) {
         query.set('assigned_to', 'me');
       }
@@ -262,7 +289,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       const payload = {
         title: formData.title,
         description: formData.description,
-        type: taskType,
+        type: 'issue',
         status: 'open',
         priority: formData.priority,
         assigned_to: formData.assignees?.[0] || formData.assigned_to || null,
@@ -413,7 +440,6 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  const statusOrder = ['open', 'in_progress', 'overdue', 'completed', 'closed'];
   const getStatusLabel = (status) => status.replace('_', ' ');
   const getStatusClass = (status) => `status-${status}`;
 
@@ -476,14 +502,19 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
 
   return (
     <div className="issues-container">
-      <div className="issues-top-nav">
-        <button
-          type="button"
-          className="issues-back-link"
-          onClick={() => navigate(`/workspace/${resolvedWorkspaceId}`)}
-        >
-          &larr; Back to {currentWorkspace?.name || 'Workspace'}
-        </button>
+      {/* Breadcrumb: left = ← Workspace / Issues, right = Back to Dashboard only */}
+      <div className="issues-breadcrumb-row">
+        <nav className="issues-breadcrumb" aria-label="Breadcrumb">
+          <button
+            type="button"
+            className="issues-breadcrumb-link"
+            onClick={() => navigate(`/workspace/${resolvedWorkspaceId}`)}
+          >
+            &larr; {currentWorkspace?.name || 'Workspace'}
+          </button>
+          <span className="issues-breadcrumb-sep">/</span>
+          <span className="issues-breadcrumb-current">Issues</span>
+        </nav>
         <button
           type="button"
           className="issues-back-link"
@@ -493,28 +524,31 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         </button>
       </div>
 
-      <div className="issues-header">
-        <h2>{taskType === 'issue' ? 'Issues' : 'Deadlines'}</h2>
+      {/* Page header: title left, New Issue right (reference layout) */}
+      <div className="issues-page-header">
+        <h1 className="issues-page-title">Issues</h1>
         <button
+          type="button"
           onClick={() => setShowCreateModal(true)}
           className="btn-create-issue"
-          title={`Create new ${taskType}`}
-          aria-label={`Create new ${taskType}`}
+          title="Create new issue"
+          aria-label="Create new issue"
         >
-          <Plus size={16} /> {taskType === 'issue' ? 'New Issue' : 'New Deadline'}
+          <Plus size={16} /> New Issue
         </button>
       </div>
 
       {error && <div className="error-message">{error}</div>}
 
-      {/* Status Filter */}
-      <div className="filter-controls">
-        <div className="issue-search">
+      {/* Toolbar: one bar — [Project] | [Assignment pills] | [View toggle group] | [Search] */}
+      <div className="issues-toolbar">
+        <div className="toolbar-group">
           <select
             value={resolvedWorkspaceId || ''}
             onChange={(e) => navigate(`/workspace/${e.target.value}/issues`)}
-            aria-label="Filter by workspace"
-            title="Filter by workspace"
+            className="toolbar-project-select"
+            aria-label="Project"
+            title="Project"
           >
             {workspaces.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>
@@ -523,27 +557,11 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
             ))}
           </select>
         </div>
-        <div className="scope-controls">
+        <div className="toolbar-divider" aria-hidden />
+        <div className="toolbar-group" role="group" aria-label="Assignment">
           <button
-            className={`filter-btn ${taskType === 'issue' ? 'active' : ''}`}
-            onClick={() => setTaskType('issue')}
-            title="Show issues"
-            aria-label="Show issues"
-          >
-            Issues
-          </button>
-          <button
-            className={`filter-btn ${taskType === 'deadline' ? 'active' : ''}`}
-            onClick={() => setTaskType('deadline')}
-            title="Show deadlines"
-            aria-label="Show deadlines"
-          >
-            Deadlines
-          </button>
-        </div>
-        <div className="scope-controls">
-          <button
-            className={`filter-btn ${assignmentScope === 'assigned' ? 'active' : ''}`}
+            type="button"
+            className={`toolbar-filter-tab ${assignmentScope === 'assigned' ? 'active' : ''}`}
             onClick={() => setAssignmentScope('assigned')}
             title="Show issues assigned to you"
             aria-label="Show issues assigned to you"
@@ -551,7 +569,8 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
             Assigned to me
           </button>
           <button
-            className={`filter-btn ${assignmentScope === 'all' ? 'active' : ''}`}
+            type="button"
+            className={`toolbar-filter-tab ${assignmentScope === 'all' ? 'active' : ''}`}
             onClick={() => setAssignmentScope('all')}
             title="Show all issues"
             aria-label="Show all issues"
@@ -559,80 +578,213 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
             All issues
           </button>
         </div>
-        <div className="issue-search issue-search-text">
-          <SearchIcon size={16} className="issue-search-icon" />
+        <div className="toolbar-divider" aria-hidden />
+        <div className="toolbar-view-toggle" role="group" aria-label="View">
+          <button
+            type="button"
+            className={`toolbar-view-btn ${viewMode === 'list' ? 'active' : ''}`}
+            onClick={() => setViewMode('list')}
+            title="List view"
+            aria-label="List view"
+          >
+            <List size={12} /> List
+          </button>
+          <button
+            type="button"
+            className={`toolbar-view-btn ${viewMode === 'todo' ? 'active' : ''}`}
+            onClick={() => setViewMode('todo')}
+            disabled={assignmentScope !== 'assigned' || !currentUserId}
+            title={assignmentScope !== 'assigned' ? 'Switch to "Assigned to me" for todo list' : 'Todo list view'}
+            aria-label="Todo list view"
+          >
+            <ListTodo size={12} /> Todo
+          </button>
+          <button
+            type="button"
+            className={`toolbar-view-btn ${viewMode === 'kanban' ? 'active' : ''}`}
+            onClick={() => setViewMode('kanban')}
+            title="Kanban board view"
+            aria-label="Kanban board view"
+          >
+            <Columns3 size={12} /> Kanban
+          </button>
+        </div>
+        <div className="toolbar-search-wrap issue-search issue-search-text">
+          <SearchIcon size={16} className="issue-search-icon" aria-hidden />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={taskType === 'issue' ? 'Search issues...' : 'Search deadlines...'}
-            aria-label={taskType === 'issue' ? 'Search issues' : 'Search deadlines'}
+            placeholder="Search issues..."
+            aria-label="Search issues"
           />
         </div>
+      </div>
+
+      {/* Status summary: compact chips, "All · 2" style */}
+      <div className="status-summary">
         <button
-          className={`filter-btn ${statusFilter === 'all' ? 'active' : ''}`}
+          type="button"
+          className={`status-chip ${statusFilter === 'all' ? 'active' : ''}`}
           onClick={() => setStatusFilter('all')}
           title="Show all issues"
           aria-label="Show all issues"
         >
-          All ({normalizedIssues.length})
+          All · {normalizedIssues.length}
         </button>
         {statusOrder.map((status) => (
           <button
             key={status}
-            className={`filter-btn ${statusFilter === status ? 'active' : ''}`}
+            type="button"
+            className={`status-chip ${statusFilter === status ? 'active' : ''}`}
             onClick={() => setStatusFilter(status)}
             title={`Show ${getStatusLabel(status)} issues`}
             aria-label={`Show ${getStatusLabel(status)} issues`}
           >
-            {getStatusLabel(status)} ({statusCounts[status] || 0})
+            {getStatusLabel(status)} · {statusCounts[status] || 0}
           </button>
         ))}
       </div>
 
       {/* Issues Layout */}
-      <div className="issues-layout">
-        <div className="issues-list-panel">
-          {filteredIssues.length === 0 ? (
-            <div className="empty-state">
-              <AlertCircle size={32} />
-              <p>No issues {statusFilter !== 'all' ? `in "${statusFilter}" status` : 'yet'}</p>
-            </div>
-          ) : (
-            filteredIssues.map((issue) => {
-              const assignees = Array.isArray(issue.assignees) && issue.assignees.length
-                ? issue.assignees
-                : (issue.assigned_to ? [issue.assigned_to] : []);
-              const assigneeNames = assignees.length
-                ? assignees.map((assigneeId) => memberLookup.get(assigneeId) || `User ${assigneeId}`)
-                : ['Unassigned'];
-              const assigneeLabel = assigneeNames.length > 1
-                ? `${assigneeNames[0]} +${assigneeNames.length - 1}`
-                : assigneeNames[0];
-              return (
-                <button
-                  key={issue.id}
-                  type="button"
-                  className={`issue-row ${selectedIssueId === issue.id ? 'active' : ''}`}
-                  onClick={() => setSelectedIssueId(issue.id)}
-                  aria-label={`Open issue ${issue.title}`}
-                >
-                  <div className="issue-row-main">
-                    <div className="issue-row-title">{issue.title}</div>
-                    <div className="issue-row-meta">
-                      <span className="issue-row-number">#{issue.id}</span>
-                      <span className="issue-row-status">
-                        <span className={`issue-row-status-dot ${getStatusClass(issue.effectiveStatus || issue.status)}`} />
-                        {getStatusLabel(issue.effectiveStatus || issue.status)}
-                      </span>
-                      <span className="issue-row-assignee">
-                        {assigneeLabel}
-                      </span>
-                    </div>
+      <div className={`issues-layout ${viewMode === 'kanban' ? 'issues-layout-kanban' : ''}`}>
+        <div className={`issues-list-panel ${viewMode === 'todo' ? 'todo-list-panel' : ''} ${viewMode === 'kanban' ? 'kanban-panel' : ''}`}>
+          {viewMode === 'list' && (
+            <>
+              {filteredIssues.length === 0 ? (
+                <div className="empty-state">
+                  <AlertCircle size={32} />
+                  <p>No issues {statusFilter !== 'all' ? `in "${statusFilter}" status` : 'yet'}</p>
+                </div>
+              ) : (
+                filteredIssues.map((issue) => {
+                  const assignees = Array.isArray(issue.assignees) && issue.assignees.length
+                    ? issue.assignees
+                    : (issue.assigned_to ? [issue.assigned_to] : []);
+                  const assigneeNames = assignees.length
+                    ? assignees.map((assigneeId) => memberLookup.get(assigneeId) || `User ${assigneeId}`)
+                    : ['Unassigned'];
+                  const assigneeLabel = assigneeNames.length > 1
+                    ? `${assigneeNames[0]} +${assigneeNames.length - 1}`
+                    : assigneeNames[0];
+                  return (
+                    <button
+                      key={issue.id}
+                      type="button"
+                      className={`issue-row ${selectedIssueId === issue.id ? 'active' : ''}`}
+                      onClick={() => setSelectedIssueId(issue.id)}
+                      aria-label={`Open issue ${issue.title}`}
+                    >
+                      <div className="issue-row-main">
+                        <div className="issue-row-title">{issue.title}</div>
+                        <div className="issue-row-meta">
+                          <span className="issue-row-number">#{issue.id}</span>
+                          <span className="issue-row-status">
+                            <span className={`issue-row-status-dot ${getStatusClass(issue.effectiveStatus || issue.status)}`} />
+                            {getStatusLabel(issue.effectiveStatus || issue.status)}
+                          </span>
+                          <span className="issue-row-assignee">
+                            {assigneeLabel}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </>
+          )}
+
+          {viewMode === 'todo' && (
+            <>
+              {todoSortedIssues.length === 0 ? (
+                <div className="empty-state">
+                  <ListTodo size={32} />
+                  <p>No issues assigned to you. Switch to &quot;Assigned to me&quot; or add some tasks.</p>
+                </div>
+              ) : (
+                <ul className="todo-list" aria-label="Your todo list">
+                  {todoSortedIssues.map((issue) => {
+                    const isCompleted = ['completed', 'closed'].includes(issue.effectiveStatus || issue.status);
+                    return (
+                      <li key={issue.id} className={`todo-row ${isCompleted ? 'completed' : ''} ${selectedIssueId === issue.id ? 'active' : ''}`}>
+                        <input
+                          type="checkbox"
+                          className="todo-checkbox"
+                          checked={isCompleted}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            handleUpdateStatus(issue.id, isCompleted ? 'open' : 'completed');
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={isCompleted ? `Mark "${issue.title}" incomplete` : `Mark "${issue.title}" complete`}
+                        />
+                        <button
+                          type="button"
+                          className="todo-row-content"
+                          onClick={() => setSelectedIssueId(issue.id)}
+                          aria-label={`Open issue ${issue.title}`}
+                        >
+                          <span className="todo-row-title">{issue.title}</span>
+                          <span className="todo-row-meta">#{issue.id} · Due {formatDate(issue.due_date)}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </>
+          )}
+
+          {viewMode === 'kanban' && (
+            <div className="kanban-board">
+              {kanbanColumns.map((col) => (
+                <div key={col.status} className="kanban-column">
+                  <div className="kanban-column-header">
+                    <span className={`kanban-column-dot ${getStatusClass(col.status)}`} aria-hidden />
+                    <span className="kanban-column-title">{col.label}</span>
+                    <span className="kanban-column-count">({col.issues.length})</span>
                   </div>
-                </button>
-              );
-            })
+                  <div className="kanban-column-cards">
+                    {col.issues.length === 0 ? (
+                      <p className="kanban-column-empty">No issues</p>
+                    ) : (
+                      col.issues.map((issue) => {
+                        const assignees = Array.isArray(issue.assignees) && issue.assignees.length
+                          ? issue.assignees
+                          : (issue.assigned_to ? [issue.assigned_to] : []);
+                        const assigneeLabel = assignees.length
+                          ? (assignees.length > 1
+                            ? `${memberLookup.get(assignees[0]) || assignees[0]} +${assignees.length - 1}`
+                            : (memberLookup.get(assignees[0]) || `User ${assignees[0]}`))
+                          : 'Unassigned';
+                        return (
+                          <button
+                            key={issue.id}
+                            type="button"
+                            className={`kanban-card ${selectedIssueId === issue.id ? 'active' : ''}`}
+                            onClick={() => setSelectedIssueId(issue.id)}
+                            aria-label={`Open issue ${issue.title}`}
+                          >
+                            <div className="kanban-card-title">{issue.title}</div>
+                            <div className="kanban-card-meta">
+                              <span>#{issue.id}</span>
+                              <span>{assigneeLabel}</span>
+                              {issue.due_date && <span>Due {formatDate(issue.due_date)}</span>}
+                            </div>
+                            {issue.priority && (
+                              <span className={`kanban-card-priority priority-badge ${getPriorityClass(issue.priority)}`}>
+                                {issue.priority}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
@@ -751,9 +903,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         >
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
             <h3>
-              {editingIssue
-                ? (taskType === 'issue' ? 'Edit Issue' : 'Edit Deadline')
-                : (taskType === 'issue' ? 'Create New Issue' : 'Create New Deadline')}
+              {editingIssue ? 'Edit Issue' : 'Create New Issue'}
             </h3>
             <div className="form-group">
               <label htmlFor="issue-title">Title</label>
@@ -780,21 +930,19 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
               />
             </div>
 
-            {taskType === 'issue' && (
-              <div className="form-group">
-                <label htmlFor="issue-priority">Priority</label>
-                <select
-                  id="issue-priority"
-                  value={formData.priority}
-                  onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                  className="form-input"
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-              </div>
-            )}
+            <div className="form-group">
+              <label htmlFor="issue-priority">Priority</label>
+              <select
+                id="issue-priority"
+                value={formData.priority}
+                onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                className="form-input"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
 
             <div className="form-group">
               <label htmlFor="issue-due-date">Due Date</label>
@@ -833,7 +981,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                 onClick={editingIssue ? handleUpdateIssue : handleCreateIssue}
                 className="btn-primary"
               >
-                {editingIssue ? 'Save Changes' : (taskType === 'issue' ? 'Create Issue' : 'Create Deadline')}
+                {editingIssue ? 'Save Changes' : 'Create Issue'}
               </button>
               <button
                 onClick={() => {

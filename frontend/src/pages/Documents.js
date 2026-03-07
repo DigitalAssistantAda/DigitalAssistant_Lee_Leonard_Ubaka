@@ -721,14 +721,14 @@ const handleCreateContainer = async (e) => {
 
       if (!response.ok) throw new Error('Download failed');
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const payload = await response.json();
+      if (!payload?.url) throw new Error('Download link unavailable');
+
       const a = document.createElement('a');
-      a.href = url;
+      a.href = payload.url;
       a.download = filename;
       document.body.appendChild(a);
       a.click();
-      window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (err) {
       setError(err.message);

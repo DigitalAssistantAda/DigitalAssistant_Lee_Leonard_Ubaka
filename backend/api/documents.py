@@ -639,13 +639,32 @@ async def download_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Downloads a document or returns a pre-signed URL"""
+    """Generate a time-limited signed URL for downloading a document"""
     
     document = check_document_access(current_user, document_id, db)
     if document.status == DocumentStatus.DELETED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
-    # Log the download action
+    ttl_seconds = max(60, min(int(settings.download_url_ttl_seconds), 7 * 24 * 60 * 60))
+
+    try:
+        bucket, path = _parse_storage_uri(document.storage_uri)
+        signed_url = await storage.create_download_url(
+            bucket=bucket,
+            path=path,
+            expires_seconds=ttl_seconds,
+            filename=document.filename,
+            content_type=document.mime_type,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to generate signed download URL for document %s: %s", document.id, e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate download URL"
+        )
+
     create_audit_log(
         db,
         current_user,
@@ -660,15 +679,8 @@ async def download_document(
         workspace_id=document.workspace_id
     )
 
-    
-    # TODO: Generate actual pre-signed URL from S3/MinIO
-    # For now, return a placeholder
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
-    
-    return DownloadResponse(
-        url=f"/storage/{document.storage_uri}",
-        expires_at=expires_at
-    )
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+    return DownloadResponse(url=signed_url, expires_at=expires_at)
 
 @router.get("/documents/{document_id}/content")
 async def get_document_content(

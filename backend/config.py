@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     s3_region: str = "auto"  # R2 uses "auto", AWS uses region like "us-east-1"
     s3_access_key_id: str = ""  # AWS Access Key ID
     s3_secret_access_key: str = ""  # AWS Secret Access Key
+    download_url_ttl_seconds: int = int(os.getenv("DOWNLOAD_URL_TTL_SECONDS", "3600"))
     
     # Environment
     environment: str = "development"

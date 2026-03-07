@@ -10,6 +10,7 @@ from models.summary import Summary
 from models.job import Job
 from models.embedding_job import EmbeddingJob
 from models.user import User
+from models.workspace import Workspace
 from database import get_db
 from utils.auth import get_current_user
 from utils.audit import create_audit_log, AuditActions
@@ -33,15 +34,65 @@ def _parse_storage_uri(storage_uri: str) -> tuple[str, str]:
         )
 
 
-def _serialize_deletion_request(request: DocumentDeletionRequest):
+def _serialize_deletion_request(
+    request: DocumentDeletionRequest,
+    requested_by_user: dict | None = None,
+    document: dict | None = None,
+):
     return {
         "id": request.id,
         "document_id": request.document_id,
+        "document": document,
         "requested_by": request.requested_by,
+        "requested_by_user": requested_by_user,
         "reason": request.reason,
         "status": request.status,
         "created_at": request.created_at,
         "responded_at": request.responded_at,
+    }
+
+
+def _build_requester_map(requests: list[DocumentDeletionRequest], db: Session) -> dict[int, dict]:
+    requester_ids = {r.requested_by for r in requests if r.requested_by is not None}
+    if not requester_ids:
+        return {}
+
+    rows = db.query(User.id, User.username, User.email).filter(User.id.in_(requester_ids)).all()
+    return {
+        user_id: {
+            "id": user_id,
+            "username": username,
+            "email": email,
+        }
+        for user_id, username, email in rows
+    }
+
+
+def _build_document_map(requests: list[DocumentDeletionRequest], db: Session) -> dict[int, dict]:
+    document_ids = {r.document_id for r in requests if r.document_id is not None}
+    if not document_ids:
+        return {}
+
+    rows = (
+        db.query(Document.id, Document.filename, Document.workspace_id, Workspace.name)
+        .outerjoin(Workspace, Workspace.id == Document.workspace_id)
+        .filter(Document.id.in_(document_ids))
+        .all()
+    )
+    return {
+        document_id: {
+            "id": document_id,
+            "filename": filename,
+            "workspace": (
+                {
+                    "id": workspace_id,
+                    "name": workspace_name,
+                }
+                if workspace_id is not None
+                else None
+            ),
+        }
+        for document_id, filename, workspace_id, workspace_name in rows
     }
 
 @router.get("/pending")
@@ -54,10 +105,19 @@ async def get_pending_deletion_requests(
         DocumentDeletionRequest.document_owner == current_user.id,
         DocumentDeletionRequest.status == DeletionRequestStatus.PENDING
     ).order_by(DocumentDeletionRequest.created_at.desc()).all()
+    requester_map = _build_requester_map(requests, db)
+    document_map = _build_document_map(requests, db)
     
     return {
         "count": len(requests),
-        "requests": [_serialize_deletion_request(r) for r in requests]
+        "requests": [
+            _serialize_deletion_request(
+                r,
+                requester_map.get(r.requested_by),
+                document_map.get(r.document_id),
+            )
+            for r in requests
+        ]
     }
 
 
@@ -70,10 +130,19 @@ async def get_all_deletion_requests(
     requests = db.query(DocumentDeletionRequest).filter(
         DocumentDeletionRequest.document_owner == current_user.id
     ).order_by(DocumentDeletionRequest.created_at.desc()).all()
+    requester_map = _build_requester_map(requests, db)
+    document_map = _build_document_map(requests, db)
 
     return {
         "count": len(requests),
-        "requests": [_serialize_deletion_request(r) for r in requests]
+        "requests": [
+            _serialize_deletion_request(
+                r,
+                requester_map.get(r.requested_by),
+                document_map.get(r.document_id),
+            )
+            for r in requests
+        ]
     }
 
 @router.post("/{request_id}/approve")

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2, FileText } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import './Notifications.css';
 
@@ -256,6 +256,34 @@ function NotificationsPage() {
     return <span className={`status-badge ${status}`}>{status}</span>;
   };
 
+  const getRequesterLabel = (notification) => {
+    const requester = notification?.requested_by_user;
+    if (requester?.username && requester?.email) {
+      return `${requester.username} (${requester.email})`;
+    }
+    if (requester?.username) {
+      return requester.username;
+    }
+    if (requester?.email) {
+      return requester.email;
+    }
+    if (notification?.requested_by != null) {
+      return `User #${notification.requested_by}`;
+    }
+    return 'Unknown user';
+  };
+
+  const getRequestedDocumentLabel = (notification) => {
+    const filename = notification?.document?.filename;
+    if (filename) {
+      return filename;
+    }
+    if (notification?.document_id != null) {
+      return `Document #${notification.document_id}`;
+    }
+    return 'Unknown document';
+  };
+
   const pendingDeletionNotifications = notifications.filter(n => n.status === 'pending');
   const pendingCount = pendingDeletionNotifications.length + workspaceInvitations.length;
   const drDismissed = dismissedIds.deletion_request_ids || [];
@@ -331,8 +359,15 @@ function NotificationsPage() {
                       <h3>Document Deletion Request</h3>
                       {getStatusBadge(notification.status)}
                     </div>
+                    <p className="notification-document notification-document-name">
+                      <FileText size={18} className="notification-document-icon" aria-hidden="true" />
+                      <span>{getRequestedDocumentLabel(notification)}</span>
+                    </p>
                     <p className="notification-reason">
                       <strong>Reason:</strong> {notification.reason || 'No reason provided'}
+                    </p>
+                    <p className="notification-requester">
+                      <strong>Requested by:</strong> {getRequesterLabel(notification)}
                     </p>
                     <p className="notification-date">
                       Requested on {new Date(notification.created_at).toLocaleDateString('en-US', {
@@ -347,16 +382,18 @@ function NotificationsPage() {
                   </div>
                   <div className="notification-actions">
                     <button 
-                      className="btn btn-approve"
+                      className="btn btn-approve btn-icon-action"
                       onClick={() => handleApprove(notification.id)}
+                      aria-label="Approve"
                     >
-                      Approve
+                      ✓
                     </button>
                     <button 
-                      className="btn btn-deny"
+                      className="btn btn-deny btn-icon-action"
                       onClick={() => handleDeny(notification.id)}
+                      aria-label="Deny"
                     >
-                      Deny
+                      ✕
                     </button>
                   </div>
                 </div>
@@ -393,16 +430,18 @@ function NotificationsPage() {
                   </div>
                   <div className="notification-actions">
                     <button
-                      className="btn btn-approve"
+                      className="btn btn-approve btn-icon-action"
                       onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)}
+                      aria-label="Accept"
                     >
-                      Accept
+                      ✓
                     </button>
                     <button
-                      className="btn btn-deny"
+                      className="btn btn-deny btn-icon-action"
                       onClick={() => handleDeclineWorkspaceInvite(invitation.invitation_id)}
+                      aria-label="Decline"
                     >
-                      Decline
+                      ✕
                     </button>
                   </div>
                 </div>
@@ -423,6 +462,13 @@ function NotificationsPage() {
                       </div>
                       {getStatusBadge(notification.status)}
                     </div>
+                    <p className="notification-document notification-document-name">
+                      <FileText size={18} className="notification-document-icon" aria-hidden="true" />
+                      <span>{getRequestedDocumentLabel(notification)}</span>
+                    </p>
+                    <p className="notification-requester">
+                      <strong>Requested by:</strong> {getRequesterLabel(notification)}
+                    </p>
                     <p className="notification-reason">
                       <strong>Reason:</strong> {notification.reason || 'No reason provided'}
                     </p>

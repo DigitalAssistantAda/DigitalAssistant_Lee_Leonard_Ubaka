@@ -532,7 +532,13 @@ function NotificationsPage() {
                   <div className="notification-actions">
                     <button
                       className="btn btn-mention-open"
-                      onClick={() => navigate(`/workspace/${mention.workspace_id}`)}
+                      onClick={() => {
+                        const params = new URLSearchParams({ tab: 'discussion' });
+                        if (mention.message_id != null) {
+                          params.set('messageId', String(mention.message_id));
+                        }
+                        navigate(`/workspace/${mention.workspace_id}?${params.toString()}`);
+                      }}
                     >
                       Open discussion
                     </button>

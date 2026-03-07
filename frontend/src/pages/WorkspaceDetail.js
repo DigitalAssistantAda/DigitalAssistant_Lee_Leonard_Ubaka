@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, FileText, MessageSquare, AlertCircle, Settings } from 'lucide-react';
 import WorkspaceSettings from './WorkspaceSettings';
 import LoadingState from '../components/LoadingState';
@@ -11,6 +11,7 @@ import './WorkspaceDetail.css';
 function WorkspaceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,7 +27,11 @@ function WorkspaceDetail() {
   const [messageCaret, setMessageCaret] = useState(0);
   const [issueCount, setIssueCount] = useState(0);
   const [issueHasUpdates, setIssueHasUpdates] = useState(false);
+  const [targetMessageId, setTargetMessageId] = useState(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
   const messageInputRef = useRef(null);
+  const messageRowRefs = useRef(new Map());
+  const highlightClearTimeoutRef = useRef(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const currentUsername = useMemo(() => {
@@ -166,6 +171,19 @@ function WorkspaceDetail() {
     setShowMentionSuggestions(true);
   }, []);
 
+  const getSearchState = useCallback(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    const nextTab = tab === 'discussion' || tab === 'overview' || tab === 'settings'
+      ? tab
+      : 'overview';
+    const messageIdParam = params.get('messageId');
+    return {
+      tab: nextTab,
+      messageId: messageIdParam ? String(messageIdParam) : null,
+    };
+  }, [location.search]);
+
   const handleMessageInputChange = (event) => {
     const value = event.target.value;
     const caretPosition = event.target.selectionStart ?? value.length;
@@ -244,6 +262,41 @@ function WorkspaceDetail() {
     fetchMemberCount();
     fetchIssueSummary();
   }, [id, API_URL, fetchMessages, fetchIssueSummary, fetchMemberCount]);
+
+  useEffect(() => {
+    const { tab, messageId } = getSearchState();
+    setActiveTab(tab);
+    setTargetMessageId(tab === 'discussion' ? messageId : null);
+  }, [getSearchState, id]);
+
+  useEffect(() => {
+    if (activeTab !== 'discussion' || !targetMessageId || messages.length === 0) {
+      return;
+    }
+    const targetRow = messageRowRefs.current.get(String(targetMessageId));
+    if (!targetRow) {
+      return;
+    }
+
+    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMessageId(String(targetMessageId));
+    setTargetMessageId(null);
+
+    if (highlightClearTimeoutRef.current) {
+      clearTimeout(highlightClearTimeoutRef.current);
+    }
+    highlightClearTimeoutRef.current = setTimeout(() => {
+      setHighlightedMessageId(null);
+    }, 2400);
+  }, [activeTab, targetMessageId, messages]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightClearTimeoutRef.current) {
+        clearTimeout(highlightClearTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
@@ -437,9 +490,21 @@ function WorkspaceDetail() {
                       messages.map((msg, index) => {
                         const author = String(msg.sender_username ?? msg.sender ?? msg.user ?? 'Unknown');
                         const isSelf = currentUsername && author.toLowerCase() === currentUsername;
+                        const messageKey = msg.id != null ? String(msg.id) : '';
 
                         return (
-                          <div key={msg.id ?? index} className={`message-row ${isSelf ? 'self' : ''}`}>
+                          <div
+                            key={msg.id ?? index}
+                            ref={(element) => {
+                              if (!messageKey) return;
+                              if (element) {
+                                messageRowRefs.current.set(messageKey, element);
+                              } else {
+                                messageRowRefs.current.delete(messageKey);
+                              }
+                            }}
+                            className={`message-row ${isSelf ? 'self' : ''} ${highlightedMessageId === messageKey ? 'targeted' : ''}`}
+                          >
                             {!isSelf && (
                               <div className="message-avatar">{getInitial(author)}</div>
                             )}

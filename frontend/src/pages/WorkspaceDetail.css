@@ -596,6 +596,12 @@
   align-items: flex-start;
 }
 
+.message-row.targeted .message-bubble {
+  border-color: color-mix(in srgb, var(--accent-primary) 55%, var(--border-color, #e0e6ed));
+  background: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+}
+
 .message-row.self {
   justify-content: flex-end;
 }

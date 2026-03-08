@@ -1,6 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+<<<<<<< HEAD
 import { ArrowLeft, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2, FileText } from 'lucide-react';
+=======
+import {
+  ArrowLeft,
+  Check,
+  X,
+  CheckCircle,
+  XCircle,
+  Clock,
+  MessageSquare,
+  Users,
+  Trash2,
+} from 'lucide-react';
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
 import LoadingState from '../components/LoadingState';
 import './Notifications.css';
 
@@ -14,7 +28,7 @@ function NotificationsPage() {
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-  const currentUserId = (() => {
+  const currentUserId = useMemo(() => {
     try {
       const rawUser = localStorage.getItem('user');
       if (!rawUser) return null;
@@ -24,26 +38,27 @@ function NotificationsPage() {
     } catch {
       return null;
     }
-  })();
+  }, []);
 
   useEffect(() => {
     fetchNotifications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   useEffect(() => {
     const onUpdate = () => fetchNotifications();
     window.addEventListener('notifications-updated', onUpdate);
     return () => window.removeEventListener('notifications-updated', onUpdate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchNotifications = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
+
       const response = await fetch(`${API_URL}/api/v1/deletion-requests/all`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) {
         setNotifications([]);
@@ -53,9 +68,7 @@ function NotificationsPage() {
       }
 
       const invitationsResponse = await fetch(`${API_URL}/api/v1/workspaces/invitations/pending`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!invitationsResponse.ok) {
@@ -66,9 +79,7 @@ function NotificationsPage() {
       }
 
       const mentionsResponse = await fetch(`${API_URL}/api/v1/audit-logs?action=message.mentioned&limit=200`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!mentionsResponse.ok) {
@@ -113,10 +124,14 @@ function NotificationsPage() {
       if (prefsResponse.ok) {
         const prefs = await prefsResponse.json();
         const d = prefs?.dismissed_notification_ids;
-        setDismissedIds(d && typeof d === 'object' ? {
-          deletion_request_ids: Array.isArray(d.deletion_request_ids) ? d.deletion_request_ids : [],
-          mention_ids: Array.isArray(d.mention_ids) ? d.mention_ids : [],
-        } : { deletion_request_ids: [], mention_ids: [] });
+        setDismissedIds(
+          d && typeof d === 'object'
+            ? {
+                deletion_request_ids: Array.isArray(d.deletion_request_ids) ? d.deletion_request_ids : [],
+                mention_ids: Array.isArray(d.mention_ids) ? d.mention_ids : [],
+              }
+            : { deletion_request_ids: [], mention_ids: [] }
+        );
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
@@ -131,9 +146,7 @@ function NotificationsPage() {
     try {
       const response = await fetch(`${API_URL}/api/v1/workspaces/invitations/${invitationId}/accept`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       if (response.ok) {
         fetchNotifications();
@@ -148,9 +161,7 @@ function NotificationsPage() {
     try {
       const response = await fetch(`${API_URL}/api/v1/workspaces/invitations/${invitationId}/decline`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       if (response.ok) {
         fetchNotifications();
@@ -165,9 +176,7 @@ function NotificationsPage() {
     try {
       const response = await fetch(`${API_URL}/api/v1/deletion-requests/${requestId}/approve`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       if (response.ok) {
         fetchNotifications();
@@ -182,9 +191,7 @@ function NotificationsPage() {
     try {
       const response = await fetch(`${API_URL}/api/v1/deletion-requests/${requestId}/deny`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
       if (response.ok) {
         fetchNotifications();
@@ -200,7 +207,7 @@ function NotificationsPage() {
       const response = await fetch(`${API_URL}/api/v1/users/notifications-dismiss`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ deletion_request_ids: [requestId] }),
@@ -222,7 +229,7 @@ function NotificationsPage() {
       const response = await fetch(`${API_URL}/api/v1/users/notifications-dismiss`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ mention_ids: [mentionId] }),
@@ -239,8 +246,15 @@ function NotificationsPage() {
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
+  // NEW: when clicking "Open discussion" for a mention, go to the workspace Chat History tab
+  const handleOpenMentionDiscussion = (mention) => {
+    const wsId = mention?.workspace_id;
+    if (!wsId) return;
+    navigate(`/workspace/${wsId}?tab=discussion`);
+  };
+
+  const getStatusIcon = (statusValue) => {
+    switch (statusValue) {
       case 'approved':
         return <CheckCircle size={20} className="status-icon approved" />;
       case 'denied':
@@ -252,10 +266,9 @@ function NotificationsPage() {
     }
   };
 
-  const getStatusBadge = (status) => {
-    return <span className={`status-badge ${status}`}>{status}</span>;
-  };
+  const getStatusBadge = (statusValue) => <span className={`status-badge ${statusValue}`}>{statusValue}</span>;
 
+<<<<<<< HEAD
   const getRequesterLabel = (notification) => {
     const requester = notification?.requested_by_user;
     if (requester?.username && requester?.email) {
@@ -285,35 +298,41 @@ function NotificationsPage() {
   };
 
   const pendingDeletionNotifications = notifications.filter(n => n.status === 'pending');
+=======
+  const pendingDeletionNotifications = notifications.filter((n) => n.status === 'pending');
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
   const pendingCount = pendingDeletionNotifications.length + workspaceInvitations.length;
+
   const drDismissed = dismissedIds.deletion_request_ids || [];
   const mentionDismissed = dismissedIds.mention_ids || [];
-  const displayResponded = filter === 'all'
-    ? notifications.filter(n => n.status !== 'pending' && !drDismissed.includes(n.id))
-    : [];
-  const displayMentions = filter === 'all'
-    ? mentionNotifications.filter(m => !mentionDismissed.includes(m.id))
-    : [];
+
+  const displayResponded =
+    filter === 'all' ? notifications.filter((n) => n.status !== 'pending' && !drDismissed.includes(n.id)) : [];
+
+  const displayMentions = filter === 'all' ? mentionNotifications.filter((m) => !mentionDismissed.includes(m.id)) : [];
   const displayInvitations = workspaceInvitations;
+
   const allCount =
-    pendingDeletionNotifications.length +
-    displayInvitations.length +
-    displayResponded.length +
-    displayMentions.length;
+    pendingDeletionNotifications.length + displayInvitations.length + displayResponded.length + displayMentions.length;
+
   const hasAnyVisibleNotifications =
     pendingDeletionNotifications.length > 0 ||
     displayMentions.length > 0 ||
     displayInvitations.length > 0 ||
     displayResponded.length > 0;
 
+  const renderLocation = (n) => {
+    const wsName = n.workspace_name;
+    const wsId = n.workspace_id;
+    const containerName = n.container_name;
+    const wsLabel = wsName ? `${wsName}${wsId ? ` (workspace #${wsId})` : ''}` : wsId ? `Workspace #${wsId}` : '—';
+    return `${wsLabel}${containerName ? ` / ${containerName}` : ''}`;
+  };
+
   return (
     <div className="notifications-page">
       <div className="notifications-header">
-        <button 
-          className="back-btn"
-          onClick={() => navigate(-1)}
-          aria-label="Go back"
-        >
+        <button className="back-btn" onClick={() => navigate(-1)} aria-label="Go back">
           <ArrowLeft size={24} />
         </button>
         <h1>Notifications</h1>
@@ -322,24 +341,16 @@ function NotificationsPage() {
 
       <div className="notifications-container">
         <div className="filter-tabs">
-          <button 
-            className={`filter-tab ${filter === 'pending' ? 'active' : ''}`}
-            onClick={() => setFilter('pending')}
-          >
+          <button className={`filter-tab ${filter === 'pending' ? 'active' : ''}`} onClick={() => setFilter('pending')}>
             Pending ({pendingCount})
           </button>
-          <button 
-            className={`filter-tab ${filter === 'all' ? 'active' : ''}`}
-            onClick={() => setFilter('all')}
-          >
+          <button className={`filter-tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
             All ({allCount})
           </button>
         </div>
 
         <div className="notifications-list">
-          {loading && (
-            <LoadingState className="loading-state" message="Loading notifications..." size={36} />
-          )}
+          {loading && <LoadingState className="loading-state" message="Loading notifications..." size={36} />}
 
           {!loading && !hasAnyVisibleNotifications && (
             <div className="empty-state">
@@ -352,17 +363,33 @@ function NotificationsPage() {
           {!loading && pendingDeletionNotifications.length > 0 && (
             <>
               <div className="section-title">Awaiting Your Decision</div>
-              {pendingDeletionNotifications.map(notification => (
+              {pendingDeletionNotifications.map((notification) => (
                 <div key={notification.id} className="notification-card pending-card">
                   <div className="notification-content">
                     <div className="notification-header">
                       <h3>Document Deletion Request</h3>
                       {getStatusBadge(notification.status)}
                     </div>
+<<<<<<< HEAD
                     <p className="notification-document notification-document-name">
                       <FileText size={18} className="notification-document-icon" aria-hidden="true" />
                       <span>{getRequestedDocumentLabel(notification)}</span>
                     </p>
+=======
+
+                    <p className="notification-reason">
+                      <strong>Requested by:</strong>{' '}
+                      {notification.requested_by_username || `User #${notification.requested_by}`}
+                    </p>
+                    <p className="notification-reason">
+                      <strong>Document:</strong>{' '}
+                      {notification.document_filename || `Document #${notification.document_id}`}
+                    </p>
+                    <p className="notification-reason">
+                      <strong>Location:</strong> {renderLocation(notification)}
+                    </p>
+
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                     <p className="notification-reason">
                       <strong>Reason:</strong> {notification.reason || 'No reason provided'}
                     </p>
@@ -370,17 +397,21 @@ function NotificationsPage() {
                       <strong>Requested by:</strong> {getRequesterLabel(notification)}
                     </p>
                     <p className="notification-date">
-                      Requested on {new Date(notification.created_at).toLocaleDateString('en-US', {
+                      Requested on{' '}
+                      {new Date(notification.created_at).toLocaleDateString('en-US', {
                         weekday: 'long',
                         year: 'numeric',
                         month: 'long',
                         day: 'numeric',
                         hour: '2-digit',
-                        minute: '2-digit'
+                        minute: '2-digit',
                       })}
                     </p>
                   </div>
+
+                  {/* Icons styled like your examples */}
                   <div className="notification-actions">
+<<<<<<< HEAD
                     <button 
                       className="btn btn-approve btn-icon-action"
                       onClick={() => handleApprove(notification.id)}
@@ -394,6 +425,25 @@ function NotificationsPage() {
                       aria-label="Deny"
                     >
                       ✕
+=======
+                    <button
+                      type="button"
+                      className="icon-action icon-action-accept"
+                      onClick={() => handleApprove(notification.id)}
+                      title="Approve"
+                      aria-label="Approve deletion request"
+                    >
+                      <Check size={20} strokeWidth={4} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-action icon-action-decline"
+                      onClick={() => handleDeny(notification.id)}
+                      title="Deny"
+                      aria-label="Deny deletion request"
+                    >
+                      <X size={20} strokeWidth={4} />
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                     </button>
                   </div>
                 </div>
@@ -405,7 +455,10 @@ function NotificationsPage() {
             <>
               <div className="section-title">Workspace Invitations</div>
               {displayInvitations.map((invitation) => (
-                <div key={`workspace-invite-${invitation.invitation_id}`} className="notification-card pending-card invitation-card">
+                <div
+                  key={`workspace-invite-${invitation.invitation_id}`}
+                  className="notification-card pending-card invitation-card"
+                >
                   <div className="notification-content">
                     <div className="notification-header">
                       <div className="status-with-icon">
@@ -415,21 +468,26 @@ function NotificationsPage() {
                       <span className="status-badge pending">pending</span>
                     </div>
                     <p className="notification-reason">
-                      You were invited to join <strong>{invitation.workspace_name}</strong> as <strong>{invitation.role}</strong>.
+                      You were invited to join <strong>{invitation.workspace_name}</strong> as{' '}
+                      <strong>{invitation.role}</strong>.
                     </p>
                     <p className="notification-date">
-                      Invited on {new Date(invitation.invited_at).toLocaleDateString('en-US', {
+                      Invited on{' '}
+                      {new Date(invitation.invited_at).toLocaleDateString('en-US', {
                         weekday: 'long',
                         year: 'numeric',
                         month: 'long',
                         day: 'numeric',
                         hour: '2-digit',
-                        minute: '2-digit'
+                        minute: '2-digit',
                       })}
                     </p>
                   </div>
+
+                  {/* Icons styled like your examples */}
                   <div className="notification-actions">
                     <button
+<<<<<<< HEAD
                       className="btn btn-approve btn-icon-action"
                       onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)}
                       aria-label="Accept"
@@ -442,6 +500,24 @@ function NotificationsPage() {
                       aria-label="Decline"
                     >
                       ✕
+=======
+                      type="button"
+                      className="icon-action icon-action-accept"
+                      onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)}
+                      title="Accept"
+                      aria-label="Accept workspace invitation"
+                    >
+                      <Check size={26} strokeWidth={4} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-action icon-action-decline"
+                      onClick={() => handleDeclineWorkspaceInvite(invitation.invitation_id)}
+                      title="Decline"
+                      aria-label="Decline workspace invitation"
+                    >
+                      <X size={26} strokeWidth={4} />
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                     </button>
                   </div>
                 </div>
@@ -452,7 +528,7 @@ function NotificationsPage() {
           {!loading && displayResponded.length > 0 && (
             <>
               <div className="section-title">History</div>
-              {displayResponded.map(notification => (
+              {displayResponded.map((notification) => (
                 <div key={notification.id} className="notification-card responded-card">
                   <div className="notification-content">
                     <div className="notification-header">
@@ -462,6 +538,7 @@ function NotificationsPage() {
                       </div>
                       {getStatusBadge(notification.status)}
                     </div>
+<<<<<<< HEAD
                     <p className="notification-document notification-document-name">
                       <FileText size={18} className="notification-document-icon" aria-hidden="true" />
                       <span>{getRequestedDocumentLabel(notification)}</span>
@@ -469,22 +546,37 @@ function NotificationsPage() {
                     <p className="notification-requester">
                       <strong>Requested by:</strong> {getRequesterLabel(notification)}
                     </p>
+=======
+
+                    <p className="notification-reason">
+                      <strong>Requested by:</strong>{' '}
+                      {notification.requested_by_username || `User #${notification.requested_by}`}
+                    </p>
+                    <p className="notification-reason">
+                      <strong>Document:</strong>{' '}
+                      {notification.document_filename || `Document #${notification.document_id}`}
+                    </p>
+                    <p className="notification-reason">
+                      <strong>Location:</strong> {renderLocation(notification)}
+                    </p>
+
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                     <p className="notification-reason">
                       <strong>Reason:</strong> {notification.reason || 'No reason provided'}
                     </p>
                     <p className="notification-date">
                       {notification.status === 'approved' ? 'Approved' : 'Denied'} on{' '}
-                      {notification.responded_at 
+                      {notification.responded_at
                         ? new Date(notification.responded_at).toLocaleDateString('en-US', {
                             weekday: 'long',
                             year: 'numeric',
                             month: 'long',
-                            day: 'numeric'
+                            day: 'numeric',
                           })
-                        : 'Unknown date'
-                      }
+                        : 'Unknown date'}
                     </p>
                   </div>
+
                   <div className="notification-actions">
                     <button
                       type="button"
@@ -515,9 +607,7 @@ function NotificationsPage() {
                       </div>
                       <span className="status-badge mention">Mention</span>
                     </div>
-                    <p className="notification-reason">
-                      Mentioned in workspace #{mention.workspace_id}
-                    </p>
+                    <p className="notification-reason">Mentioned in workspace #{mention.workspace_id}</p>
                     <p className="notification-date">
                       {new Date(mention.created_at).toLocaleDateString('en-US', {
                         weekday: 'long',
@@ -525,11 +615,12 @@ function NotificationsPage() {
                         month: 'long',
                         day: 'numeric',
                         hour: '2-digit',
-                        minute: '2-digit'
+                        minute: '2-digit',
                       })}
                     </p>
                   </div>
                   <div className="notification-actions">
+<<<<<<< HEAD
                     <button
                       className="btn btn-mention-open"
                       onClick={() => {
@@ -540,6 +631,9 @@ function NotificationsPage() {
                         navigate(`/workspace/${mention.workspace_id}?${params.toString()}`);
                       }}
                     >
+=======
+                    <button className="btn btn-mention-open" onClick={() => handleOpenMentionDiscussion(mention)}>
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                       Open discussion
                     </button>
                     <button

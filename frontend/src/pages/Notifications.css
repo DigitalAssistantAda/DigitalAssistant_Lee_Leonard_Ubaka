@@ -303,6 +303,46 @@
   flex-shrink: 0;
 }
 
+/* NEW: Icon buttons that match your examples */
+.icon-action {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.08s ease, filter 0.2s ease;
+}
+
+.icon-action svg {
+  color: #ffffff; /* white check/X */
+}
+
+.icon-action:active {
+  transform: scale(0.96);
+}
+
+/* Match the green from photo #2 */
+.icon-action-accept {
+  background: #49aa4b;
+}
+
+.icon-action-accept:hover {
+  filter: brightness(0.95);
+}
+
+/* Slightly brighter red for the X */
+.icon-action-decline {
+  background: #e44b5c;
+}
+
+.icon-action-decline:hover {
+  filter: brightness(0.95);
+}
+
 .notifications-page .btn {
   padding: var(--s-8) var(--s-16);
   border: 1px solid transparent;
@@ -314,6 +354,7 @@
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
+<<<<<<< HEAD
 .notifications-page .btn-icon-action {
   width: 2.5rem;
   height: 2rem;
@@ -345,6 +386,8 @@
   background: color-mix(in srgb, var(--status-danger) 85%, black);
 }
 
+=======
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
 .btn-mention-open {
   background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary));
   color: var(--text-primary);
@@ -360,6 +403,7 @@
   color: var(--text-secondary);
   border-color: var(--border-primary);
 }
+
 .btn-dismiss:hover {
   background: color-mix(in srgb, var(--text-secondary) 8%, transparent);
   color: var(--text-primary);
@@ -380,10 +424,7 @@
 
   .notification-actions {
     width: 100%;
-  }
-
-  .notifications-page .btn {
-    flex: 1;
+    justify-content: flex-end;
   }
 
   .notifications-page .btn-icon-action {

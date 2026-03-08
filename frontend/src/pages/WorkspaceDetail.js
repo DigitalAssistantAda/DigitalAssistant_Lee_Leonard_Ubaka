@@ -12,6 +12,10 @@ function WorkspaceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+<<<<<<< HEAD
+=======
+
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -45,6 +49,16 @@ function WorkspaceDetail() {
     }
   }, []);
 
+  // NEW: read ?tab=discussion (or overview/settings) and open that tab
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || '');
+    const tab = params.get('tab');
+
+    if (tab === 'discussion' || tab === 'overview' || tab === 'settings') {
+      setActiveTab(tab);
+    }
+  }, [location.search]);
+
   const getInitial = (value) => {
     if (!value || typeof value !== 'string') return '?';
     return value.charAt(0).toUpperCase();
@@ -71,9 +85,7 @@ function WorkspaceDetail() {
   };
 
   const documentCount = workspace?.document_count ?? 0;
-  const memberCount = Number.isFinite(liveMemberCount)
-    ? liveMemberCount
-    : (workspace?.member_count || 0);
+  const memberCount = Number.isFinite(liveMemberCount) ? liveMemberCount : (workspace?.member_count || 0);
   const discussionCount = messages.length;
   const discussionHasUpdates = messages.some((msg) => isRecent(msg.created_at, 2));
   const workspaceAccentStyle = useMemo(() => {
@@ -86,7 +98,9 @@ function WorkspaceDetail() {
   const mentionSuggestions = useMemo(() => {
     if (!showMentionSuggestions) return [];
     const normalized = mentionQuery.trim().toLowerCase();
-    const uniqueNames = Array.from(new Set(workspaceMemberUsernames.map((name) => String(name || '').trim()).filter(Boolean)));
+    const uniqueNames = Array.from(
+      new Set(workspaceMemberUsernames.map((name) => String(name || '').trim()).filter(Boolean))
+    );
     if (!normalized) {
       return uniqueNames.slice(0, 6);
     }
@@ -145,14 +159,12 @@ function WorkspaceDetail() {
       const items = Array.isArray(data?.items)
         ? data.items
         : Array.isArray(data?.members)
-        ? data.members
-        : Array.isArray(data)
-        ? data
-        : [];
+          ? data.members
+          : Array.isArray(data)
+            ? data
+            : [];
       setLiveMemberCount(items.length);
-      const usernames = items
-        .map((member) => String(member?.username || '').trim())
-        .filter(Boolean);
+      const usernames = items.map((member) => String(member?.username || '').trim()).filter(Boolean);
       setWorkspaceMemberUsernames(usernames);
     } catch (err) {
       console.error('Failed to fetch member count:', err);
@@ -216,7 +228,9 @@ function WorkspaceDetail() {
   };
 
   const renderMessageContent = (content, mentionedUsernames) => {
-    const mentionSet = new Set((Array.isArray(mentionedUsernames) ? mentionedUsernames : []).map((name) => String(name || '').toLowerCase()));
+    const mentionSet = new Set(
+      (Array.isArray(mentionedUsernames) ? mentionedUsernames : []).map((name) => String(name || '').toLowerCase())
+    );
     const parts = String(content || '').split(/(@[A-Za-z0-9_.-]{1,50})/g);
     return parts.map((part, index) => {
       const isToken = /^@[A-Za-z0-9_.-]{1,50}$/.test(part);
@@ -226,10 +240,7 @@ function WorkspaceDetail() {
       const normalized = part.slice(1).toLowerCase();
       const isMention = mentionSet.has(normalized);
       return (
-        <span
-          key={`mention-${index}`}
-          className={isMention ? 'message-mention' : 'message-token'}
-        >
+        <span key={`mention-${index}`} className={isMention ? 'message-mention' : 'message-token'}>
           {part}
         </span>
       );
@@ -332,7 +343,13 @@ function WorkspaceDetail() {
     }
   };
 
-  if (loading) return <div className="workspace-detail-page"><LoadingState className="loading" message="Loading workspace..." size={40} /></div>;
+  if (loading)
+    return (
+      <div className="workspace-detail-page">
+        <LoadingState className="loading" message="Loading workspace..." size={40} />
+      </div>
+    );
+
   if (error) {
     if (isWorkspaceAccessErrorMessage(error)) {
       return (
@@ -346,17 +363,31 @@ function WorkspaceDetail() {
         </div>
       );
     }
-    return <div className="workspace-detail-page"><div className="error">{error}</div></div>;
+    return (
+      <div className="workspace-detail-page">
+        <div className="error">{error}</div>
+      </div>
+    );
   }
-  if (!workspace) return <div className="workspace-detail-page"><div className="error">Workspace not found</div></div>;
+
+  if (!workspace)
+    return (
+      <div className="workspace-detail-page">
+        <div className="error">Workspace not found</div>
+      </div>
+    );
 
   return (
     <div className="workspace-detail-page" style={workspaceAccentStyle}>
       <header className="detail-header">
         <div className="header-content">
-          <button className="back-btn" onClick={() => navigate('/workspace')}>&larr; Back to Workspaces</button>
+          <button className="back-btn" onClick={() => navigate('/workspace')}>
+            &larr; Back to Workspaces
+          </button>
           <h1>{workspace.name}</h1>
-          <p>ID: {workspace.id} • {memberCount} Members • {documentCount} Documents</p>
+          <p>
+            ID: {workspace.id} • {memberCount} Members • {documentCount} Documents
+          </p>
         </div>
       </header>
 
@@ -370,10 +401,13 @@ function WorkspaceDetail() {
               title="Overview"
               aria-label="Overview"
             >
-              <span className="detail-nav-icon" aria-hidden="true"><LayoutDashboard size={16} /></span>
+              <span className="detail-nav-icon" aria-hidden="true">
+                <LayoutDashboard size={16} />
+              </span>
               <span className="detail-nav-label">Overview</span>
               <span className="detail-nav-meta" />
             </button>
+
             <button
               className="detail-nav-item"
               onClick={() => {
@@ -388,12 +422,15 @@ function WorkspaceDetail() {
               title="Documents"
               aria-label="Documents"
             >
-              <span className="detail-nav-icon" aria-hidden="true"><FileText size={16} /></span>
+              <span className="detail-nav-icon" aria-hidden="true">
+                <FileText size={16} />
+              </span>
               <span className="detail-nav-label">Documents</span>
               <span className="detail-nav-meta">
                 <span className="detail-nav-count">{documentCount}</span>
               </span>
             </button>
+
             <button
               className={`detail-nav-item ${activeTab === 'discussion' ? 'active' : ''}`}
               onClick={() => setActiveTab('discussion')}
@@ -401,13 +438,16 @@ function WorkspaceDetail() {
               title="Discussion"
               aria-label="Discussion"
             >
-              <span className="detail-nav-icon" aria-hidden="true"><MessageSquare size={16} /></span>
+              <span className="detail-nav-icon" aria-hidden="true">
+                <MessageSquare size={16} />
+              </span>
               <span className="detail-nav-label">Chat History</span>
               <span className="detail-nav-meta">
                 <span className="detail-nav-count">{discussionCount}</span>
                 {discussionHasUpdates && <span className="detail-nav-dot" aria-label="New messages"></span>}
               </span>
             </button>
+
             <button
               className="detail-nav-item"
               onClick={() => navigate(`/workspace/${id}/issues`)}
@@ -415,13 +455,16 @@ function WorkspaceDetail() {
               title="Issues"
               aria-label="Issues"
             >
-              <span className="detail-nav-icon" aria-hidden="true"><AlertCircle size={16} /></span>
+              <span className="detail-nav-icon" aria-hidden="true">
+                <AlertCircle size={16} />
+              </span>
               <span className="detail-nav-label">Issues</span>
               <span className="detail-nav-meta">
                 <span className="detail-nav-count">{issueCount}</span>
                 {issueHasUpdates && <span className="detail-nav-dot" aria-label="New issues"></span>}
               </span>
             </button>
+
             <button
               className={`detail-nav-item ${activeTab === 'settings' ? 'active' : ''}`}
               onClick={() => setActiveTab('settings')}
@@ -429,7 +472,9 @@ function WorkspaceDetail() {
               title="Settings"
               aria-label="Settings"
             >
-              <span className="detail-nav-icon" aria-hidden="true"><Settings size={16} /></span>
+              <span className="detail-nav-icon" aria-hidden="true">
+                <Settings size={16} />
+              </span>
               <span className="detail-nav-label">Settings</span>
               <span className="detail-nav-meta"></span>
             </button>
@@ -470,6 +515,7 @@ function WorkspaceDetail() {
                 </div>
               </div>
             )}
+
             {activeTab === 'discussion' && (
               <div className="tab-discussion">
                 <div className="discussion-head">
@@ -493,6 +539,7 @@ function WorkspaceDetail() {
                         const messageKey = msg.id != null ? String(msg.id) : '';
 
                         return (
+<<<<<<< HEAD
                           <div
                             key={msg.id ?? index}
                             ref={(element) => {
@@ -508,14 +555,16 @@ function WorkspaceDetail() {
                             {!isSelf && (
                               <div className="message-avatar">{getInitial(author)}</div>
                             )}
+=======
+                          <div key={msg.id ?? index} className={`message-row ${isSelf ? 'self' : ''}`}>
+                            {!isSelf && <div className="message-avatar">{getInitial(author)}</div>}
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                             <div className="message-body">
                               <div className="message-header">
                                 <span className="message-author">{isSelf ? 'You' : author}</span>
                                 <span className="message-time">{formatMessageTime(msg.created_at)}</span>
                               </div>
-                              <div className="message-bubble">
-                                {renderMessageContent(msg.content, msg.mentioned_usernames)}
-                              </div>
+                              <div className="message-bubble">{renderMessageContent(msg.content, msg.mentioned_usernames)}</div>
                             </div>
                           </div>
                         );

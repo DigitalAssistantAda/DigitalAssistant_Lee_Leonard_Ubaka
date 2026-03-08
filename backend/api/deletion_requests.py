@@ -11,6 +11,10 @@ from models.job import Job
 from models.embedding_job import EmbeddingJob
 from models.user import User
 from models.workspace import Workspace
+<<<<<<< HEAD
+=======
+from models.container import Container
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
 from database import get_db
 from utils.auth import get_current_user
 from utils.audit import create_audit_log, AuditActions
@@ -34,24 +38,66 @@ def _parse_storage_uri(storage_uri: str) -> tuple[str, str]:
         )
 
 
+<<<<<<< HEAD
 def _serialize_deletion_request(
     request: DocumentDeletionRequest,
     requested_by_user: dict | None = None,
     document: dict | None = None,
 ):
+=======
+def _serialize_deletion_request(request: DocumentDeletionRequest, db: Session):
+    """
+    Enriched deletion-request payload for Notifications UI.
+
+    Includes:
+      - sender username
+      - document filename
+      - location (workspace name + container name if available)
+    """
+    sender = db.query(User).filter(User.id == request.requested_by).first()
+    document = db.query(Document).filter(Document.id == request.document_id).first()
+
+    workspace = None
+    container = None
+    container_id = None
+
+    if document is not None:
+        if document.workspace_id is not None:
+            workspace = db.query(Workspace).filter(Workspace.id == document.workspace_id).first()
+
+        # Document may or may not have container_id depending on your schema
+        container_id = getattr(document, "container_id", None)
+        if container_id is not None:
+            container = db.query(Container).filter(Container.id == container_id).first()
+
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
     return {
         "id": request.id,
         "document_id": request.document_id,
         "document": document,
         "requested_by": request.requested_by,
+<<<<<<< HEAD
         "requested_by_user": requested_by_user,
+=======
+        "requested_by_username": sender.username if sender else None,
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
         "reason": request.reason,
         "status": request.status,
         "created_at": request.created_at,
         "responded_at": request.responded_at,
+
+        # Document details
+        "document_filename": document.filename if document else None,
+
+        # Location details
+        "workspace_id": document.workspace_id if document else None,
+        "workspace_name": workspace.name if workspace else None,
+        "container_id": container_id,
+        "container_name": container.name if container else None,
     }
 
 
+<<<<<<< HEAD
 def _build_requester_map(requests: list[DocumentDeletionRequest], db: Session) -> dict[int, dict]:
     requester_ids = {r.requested_by for r in requests if r.requested_by is not None}
     if not requester_ids:
@@ -95,6 +141,8 @@ def _build_document_map(requests: list[DocumentDeletionRequest], db: Session) ->
         for document_id, filename, workspace_id, workspace_name in rows
     }
 
+=======
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
 @router.get("/pending")
 async def get_pending_deletion_requests(
     current_user: User = Depends(get_current_user),
@@ -105,6 +153,7 @@ async def get_pending_deletion_requests(
         DocumentDeletionRequest.document_owner == current_user.id,
         DocumentDeletionRequest.status == DeletionRequestStatus.PENDING
     ).order_by(DocumentDeletionRequest.created_at.desc()).all()
+<<<<<<< HEAD
     requester_map = _build_requester_map(requests, db)
     document_map = _build_document_map(requests, db)
     
@@ -118,6 +167,12 @@ async def get_pending_deletion_requests(
             )
             for r in requests
         ]
+=======
+
+    return {
+        "count": len(requests),
+        "requests": [_serialize_deletion_request(r, db) for r in requests]
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
     }
 
 
@@ -135,6 +190,7 @@ async def get_all_deletion_requests(
 
     return {
         "count": len(requests),
+<<<<<<< HEAD
         "requests": [
             _serialize_deletion_request(
                 r,
@@ -143,7 +199,11 @@ async def get_all_deletion_requests(
             )
             for r in requests
         ]
+=======
+        "requests": [_serialize_deletion_request(r, db) for r in requests]
+>>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
     }
+
 
 @router.post("/{request_id}/approve")
 async def approve_deletion_request(
@@ -155,26 +215,27 @@ async def approve_deletion_request(
     deletion_request = db.query(DocumentDeletionRequest).filter(
         DocumentDeletionRequest.id == request_id
     ).first()
-    
+
     if not deletion_request:
         raise HTTPException(status_code=404, detail="Deletion request not found")
-    
+
     if deletion_request.document_owner != current_user.id:
         raise HTTPException(status_code=403, detail="Only document owner can approve")
-    
+
     document = db.query(Document).filter(Document.id == deletion_request.document_id).first()
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     if document.status == DocumentStatus.DELETED:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
     deletion_request.status = DeletionRequestStatus.APPROVED
     deletion_request.responded_at = datetime.now(timezone.utc)
+
     document_id = document.id
     workspace_id = document.workspace_id
     filename = document.filename
     bucket, path = _parse_storage_uri(document.storage_uri)
-    
+
     try:
         chunk_ids = [
             row[0]
@@ -217,7 +278,7 @@ async def approve_deletion_request(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete document: {str(e)}",
         )
-    
+
     create_audit_log(
         db,
         current_user,
@@ -233,6 +294,7 @@ async def approve_deletion_request(
     )
     return {"status": "approved", "request_id": request_id}
 
+
 @router.post("/{request_id}/deny")
 async def deny_deletion_request(
     request_id: int,
@@ -243,18 +305,17 @@ async def deny_deletion_request(
     deletion_request = db.query(DocumentDeletionRequest).filter(
         DocumentDeletionRequest.id == request_id
     ).first()
-    
+
     if not deletion_request:
         raise HTTPException(status_code=404, detail="Deletion request not found")
-    
+
     if deletion_request.document_owner != current_user.id:
         raise HTTPException(status_code=403, detail="Only document owner can deny")
-    
+
     deletion_request.status = DeletionRequestStatus.DENIED
     deletion_request.responded_at = datetime.now(timezone.utc)
     db.commit()
-    
-    # Log the denial
+
     create_audit_log(
         db, current_user,
         action=AuditActions.DOCUMENT_DELETION_DENIED,

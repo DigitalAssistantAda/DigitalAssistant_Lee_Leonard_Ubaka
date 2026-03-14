@@ -12,10 +12,7 @@ function WorkspaceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-<<<<<<< HEAD
-=======
 
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -539,7 +536,6 @@ function WorkspaceDetail() {
                         const messageKey = msg.id != null ? String(msg.id) : '';
 
                         return (
-<<<<<<< HEAD
                           <div
                             key={msg.id ?? index}
                             ref={(element) => {
@@ -555,10 +551,6 @@ function WorkspaceDetail() {
                             {!isSelf && (
                               <div className="message-avatar">{getInitial(author)}</div>
                             )}
-=======
-                          <div key={msg.id ?? index} className={`message-row ${isSelf ? 'self' : ''}`}>
-                            {!isSelf && <div className="message-avatar">{getInitial(author)}</div>}
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                             <div className="message-body">
                               <div className="message-header">
                                 <span className="message-author">{isSelf ? 'You' : author}</span>

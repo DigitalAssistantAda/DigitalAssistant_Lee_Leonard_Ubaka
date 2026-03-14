@@ -481,6 +481,10 @@ function AIAssistant() {
   const activeContextDocuments = filteredDocuments.filter((document) => selectedDocuments.includes(document.id));
   const availableContextDocuments = filteredDocuments.filter((document) => !selectedDocuments.includes(document.id));
   const readyDocumentCount = documents.filter((doc) => String(doc.status || '').toLowerCase() === 'ready').length;
+  const hasSelectedContext = selectedDocumentRecords.length > 0;
+  const selectedScopeLabel = hasSelectedContext
+    ? `Responses are limited to ${selectedDocumentRecords.length} selected document${selectedDocumentRecords.length !== 1 ? 's' : ''}.`
+    : 'Ask for summaries, comparisons, and answers here. Use Search when you need exact keyword matches first.';
 
   const quickPrompts = [
     'Summarize the Q3 goals',
@@ -591,6 +595,15 @@ function AIAssistant() {
             </div>
           </header>
 
+          <div className="ada-guidance-strip" role="status">
+            <p>
+              <strong>Chat-first workflow.</strong> {selectedScopeLabel}
+            </p>
+            <button type="button" className="ada-guidance-link" onClick={() => navigate('/search')}>
+              Open Search
+            </button>
+          </div>
+
           {error && (
             <div className="ada-error-banner" role="alert">
               <AlertCircle size={16} />
@@ -613,6 +626,11 @@ function AIAssistant() {
                 <p>
                   I&apos;ve analyzed {readyDocumentCount} ready document{readyDocumentCount !== 1 ? 's' : ''} in {selectedWorkspaceName}. I&apos;m ready to synthesize insights.
                 </p>
+                {hasSelectedContext && (
+                  <p className="ada-empty-scope-note">
+                    I&apos;ll stay inside your selected document context for the next answer.
+                  </p>
+                )}
 
                 <div className="ada-prompt-grid">
                   {quickPrompts.map((prompt, index) => {
@@ -827,7 +845,7 @@ function AIAssistant() {
             <div className="ada-warning-note" role="status">
               <AlertCircle size={14} />
               <span>
-                {pendingSelectedDocuments.length} selected document{pendingSelectedDocuments.length !== 1 ? 's are' : ' is'} still processing. Responses may be limited.
+                {pendingSelectedDocuments.length} selected document{pendingSelectedDocuments.length !== 1 ? 's are' : ' is'} still processing and will be excluded until ready.
               </span>
             </div>
           )}

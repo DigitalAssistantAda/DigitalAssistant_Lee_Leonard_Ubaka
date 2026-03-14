@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Search as SearchIcon } from 'lucide-react';
 import './Search.css';
 import { apiFetch } from '../utils/apiClient';
@@ -91,7 +91,14 @@ function Search() {
       <div className="search-hero">
         <p className="search-eyebrow">Workspace Search</p>
         <h1>Search Documents</h1>
-        <p className="search-subtitle">Find relevant documents and excerpts inside a specific workspace.</p>
+        <p className="search-subtitle">Use search to locate exact passages. Use Chat with Ada for summaries, answers, and follow-up questions grounded in selected documents.</p>
+      </div>
+
+      <div className="search-mode-note">
+        <p>
+          Chat is the primary assistant workflow. Search helps you find the right source material first.
+          <Link to="/ai-assistant" className="search-mode-link"> Open Chat with Ada</Link>
+        </p>
       </div>
 
       {error && (

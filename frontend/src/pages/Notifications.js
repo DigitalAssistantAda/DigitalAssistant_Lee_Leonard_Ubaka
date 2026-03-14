@@ -1,20 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-<<<<<<< HEAD
-import { ArrowLeft, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2, FileText } from 'lucide-react';
-=======
-import {
-  ArrowLeft,
-  Check,
-  X,
-  CheckCircle,
-  XCircle,
-  Clock,
-  MessageSquare,
-  Users,
-  Trash2,
-} from 'lucide-react';
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
+import { ArrowLeft, Check, X, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2, FileText } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import './Notifications.css';
 
@@ -268,7 +254,6 @@ function NotificationsPage() {
 
   const getStatusBadge = (statusValue) => <span className={`status-badge ${statusValue}`}>{statusValue}</span>;
 
-<<<<<<< HEAD
   const getRequesterLabel = (notification) => {
     const requester = notification?.requested_by_user;
     if (requester?.username && requester?.email) {
@@ -298,9 +283,6 @@ function NotificationsPage() {
   };
 
   const pendingDeletionNotifications = notifications.filter(n => n.status === 'pending');
-=======
-  const pendingDeletionNotifications = notifications.filter((n) => n.status === 'pending');
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
   const pendingCount = pendingDeletionNotifications.length + workspaceInvitations.length;
 
   const drDismissed = dismissedIds.deletion_request_ids || [];
@@ -370,26 +352,10 @@ function NotificationsPage() {
                       <h3>Document Deletion Request</h3>
                       {getStatusBadge(notification.status)}
                     </div>
-<<<<<<< HEAD
                     <p className="notification-document notification-document-name">
                       <FileText size={18} className="notification-document-icon" aria-hidden="true" />
                       <span>{getRequestedDocumentLabel(notification)}</span>
                     </p>
-=======
-
-                    <p className="notification-reason">
-                      <strong>Requested by:</strong>{' '}
-                      {notification.requested_by_username || `User #${notification.requested_by}`}
-                    </p>
-                    <p className="notification-reason">
-                      <strong>Document:</strong>{' '}
-                      {notification.document_filename || `Document #${notification.document_id}`}
-                    </p>
-                    <p className="notification-reason">
-                      <strong>Location:</strong> {renderLocation(notification)}
-                    </p>
-
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                     <p className="notification-reason">
                       <strong>Reason:</strong> {notification.reason || 'No reason provided'}
                     </p>
@@ -411,21 +377,6 @@ function NotificationsPage() {
 
                   {/* Icons styled like your examples */}
                   <div className="notification-actions">
-<<<<<<< HEAD
-                    <button 
-                      className="btn btn-approve btn-icon-action"
-                      onClick={() => handleApprove(notification.id)}
-                      aria-label="Approve"
-                    >
-                      ✓
-                    </button>
-                    <button 
-                      className="btn btn-deny btn-icon-action"
-                      onClick={() => handleDeny(notification.id)}
-                      aria-label="Deny"
-                    >
-                      ✕
-=======
                     <button
                       type="button"
                       className="icon-action icon-action-accept"
@@ -443,7 +394,6 @@ function NotificationsPage() {
                       aria-label="Deny deletion request"
                     >
                       <X size={20} strokeWidth={4} />
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                     </button>
                   </div>
                 </div>
@@ -487,20 +437,6 @@ function NotificationsPage() {
                   {/* Icons styled like your examples */}
                   <div className="notification-actions">
                     <button
-<<<<<<< HEAD
-                      className="btn btn-approve btn-icon-action"
-                      onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)}
-                      aria-label="Accept"
-                    >
-                      ✓
-                    </button>
-                    <button
-                      className="btn btn-deny btn-icon-action"
-                      onClick={() => handleDeclineWorkspaceInvite(invitation.invitation_id)}
-                      aria-label="Decline"
-                    >
-                      ✕
-=======
                       type="button"
                       className="icon-action icon-action-accept"
                       onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)}
@@ -517,7 +453,6 @@ function NotificationsPage() {
                       aria-label="Decline workspace invitation"
                     >
                       <X size={26} strokeWidth={4} />
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                     </button>
                   </div>
                 </div>
@@ -538,7 +473,6 @@ function NotificationsPage() {
                       </div>
                       {getStatusBadge(notification.status)}
                     </div>
-<<<<<<< HEAD
                     <p className="notification-document notification-document-name">
                       <FileText size={18} className="notification-document-icon" aria-hidden="true" />
                       <span>{getRequestedDocumentLabel(notification)}</span>
@@ -546,21 +480,6 @@ function NotificationsPage() {
                     <p className="notification-requester">
                       <strong>Requested by:</strong> {getRequesterLabel(notification)}
                     </p>
-=======
-
-                    <p className="notification-reason">
-                      <strong>Requested by:</strong>{' '}
-                      {notification.requested_by_username || `User #${notification.requested_by}`}
-                    </p>
-                    <p className="notification-reason">
-                      <strong>Document:</strong>{' '}
-                      {notification.document_filename || `Document #${notification.document_id}`}
-                    </p>
-                    <p className="notification-reason">
-                      <strong>Location:</strong> {renderLocation(notification)}
-                    </p>
-
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                     <p className="notification-reason">
                       <strong>Reason:</strong> {notification.reason || 'No reason provided'}
                     </p>
@@ -620,20 +539,7 @@ function NotificationsPage() {
                     </p>
                   </div>
                   <div className="notification-actions">
-<<<<<<< HEAD
-                    <button
-                      className="btn btn-mention-open"
-                      onClick={() => {
-                        const params = new URLSearchParams({ tab: 'discussion' });
-                        if (mention.message_id != null) {
-                          params.set('messageId', String(mention.message_id));
-                        }
-                        navigate(`/workspace/${mention.workspace_id}?${params.toString()}`);
-                      }}
-                    >
-=======
                     <button className="btn btn-mention-open" onClick={() => handleOpenMentionDiscussion(mention)}>
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
                       Open discussion
                     </button>
                     <button

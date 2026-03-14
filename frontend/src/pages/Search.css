@@ -50,6 +50,31 @@
   background: var(--bg-secondary);
 }
 
+.search-mode-note {
+  margin-bottom: 1rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 16%, var(--border-color));
+  border-radius: var(--radius-base);
+  background: color-mix(in srgb, var(--accent-highlight) 24%, var(--bg-secondary));
+}
+
+.search-mode-note p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.search-mode-link {
+  color: color-mix(in srgb, var(--accent-primary) 82%, var(--text-primary));
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.search-mode-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
 .search-form {
   display: flex;
   flex-direction: column;

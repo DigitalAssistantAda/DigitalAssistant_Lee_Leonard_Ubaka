@@ -354,40 +354,6 @@
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 
-<<<<<<< HEAD
-.notifications-page .btn-icon-action {
-  width: 2.5rem;
-  height: 2rem;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  font-size: 0.9375rem;
-}
-
-.btn-approve {
-  background: var(--status-success);
-  color: #ffffff;
-  border-color: var(--status-success);
-}
-
-.btn-approve:hover {
-  background: color-mix(in srgb, var(--status-success) 85%, black);
-}
-
-.btn-deny {
-  background: var(--status-danger);
-  color: #ffffff;
-  border-color: var(--status-danger);
-}
-
-.btn-deny:hover {
-  background: color-mix(in srgb, var(--status-danger) 85%, black);
-}
-
-=======
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
 .btn-mention-open {
   background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary));
   color: var(--text-primary);

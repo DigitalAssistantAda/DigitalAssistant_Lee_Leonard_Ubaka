@@ -521,7 +521,6 @@ function Dashboard() {
               <button className={`activity-tab ${activityFilter === 'all' ? 'active' : ''}`} onClick={() => setActivityFilter('all')}>All</button>
               <button className={`activity-tab ${activityFilter === 'documents' ? 'active' : ''}`} onClick={() => setActivityFilter('documents')}>Documents</button>
               <button className={`activity-tab ${activityFilter === 'searches' ? 'active' : ''}`} onClick={() => setActivityFilter('searches')}>Searches</button>
-              <button className={`activity-tab ${activityFilter === 'summaries' ? 'active' : ''}`} onClick={() => setActivityFilter('summaries')}>Summaries</button>
               <button className={`activity-tab ${activityFilter === 'workspaces' ? 'active' : ''}`} onClick={() => setActivityFilter('workspaces')}>Workspaces</button>
             </div>
 

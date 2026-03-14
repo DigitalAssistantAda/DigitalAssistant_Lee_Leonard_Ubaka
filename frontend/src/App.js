@@ -14,7 +14,6 @@ import WorkspaceSettings from './pages/WorkspaceSettings';
 import WorkspaceIssues from './pages/WorkspaceIssues';
 import Documents from './pages/Documents';
 import Search from './pages/Search';
-import Summaries from './pages/Summaries';
 import AIAssistant from './pages/AIAssistant';
 import UserSettings from './pages/UserSettings';
 import Notifications from './pages/Notifications';
@@ -502,7 +501,7 @@ function App() {
           />
           <Route 
             path="/summaries" 
-            element={user ? <Summaries /> : <Navigate to="/login" />} 
+            element={user ? <Navigate to="/ai-assistant" replace /> : <Navigate to="/login" />} 
           />
           <Route 
             path="/ai-assistant" 

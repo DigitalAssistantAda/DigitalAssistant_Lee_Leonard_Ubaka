@@ -11,10 +11,7 @@ from models.job import Job
 from models.embedding_job import EmbeddingJob
 from models.user import User
 from models.workspace import Workspace
-<<<<<<< HEAD
-=======
 from models.container import Container
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
 from database import get_db
 from utils.auth import get_current_user
 from utils.audit import create_audit_log, AuditActions
@@ -38,13 +35,6 @@ def _parse_storage_uri(storage_uri: str) -> tuple[str, str]:
         )
 
 
-<<<<<<< HEAD
-def _serialize_deletion_request(
-    request: DocumentDeletionRequest,
-    requested_by_user: dict | None = None,
-    document: dict | None = None,
-):
-=======
 def _serialize_deletion_request(request: DocumentDeletionRequest, db: Session):
     """
     Enriched deletion-request payload for Notifications UI.
@@ -69,18 +59,12 @@ def _serialize_deletion_request(request: DocumentDeletionRequest, db: Session):
         container_id = getattr(document, "container_id", None)
         if container_id is not None:
             container = db.query(Container).filter(Container.id == container_id).first()
-
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
     return {
         "id": request.id,
         "document_id": request.document_id,
         "document": document,
         "requested_by": request.requested_by,
-<<<<<<< HEAD
-        "requested_by_user": requested_by_user,
-=======
         "requested_by_username": sender.username if sender else None,
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
         "reason": request.reason,
         "status": request.status,
         "created_at": request.created_at,
@@ -97,52 +81,7 @@ def _serialize_deletion_request(request: DocumentDeletionRequest, db: Session):
     }
 
 
-<<<<<<< HEAD
-def _build_requester_map(requests: list[DocumentDeletionRequest], db: Session) -> dict[int, dict]:
-    requester_ids = {r.requested_by for r in requests if r.requested_by is not None}
-    if not requester_ids:
-        return {}
 
-    rows = db.query(User.id, User.username, User.email).filter(User.id.in_(requester_ids)).all()
-    return {
-        user_id: {
-            "id": user_id,
-            "username": username,
-            "email": email,
-        }
-        for user_id, username, email in rows
-    }
-
-
-def _build_document_map(requests: list[DocumentDeletionRequest], db: Session) -> dict[int, dict]:
-    document_ids = {r.document_id for r in requests if r.document_id is not None}
-    if not document_ids:
-        return {}
-
-    rows = (
-        db.query(Document.id, Document.filename, Document.workspace_id, Workspace.name)
-        .outerjoin(Workspace, Workspace.id == Document.workspace_id)
-        .filter(Document.id.in_(document_ids))
-        .all()
-    )
-    return {
-        document_id: {
-            "id": document_id,
-            "filename": filename,
-            "workspace": (
-                {
-                    "id": workspace_id,
-                    "name": workspace_name,
-                }
-                if workspace_id is not None
-                else None
-            ),
-        }
-        for document_id, filename, workspace_id, workspace_name in rows
-    }
-
-=======
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
 @router.get("/pending")
 async def get_pending_deletion_requests(
     current_user: User = Depends(get_current_user),
@@ -153,26 +92,10 @@ async def get_pending_deletion_requests(
         DocumentDeletionRequest.document_owner == current_user.id,
         DocumentDeletionRequest.status == DeletionRequestStatus.PENDING
     ).order_by(DocumentDeletionRequest.created_at.desc()).all()
-<<<<<<< HEAD
-    requester_map = _build_requester_map(requests, db)
-    document_map = _build_document_map(requests, db)
-    
-    return {
-        "count": len(requests),
-        "requests": [
-            _serialize_deletion_request(
-                r,
-                requester_map.get(r.requested_by),
-                document_map.get(r.document_id),
-            )
-            for r in requests
-        ]
-=======
 
     return {
         "count": len(requests),
         "requests": [_serialize_deletion_request(r, db) for r in requests]
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
     }
 
 
@@ -185,23 +108,10 @@ async def get_all_deletion_requests(
     requests = db.query(DocumentDeletionRequest).filter(
         DocumentDeletionRequest.document_owner == current_user.id
     ).order_by(DocumentDeletionRequest.created_at.desc()).all()
-    requester_map = _build_requester_map(requests, db)
-    document_map = _build_document_map(requests, db)
 
     return {
         "count": len(requests),
-<<<<<<< HEAD
-        "requests": [
-            _serialize_deletion_request(
-                r,
-                requester_map.get(r.requested_by),
-                document_map.get(r.document_id),
-            )
-            for r in requests
-        ]
-=======
         "requests": [_serialize_deletion_request(r, db) for r in requests]
->>>>>>> 7c127e5 ( Replace the words accept and deny with icon on the notification page. Under the mentions section once a user clicks open discussion it routes them to the appropriate chat histroy.)
     }
 
 

@@ -103,6 +103,17 @@ def _simple_summary(text: str, max_sentences: int = 3, max_chars: int = 560) -> 
     return summary[:max_chars].strip()
 
 
+def _format_name_preview(names: list[str], max_items: int = 3) -> str:
+    items = [name for name in names if name]
+    if not items:
+        return "your selected documents"
+    preview = ", ".join(items[:max_items])
+    remaining = len(items) - max_items
+    if remaining > 0:
+        preview = f"{preview} (+{remaining} more)"
+    return preview
+
+
 def _format_summary_block(filename: str, summary_text: str, detailed: bool) -> str:
     if not detailed:
         return f"{filename}: {summary_text}"
@@ -155,19 +166,42 @@ def _build_assistant_message_content(
             [],
         )
 
+    requested_scope = bool(requested_document_ids)
     scoped_document_ids = []
-    if requested_document_ids:
+    pending_selected_names: list[str] = []
+    if requested_scope:
         # Include docs in this workspace OR user's personal (non-workspace) docs they can access
         scope_filter = (
             (Document.workspace_id == workspace_id)
             | ((Document.workspace_id.is_(None)) & (Document.uploaded_by == current_user_id))
         ) if current_user_id else (Document.workspace_id == workspace_id)
-        scoped_docs = db.query(Document.id).filter(
+        scoped_docs = db.query(Document).filter(
             Document.id.in_(requested_document_ids),
             Document.status != DocumentStatus.DELETED,
             scope_filter,
         ).all()
-        scoped_document_ids = [row[0] for row in scoped_docs]
+        scoped_docs_by_id = {doc.id: doc for doc in scoped_docs}
+        missing_selected_count = len(set(requested_document_ids)) - len(scoped_docs_by_id)
+
+        for doc in scoped_docs:
+            if doc.status == DocumentStatus.READY:
+                scoped_document_ids.append(doc.id)
+            else:
+                pending_selected_names.append(doc.filename or f"Document {doc.id}")
+
+        if not scoped_document_ids:
+            if pending_selected_names:
+                unavailable_suffix = " Some selected items are unavailable in this workspace." if missing_selected_count else ""
+                return (
+                    f"I can see your selected file(s) ({_format_name_preview(pending_selected_names)}), but they are still processing and not searchable yet. Please wait until their status is ready, then try again.{unavailable_suffix}",
+                    [],
+                    [],
+                )
+            return (
+                "I couldn't use the selected documents for this chat. Re-select documents from the current workspace or your personal folders, then try again.",
+                [],
+                [],
+            )
 
     followup_summary_request = _is_affirmative_followup(query_text) and _is_summary_followup(conversation_id, db)
     is_summary_request = _is_summary_request(query_text) or followup_summary_request
@@ -239,29 +273,9 @@ def _build_assistant_message_content(
                         break
 
     if not document_ids:
-        if scoped_document_ids:
-            scoped_docs = db.query(Document).filter(
-                Document.id.in_(scoped_document_ids)
-            ).all()
-            pending_docs = [
-                doc.filename for doc in scoped_docs
-                if doc.status != DocumentStatus.READY
-            ]
-            if pending_docs:
-                preview_names = ", ".join(pending_docs[:3])
-                more_count = max(0, len(pending_docs) - 3)
-                suffix = f" (+{more_count} more)" if more_count else ""
-                return (
-                    f"I can see your selected file(s) ({preview_names}{suffix}), but they are still processing and not searchable yet. Please wait until document status is ready, then try again.",
-                    [],
-                    [],
-                )
-
-        selected_scope_note = (
-            " in the selected documents" if scoped_document_ids else " in this workspace or your personal folders"
-        )
+        selected_scope_note = " in the selected documents" if requested_scope else " in this workspace or your personal folders"
         return (
-            f"I couldn't find relevant content{selected_scope_note} yet. Try a different query or make sure your documents are processed.",
+            f"I couldn't find grounded context{selected_scope_note} yet. Try a more specific question, select different documents, or wait for indexing to finish.",
             [],
             [],
         )
@@ -354,9 +368,17 @@ def _build_assistant_message_content(
 
     if not lines:
         return (
-            "I found related documents but couldn't extract a preview yet. Please try again.",
+            "I found related documents but couldn't extract a usable excerpt yet. Try a narrower question or re-select the documents you want me to use.",
             document_ids,
             chunk_ids,
+        )
+
+    pending_scope_note = ""
+    if pending_selected_names:
+        pending_scope_note = (
+            "\n\nNote: "
+            f"{_format_name_preview(pending_selected_names)} "
+            "are still processing and were excluded from this answer."
         )
 
     if is_summary_request:
@@ -371,12 +393,14 @@ def _build_assistant_message_content(
             f"{intro}\n\n"
             + "\n".join(lines)
             + ("\n\nIf you want, I can break this into action items and risks next." if detailed_summary_request else "\n\nIf you want, I can produce a longer structured summary next.")
+            + pending_scope_note
         )
     else:
         content = (
-            "I searched your workspace and found these relevant snippets:\n\n"
+            ("I searched the selected documents and found these relevant snippets:\n\n" if requested_scope else "I searched your workspace and found these relevant snippets:\n\n")
             + "\n".join(lines)
             + "\n\nIf you want, ask a follow-up and I can narrow this down further."
+            + pending_scope_note
         )
     return (content, document_ids, chunk_ids)
 
@@ -554,8 +578,10 @@ async def send_message(
     )
 
     assistant_source = "retrieval"
+    has_selected_scope = bool(request.document_ids)
+    has_grounded_context = bool(assistant_doc_ids or assistant_chunk_ids)
     is_greeting_reply = _is_simple_greeting_or_small_talk(request.content) and not assistant_doc_ids
-    if not is_greeting_reply and summary_generation_service.is_available():
+    if not has_selected_scope and has_grounded_context and not is_greeting_reply and summary_generation_service.is_available():
         try:
             assistant_content = summary_generation_service.generate_grounded_response(
                 user_query=request.content,

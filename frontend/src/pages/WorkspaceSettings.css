@@ -155,6 +155,69 @@
   align-items: center;
 }
 
+.autonomous-control-row {
+  min-height: 48px;
+}
+
+.form-group .autonomous-toggle-control {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.autonomous-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.autonomous-toggle-track {
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 28%, var(--bg-secondary));
+  border: 1px solid var(--border-color);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  flex: 0 0 44px;
+}
+
+.autonomous-toggle-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.autonomous-toggle-input:checked + .autonomous-toggle-track {
+  background: color-mix(in srgb, var(--accent-primary) 55%, #2f7dff);
+  border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--border-color));
+}
+
+.autonomous-toggle-input:checked + .autonomous-toggle-track .autonomous-toggle-thumb {
+  transform: translateX(18px);
+}
+
+.autonomous-toggle-input:focus-visible + .autonomous-toggle-track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+}
+
+.autonomous-toggle-copy {
+  color: var(--text-primary);
+}
+
 .accent-palette-row {
   display: flex;
   align-items: center;

@@ -12,6 +12,7 @@ class WorkspaceResponse(BaseModel):
     id: int
     name: str
     accent_color: Optional[str] = None
+    autonomous_organization_enabled: bool = False
     created_by: int
     created_at: datetime
     member_count: Optional[int] = 0
@@ -25,6 +26,7 @@ class WorkspaceResponse(BaseModel):
 class UpdateWorkspaceRequest(BaseModel):
     name: str
     accent_color: Optional[str] = None
+    autonomous_organization_enabled: Optional[bool] = None
 
     @field_validator("accent_color")
     @classmethod

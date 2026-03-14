@@ -43,6 +43,10 @@ function Documents() {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewDocument, setPreviewDocument] = useState(null);
   const processingPollRef = useRef(null); // holds the polling interval id
+  const [suggestionsByDoc, setSuggestionsByDoc] = useState({});
+  const [suggestingDocIds, setSuggestingDocIds] = useState(new Set());
+  const [applyingSuggestionIds, setApplyingSuggestionIds] = useState(new Set());
+  const [autoOrganizing, setAutoOrganizing] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const workspaceIdFromQuery = useMemo(() => {
@@ -735,6 +739,143 @@ const handleCreateContainer = async (e) => {
     }
   };
 
+  const handleSuggestContainer = async (doc) => {
+    const docId = Number(doc?.id);
+    if (!Number.isFinite(docId)) return;
+
+    setSuggestingDocIds((prev) => {
+      const next = new Set(prev);
+      next.add(docId);
+      return next;
+    });
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/v1/documents/${docId}/suggest-container`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to generate suggestion');
+        throw new Error(message);
+      }
+
+      const payload = await response.json();
+      setSuggestionsByDoc((prev) => ({ ...prev, [docId]: payload }));
+      setError(null);
+    } catch (err) {
+      setError(err.message || 'Failed to generate suggestion');
+    } finally {
+      setSuggestingDocIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
+    }
+  };
+
+  const handleApplySuggestion = async (doc, suggestion) => {
+    const docId = Number(doc?.id);
+    const targetContainerId = Number(suggestion?.suggested_container_id);
+    if (!Number.isFinite(docId) || !Number.isFinite(targetContainerId)) return;
+
+    setApplyingSuggestionIds((prev) => {
+      const next = new Set(prev);
+      next.add(docId);
+      return next;
+    });
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/v1/documents/${docId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ container_id: targetContainerId }),
+      });
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to move document');
+        throw new Error(message);
+      }
+
+      const updatedDoc = await response.json();
+      setFolderDocuments((prev) => prev.filter((item) => item.id !== docId));
+      setDocuments((prev) => prev.map((item) => (item.id === docId ? updatedDoc : item)));
+      setSuggestionsByDoc((prev) => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+      setSuccessMessage(`Moved "${doc.filename}" to ${suggestion.suggested_container_name}`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+      setError(null);
+    } catch (err) {
+      setError(err.message || 'Failed to move document');
+    } finally {
+      setApplyingSuggestionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
+    }
+  };
+
+  const handleAutoOrganizeWorkspace = async () => {
+    const workspaceId = Number(openedFolder?.workspace_id);
+    if (!Number.isFinite(workspaceId) || workspaceId <= 0) {
+      setError('Auto-organize is available only for workspace folders.');
+      return;
+    }
+
+    const shouldContinue = window.confirm(
+      'Auto-organize will move ready documents to suggested folders using high-confidence matches. Continue?'
+    );
+    if (!shouldContinue) return;
+
+    setAutoOrganizing(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${API_URL}/api/v1/workspaces/${workspaceId}/documents/auto-organize?min_confidence=high&dry_run=false`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Auto-organize failed');
+        throw new Error(message);
+      }
+
+      const result = await response.json();
+      const movedCount = Number(result?.moved || 0);
+      const skippedCount = Number(result?.skipped_low_confidence || 0) + Number(result?.skipped_no_suggestion || 0);
+
+      setSuccessMessage(
+        movedCount > 0
+          ? `Auto-organized ${movedCount} document${movedCount !== 1 ? 's' : ''}.`
+          : `No moves applied. ${skippedCount} document${skippedCount !== 1 ? 's were' : ' was'} skipped.`
+      );
+      setTimeout(() => setSuccessMessage(null), 4000);
+
+      if (openedFolder?.id) {
+        const refreshed = await fetchDocumentsForContainer(openedFolder.id);
+        setFolderDocuments(refreshed);
+      }
+      fetchDocuments();
+      setSuggestionsByDoc({});
+      setError(null);
+    } catch (err) {
+      setError(err.message || 'Auto-organize failed');
+    } finally {
+      setAutoOrganizing(false);
+    }
+  };
+
   // Open folder and load actual documents for this workspace
   const handleFolderDoubleClick = (folder) => {
     navigate(`/documents/${folder.id}`);
@@ -1286,6 +1427,15 @@ const handleCreateContainer = async (e) => {
               <Plus size={18} />
               New Document
             </button>
+            <button
+              className="new-document-btn auto-organize-btn"
+              onClick={handleAutoOrganizeWorkspace}
+              disabled={autoOrganizing || !openedFolder?.workspace_id}
+              title={openedFolder?.workspace_id ? 'Auto-organize workspace documents' : 'Auto-organize is only available for workspace folders'}
+            >
+              <Folder size={18} />
+              {autoOrganizing ? 'Auto-organizing…' : 'Auto-organize'}
+            </button>
             <div className="search-box">
               <Search size={18} />
               <input
@@ -1376,7 +1526,35 @@ const handleCreateContainer = async (e) => {
                         aria-label={`Select ${doc.filename}`}
                       />
                     </div>
-                    <div className="col-name">{doc.filename}</div>
+                    <div className="col-name">
+                      <div className="doc-name-main">{doc.filename}</div>
+                      {suggestionsByDoc[doc.id] && (
+                        <div className="doc-suggestion-line">
+                          {suggestionsByDoc[doc.id].suggested_container_id ? (
+                            <>
+                              <span>
+                                Ada suggests: {suggestionsByDoc[doc.id].suggested_container_name} ({suggestionsByDoc[doc.id].confidence})
+                              </span>
+                              {Number(suggestionsByDoc[doc.id].suggested_container_id) !== Number(openedFolder?.id) && (
+                                <button
+                                  type="button"
+                                  className="suggestion-apply-btn"
+                                  disabled={applyingSuggestionIds.has(doc.id)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleApplySuggestion(doc, suggestionsByDoc[doc.id]);
+                                  }}
+                                >
+                                  {applyingSuggestionIds.has(doc.id) ? 'Applying…' : 'Apply'}
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <span>{suggestionsByDoc[doc.id].reason}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div className="col-size">{doc.size_bytes ? `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB` : doc.size || '-'}</div>
                     <div className="col-status">
                       <span
@@ -1390,6 +1568,18 @@ const handleCreateContainer = async (e) => {
                     <div className="col-modified">{new Date(doc.created_at).toLocaleDateString()}</div>
                     <div className="col-opened">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>
                                         <div className="col-actions">
+                                          <button
+                                            className="action-menu"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              handleSuggestContainer(doc);
+                                            }}
+                                            title="Suggest destination folder"
+                                            aria-label={`Suggest destination for ${doc.filename}`}
+                                            disabled={suggestingDocIds.has(doc.id)}
+                                          >
+                                            <Folder size={18} />
+                                          </button>
                       <button
                         className="action-menu"
                         onClick={(event) => {

@@ -298,6 +298,8 @@ async def update_workspace(
     workspace.name = request.name
     if "accent_color" in request.model_fields_set:
         workspace.accent_color = request.accent_color
+    if "autonomous_organization_enabled" in request.model_fields_set and request.autonomous_organization_enabled is not None:
+        workspace.autonomous_organization_enabled = request.autonomous_organization_enabled
     db.commit()
     db.refresh(workspace)
     

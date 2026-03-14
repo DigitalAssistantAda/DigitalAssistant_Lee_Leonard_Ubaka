@@ -10,17 +10,132 @@ from datetime import datetime
 
 from database import SessionLocal
 from models.document import Document, DocumentStatus
+from models.container import Container
 from models.document_chunk import DocumentChunk
 from models.chunk_embedding import ChunkEmbedding
 from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
 from models.document_duplicate import DocumentDuplicate, DuplicateStatus
 from models.document_hint import DocumentHint
+from models.workspace import Workspace
+from models.audit_log import AuditLog
+from utils.audit import AuditActions
 from utils.embeddings import embeddings_service
 from utils.text_extraction import extract_text_from_storage
 from sqlalchemy.orm import Session
 from celery_app import celery_app
 
 logger = get_task_logger(__name__)
+
+
+def _confidence_label(score: float) -> str:
+    if score >= 0.78:
+        return "high"
+    if score >= 0.62:
+        return "medium"
+    return "low"
+
+
+def _auto_organize_document_after_index(document: Document, db: Session, actor_user_id: int | None) -> bool:
+    """Move newly indexed doc into best-matching container when workspace autonomous mode is enabled."""
+    if not document.workspace_id or document.status != DocumentStatus.READY:
+        return False
+
+    workspace = db.query(Workspace).filter(Workspace.id == document.workspace_id).first()
+    if not workspace or not workspace.autonomous_organization_enabled:
+        return False
+
+    containers = db.query(Container).filter(Container.workspace_id == document.workspace_id).all()
+    if not containers:
+        return False
+    container_ids = {container.id for container in containers}
+
+    chunks = db.query(DocumentChunk).filter(
+        DocumentChunk.document_id == document.id,
+    ).order_by(DocumentChunk.chunk_index.asc()).limit(4).all()
+    combined_text = "\n".join((chunk.text or "") for chunk in chunks).strip()
+    if not combined_text:
+        return False
+
+    try:
+        query_embedding = embeddings_service.generate_embedding(combined_text[:6000])
+        similar_rows = embeddings_service.find_similar_embeddings(
+            query_embedding=query_embedding,
+            workspace_id=document.workspace_id,
+            limit=120,
+            threshold=0.2,
+            db=db,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Autonomous organization similarity lookup failed for document_id=%s workspace_id=%s: %s",
+            document.id,
+            document.workspace_id,
+            exc,
+        )
+        return False
+
+    max_similarity_by_container: dict[int, float] = {}
+    for _chunk_id, similar_doc_id, similarity in similar_rows:
+        if similar_doc_id == document.id:
+            continue
+        similar_doc = db.query(Document).filter(
+            Document.id == similar_doc_id,
+            Document.workspace_id == document.workspace_id,
+            Document.status != DocumentStatus.DELETED,
+        ).first()
+        if not similar_doc or not similar_doc.container_id:
+            continue
+        if similar_doc.container_id not in container_ids:
+            continue
+        sim = float(similarity)
+        max_similarity_by_container[similar_doc.container_id] = max(
+            max_similarity_by_container.get(similar_doc.container_id, 0.0),
+            sim,
+        )
+
+    if not max_similarity_by_container:
+        return False
+
+    best_container_id, best_score = max(max_similarity_by_container.items(), key=lambda item: item[1])
+    confidence = _confidence_label(best_score)
+
+    # Autonomous mode only applies high-confidence moves.
+    if confidence != "high":
+        return False
+
+    if document.container_id == best_container_id:
+        return False
+
+    previous_container_id = document.container_id
+    document.container_id = best_container_id
+    db.commit()
+
+    audit_actor = actor_user_id or document.uploaded_by
+    db.add(AuditLog(
+        workspace_id=document.workspace_id,
+        actor_user_id=audit_actor,
+        action=AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
+        object_type="document",
+        object_id=document.id,
+        metadata_json={
+            "trigger": "autonomous_organization",
+            "old_container_id": previous_container_id,
+            "new_container_id": best_container_id,
+            "confidence": confidence,
+            "score": round(best_score, 3),
+        },
+        created_at=datetime.utcnow(),
+    ))
+    db.commit()
+    logger.info(
+        "Autonomous organization moved document_id=%s workspace_id=%s from_container=%s to_container=%s score=%.3f",
+        document.id,
+        document.workspace_id,
+        previous_container_id,
+        best_container_id,
+        best_score,
+    )
+    return True
 
 
 def _run_async(coro):
@@ -170,6 +285,17 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
         # Update document status
         document.status = DocumentStatus.READY
         db.commit()
+
+        try:
+            _auto_organize_document_after_index(document, db, triggered_by_user_id)
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "Autonomous organization post-index hook failed for document_id=%s workspace_id=%s: %s",
+                document_id,
+                document.workspace_id,
+                exc,
+            )
         
         logger.info(f"Completed embedding job for document {document_id}")
         

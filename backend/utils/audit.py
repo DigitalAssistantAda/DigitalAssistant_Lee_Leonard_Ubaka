@@ -177,6 +177,8 @@ class AuditActions:
     DOCUMENT_DOWNLOADED = "document.downloaded"
     DOCUMENT_SHARED = "document.shared"
     DOCUMENT_UPDATED = "document.updated"
+    DOCUMENT_CONTAINER_SUGGESTED = "document.container_suggested"
+    DOCUMENT_CONTAINER_SUGGESTION_APPLIED = "document.container_suggestion_applied"
     DOCUMENT_DELETION_REQUESTED = "document.deletion_requested"
     DOCUMENT_DELETION_APPROVED = "document.deletion_approved"
     DOCUMENT_DELETION_DENIED = "document.deletion_denied"

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, X, Search, ArrowUpRight, MoreVertical } from 'lucide-react';
+import { Plus, Trash2, X, Search, ArrowUpRight } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
 import LoadingState from '../components/LoadingState';
 import './Workspaces.css';
@@ -16,7 +16,18 @@ function Workspaces() {
   const [sortOrder, setSortOrder] = useState('recent');
   const [workspaceFilter, setWorkspaceFilter] = useState('all');
   const [selectedWorkspaces, setSelectedWorkspaces] = useState(new Set());
-  const [openMenuId, setOpenMenuId] = useState(null);
+
+  const currentUserId = useMemo(() => {
+    try {
+      const rawUser = localStorage.getItem('user');
+      if (!rawUser) return null;
+      const parsed = JSON.parse(rawUser);
+      const userId = Number(parsed?.id ?? parsed?.user_id ?? NaN);
+      return Number.isFinite(userId) ? userId : null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -142,11 +153,6 @@ function Workspaces() {
     setSelectedWorkspaces(newSelected);
   };
 
-  const toggleMenu = (id) => {
-    setOpenMenuId((prev) => (prev === id ? null : id));
-  };
-
-  const closeMenu = () => setOpenMenuId(null);
 
   const handleSelectAll = () => {
     if (selectedWorkspaces.size === filteredWorkspaces.length) {
@@ -160,7 +166,10 @@ function Workspaces() {
     let filtered = workspaces;
 
     if (workspaceFilter === 'mine') {
-      // TODO: filter by user's workspaces
+      filtered = filtered.filter((workspace) => {
+        if (currentUserId == null) return false;
+        return Number(workspace?.created_by) === Number(currentUserId);
+      });
     }
 
     if (searchTerm) {
@@ -173,7 +182,7 @@ function Workspaces() {
       }
       return new Date(b.created_at) - new Date(a.created_at);
     });
-  }, [workspaces, searchTerm, sortOrder, workspaceFilter]);
+  }, [workspaces, searchTerm, sortOrder, workspaceFilter, currentUserId]);
 
   const workspaceTotals = useMemo(() => {
     return workspaces.reduce(
@@ -395,53 +404,6 @@ function Workspaces() {
                       </div>
                     </div>
                     <div className="workspace-row-actions">
-                      <div className="workspace-row-menu">
-                        <button
-                          type="button"
-                          className="btn btn-ghost menu-trigger"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleMenu(workspace.id);
-                          }}
-                          aria-label={`More actions for ${workspace.name}`}
-                          aria-expanded={openMenuId === workspace.id}
-                          aria-controls={`workspace-menu-${workspace.id}`}
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                        {openMenuId === workspace.id && (
-                          <div
-                            className="workspace-menu"
-                            id={`workspace-menu-${workspace.id}`}
-                            role="menu"
-                          >
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="menu-item"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/workspace/${workspace.id}/issues`);
-                                closeMenu();
-                              }}
-                            >
-                              Issues
-                            </button>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="menu-item"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/workspace/${workspace.id}/settings`);
-                                closeMenu();
-                              }}
-                            >
-                              Settings
-                            </button>
-                          </div>
-                        )}
-                      </div>
                       <button
                         className="btn btn-ghost workspace-open"
                         onClick={() => navigateToWorkspace(workspace.id)}

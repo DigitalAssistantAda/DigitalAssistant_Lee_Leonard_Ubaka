@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -28,11 +28,46 @@ class DocumentListResponse(BaseModel):
 
 class UpdateDocumentRequest(BaseModel):
     filename: Optional[str] = None
+    container_id: Optional[int] = None
 
 
 class DownloadResponse(BaseModel):
     url: str
     expires_at: datetime
+
+
+class ContainerSuggestionOption(BaseModel):
+    container_id: int
+    container_name: str
+    score: float
+
+
+class SmartContainerSuggestionResponse(BaseModel):
+    document_id: int
+    suggested_container_id: Optional[int] = None
+    suggested_container_name: Optional[str] = None
+    confidence: str
+    reason: str
+    alternatives: List[ContainerSuggestionOption] = Field(default_factory=list)
+
+
+class AutoOrganizedDocumentResult(BaseModel):
+    document_id: int
+    filename: str
+    from_container_id: Optional[int] = None
+    to_container_id: int
+    confidence: str
+
+
+class AutoOrganizeWorkspaceResponse(BaseModel):
+    workspace_id: int
+    considered: int
+    moved: int
+    skipped_low_confidence: int
+    skipped_no_suggestion: int
+    skipped_already_organized: int
+    dry_run: bool = False
+    moved_documents: List[AutoOrganizedDocumentResult] = Field(default_factory=list)
 
 class DocumentDeletionRequestResponse(BaseModel):
     id: int

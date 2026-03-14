@@ -2,6 +2,8 @@
 n8n Integration Endpoints
 Allows n8n workflows to interact with Ada's embedding and document processing system
 """
+import hmac
+import logging
 from fastapi import APIRouter, HTTPException, Header, status, Depends
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -9,7 +11,9 @@ from typing import Optional
 from database import get_db
 from tasks.embeddings import process_document_embeddings
 from config import settings
-from models.document import Document
+from models.document import Document, DocumentStatus
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["n8n Integration"])
 
@@ -56,31 +60,71 @@ async def trigger_embedding_webhook(
         Celery task ID for tracking job progress
     """
     
-    # Validate webhook secret if configured
-    if settings.n8n_webhook_secret and x_webhook_secret != settings.n8n_webhook_secret:
-        raise HTTPException(status_code=403, detail="Invalid webhook secret")
+    # Validate webhook secret using constant-time comparison to prevent timing attacks
+    if settings.n8n_webhook_secret:
+        provided = x_webhook_secret or ""
+        if not hmac.compare_digest(provided, settings.n8n_webhook_secret):
+            logger.warning(
+                "Webhook secret mismatch: document_id=%s workspace_id=%s secret_provided=%s",
+                request.document_id,
+                request.workspace_id,
+                bool(provided),
+            )
+            raise HTTPException(status_code=403, detail="Invalid webhook secret")
 
     document = db.query(Document).filter(Document.id == request.document_id).first()
     if not document:
+        logger.warning(
+            "Webhook trigger failed: document not found document_id=%s workspace_id=%s",
+            request.document_id,
+            request.workspace_id,
+        )
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if document.status == DocumentStatus.DELETED:
+        logger.warning(
+            "Webhook trigger rejected: document is deleted document_id=%s workspace_id=%s",
+            request.document_id,
+            request.workspace_id,
+        )
         raise HTTPException(status_code=404, detail="Document not found")
 
     if document.workspace_id != request.workspace_id:
+        logger.warning(
+            "Webhook workspace mismatch: document_id=%s expected_workspace=%s got_workspace=%s",
+            request.document_id,
+            document.workspace_id,
+            request.workspace_id,
+        )
         raise HTTPException(status_code=400, detail="Workspace mismatch for document")
-    
+
     try:
         # Trigger async embedding task
         task = process_document_embeddings.delay(request.document_id, request.triggered_by)
-        
+
+        logger.info(
+            "Embedding task queued: document_id=%s workspace_id=%s task_id=%s triggered_by=%s",
+            request.document_id,
+            request.workspace_id,
+            task.id,
+            request.triggered_by,
+        )
         return WebhookResponse(
             status="queued",
             task_id=task.id,
             message=f"Embedding job queued for document {request.document_id}"
         )
-    
+
     except Exception as e:
+        logger.error(
+            "Failed to queue embedding task: document_id=%s workspace_id=%s error=%s",
+            request.document_id,
+            request.workspace_id,
+            e,
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to queue embedding job: {str(e)}"
+            detail="Failed to queue embedding job. Check backend logs for details."
         )
 
 

@@ -673,6 +673,23 @@
   background: var(--accent-highlight);
 }
 
+.kanban-card.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.kanban-column-cards.drag-over {
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+  border-radius: var(--radius-base);
+  outline: 2px dashed color-mix(in srgb, var(--accent-primary) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.kanban-card-due-overdue {
+  color: var(--status-danger);
+  font-weight: 500;
+}
+
 .kanban-card.active {
   border-color: var(--accent-primary);
   background: var(--accent-highlight);
@@ -919,9 +936,10 @@
 }
 
 .issue-detail-kv div {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: baseline;
+  gap: 0.5rem;
   font-size: 0.85rem;
   color: var(--text-secondary);
 }

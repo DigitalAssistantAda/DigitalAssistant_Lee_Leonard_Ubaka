@@ -21,6 +21,8 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const [selectedIssueId, setSelectedIssueId] = useState(null);
   const [viewMode, setViewMode] = useState('list'); // 'list' | 'todo' | 'kanban'
   const [workspaces, setWorkspaces] = useState([]);
+  const [draggingIssueId, setDraggingIssueId] = useState(null);
+  const [dragOverColumn, setDragOverColumn] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -77,7 +79,6 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       now.getUTCDate()
     );
 
-    if (dueUtcDate < todayUtcDate) return 'overdue';
     return rawStatus;
   };
 
@@ -133,7 +134,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     return [...incomplete, ...completed];
   }, [filteredIssues, currentUserId]);
 
-  const statusOrder = ['open', 'in_progress', 'overdue', 'completed', 'closed'];
+  const statusOrder = ['open', 'in_progress', 'completed', 'closed'];
   const kanbanColumns = useMemo(() => {
     return statusOrder.map((status) => ({
       status,
@@ -470,6 +471,53 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     }
   };
 
+  const isPastDue = (issue) => {
+    if (!issue?.due_date) return false;
+    const s = issue.effectiveStatus || issue.status;
+    if (s === 'completed' || s === 'closed') return false;
+    const d = new Date(issue.due_date);
+    if (Number.isNaN(d.getTime())) return false;
+    const dueUtc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    const now = new Date();
+    const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    return dueUtc < todayUtc;
+  };
+
+  const handleDragStart = (e, issueId) => {
+    setDraggingIssueId(issueId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(issueId));
+  };
+
+  const handleDragEnd = () => {
+    setDraggingIssueId(null);
+    setDragOverColumn(null);
+  };
+
+  const handleDragOver = (e, colStatus) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverColumn(colStatus);
+  };
+
+  const handleDragLeave = (e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDragOverColumn(null);
+    }
+  };
+
+  const handleDrop = async (e, colStatus) => {
+    e.preventDefault();
+    setDragOverColumn(null);
+    const issueId = Number(e.dataTransfer.getData('text/plain'));
+    if (!issueId || !colStatus) return;
+    const issue = normalizedIssues.find((i) => i.id === issueId);
+    if (!issue) return;
+    const currentStatus = issue.effectiveStatus || issue.status;
+    if (currentStatus === colStatus) return;
+    await handleUpdateStatus(issueId, colStatus);
+  };
+
   const getPriorityClass = (priority) => {
     if (!priority) return 'priority-neutral';
     return `priority-${priority}`;
@@ -745,7 +793,12 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                     <span className="kanban-column-title">{col.label}</span>
                     <span className="kanban-column-count">({col.issues.length})</span>
                   </div>
-                  <div className="kanban-column-cards">
+                  <div
+                    className={`kanban-column-cards${dragOverColumn === col.status && draggingIssueId ? ' drag-over' : ''}`}
+                    onDragOver={(e) => handleDragOver(e, col.status)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, col.status)}
+                  >
                     {col.issues.length === 0 ? (
                       <p className="kanban-column-empty">No issues</p>
                     ) : (
@@ -758,11 +811,15 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                             ? `${memberLookup.get(assignees[0]) || assignees[0]} +${assignees.length - 1}`
                             : (memberLookup.get(assignees[0]) || `User ${assignees[0]}`))
                           : 'Unassigned';
+                        const pastDue = isPastDue(issue);
                         return (
                           <button
                             key={issue.id}
                             type="button"
-                            className={`kanban-card ${selectedIssueId === issue.id ? 'active' : ''}`}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, issue.id)}
+                            onDragEnd={handleDragEnd}
+                            className={`kanban-card ${selectedIssueId === issue.id ? 'active' : ''}${draggingIssueId === issue.id ? ' dragging' : ''}`}
                             onClick={() => setSelectedIssueId(issue.id)}
                             aria-label={`Open issue ${issue.title}`}
                           >
@@ -770,7 +827,11 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                             <div className="kanban-card-meta">
                               <span>#{issue.id}</span>
                               <span>{assigneeLabel}</span>
-                              {issue.due_date && <span>Due {formatDate(issue.due_date)}</span>}
+                              {issue.due_date && (
+                                <span className={pastDue ? 'kanban-card-due-overdue' : ''}>
+                                  Due {formatDate(issue.due_date)}
+                                </span>
+                              )}
                             </div>
                             {issue.priority && (
                               <span className={`kanban-card-priority priority-badge ${getPriorityClass(issue.priority)}`}>
@@ -832,7 +893,6 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                   <option value="open">Open</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
-                  <option value="overdue">Overdue</option>
                   <option value="closed">Closed</option>
                 </select>
                 <span className="issue-detail-chip">

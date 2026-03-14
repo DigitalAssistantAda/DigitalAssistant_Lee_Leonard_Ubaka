@@ -22,6 +22,8 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
   const [workspaceAccent, setWorkspaceAccent] = useState('');
   const [savingAccent, setSavingAccent] = useState(false);
   const [savingName, setSavingName] = useState(false);
+  const [autonomousOrganizationEnabled, setAutonomousOrganizationEnabled] = useState(false);
+  const [savingAutonomousOrganization, setSavingAutonomousOrganization] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
@@ -96,6 +98,7 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
       setWorkspace(wsData);
       setNewName(wsData.name);
       setWorkspaceAccent(normalizeHexColor(wsData.accent_color) || '');
+      setAutonomousOrganizationEnabled(Boolean(wsData.autonomous_organization_enabled));
 
       // Fetch members
       const membersResponse = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}/members`, {
@@ -169,6 +172,7 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
         body: JSON.stringify({
           name: workspace.name,
           accent_color: normalizedAccent || null,
+          autonomous_organization_enabled: autonomousOrganizationEnabled,
         }),
       });
       if (!response.ok) {
@@ -184,6 +188,38 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
       console.error(err);
     } finally {
       setSavingAccent(false);
+    }
+  };
+
+  const handleUpdateAutonomousOrganization = async () => {
+    if (!workspace) return;
+    try {
+      setSavingAutonomousOrganization(true);
+      const response = await fetch(`${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: workspace.name,
+          accent_color: workspaceAccent || null,
+          autonomous_organization_enabled: autonomousOrganizationEnabled,
+        }),
+      });
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to update autonomous organization');
+        setError(message);
+        return;
+      }
+      const updated = await response.json();
+      setWorkspace(updated);
+      setAutonomousOrganizationEnabled(Boolean(updated.autonomous_organization_enabled));
+    } catch (err) {
+      setError('Failed to update autonomous organization');
+      console.error(err);
+    } finally {
+      setSavingAutonomousOrganization(false);
     }
   };
 
@@ -418,6 +454,34 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
 
                   <button onClick={handleUpdateWorkspaceAccent} className="btn-save" disabled={!canSaveAccent}>
                     {savingAccent ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="settings-section">
+              <h3 className="settings-eyebrow">Autonomous Organization</h3>
+              <div className="form-group">
+                <div className="inline-control-row autonomous-control-row">
+                  <label htmlFor="autonomous-organization-toggle" className="autonomous-toggle-control">
+                    <input
+                      id="autonomous-organization-toggle"
+                      type="checkbox"
+                      className="autonomous-toggle-input"
+                      checked={autonomousOrganizationEnabled}
+                      onChange={(e) => setAutonomousOrganizationEnabled(e.target.checked)}
+                    />
+                    <span className="autonomous-toggle-track" aria-hidden="true">
+                      <span className="autonomous-toggle-thumb" />
+                    </span>
+                    <span className="autonomous-toggle-copy">Auto-organize documents after indexing (high-confidence moves only)</span>
+                  </label>
+                  <button
+                    onClick={handleUpdateAutonomousOrganization}
+                    className="btn-save"
+                    disabled={savingAutonomousOrganization || Boolean(workspace?.autonomous_organization_enabled) === autonomousOrganizationEnabled}
+                  >
+                    {savingAutonomousOrganization ? 'Saving…' : 'Save'}
                   </button>
                 </div>
               </div>

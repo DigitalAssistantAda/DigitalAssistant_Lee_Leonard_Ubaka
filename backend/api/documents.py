@@ -29,6 +29,10 @@ from schemas.document import (
     DocumentListResponse,
     UpdateDocumentRequest,
     DownloadResponse,
+    SmartContainerSuggestionResponse,
+    ContainerSuggestionOption,
+    AutoOrganizeWorkspaceResponse,
+    AutoOrganizedDocumentResult,
 )
 from schemas.auth import SuccessResponse
 from utils.auth import get_current_user
@@ -39,6 +43,7 @@ from utils.authorization import (
 )
 from utils.audit import create_audit_log, AuditActions
 from utils.storage import storage
+from utils.embeddings import embeddings_service
 from config import settings
 from tasks.embeddings import process_document_embeddings
 from errors import AppError
@@ -202,6 +207,23 @@ def _user_friendly_status(document: Document, job: EmbeddingJob | None) -> tuple
         return ("Couldn't index", "Something went wrong. Try re-uploading or a different file.")
 
     return ("Processing", None)
+
+
+def _confidence_label(score: float) -> str:
+    if score >= 0.78:
+        return "high"
+    if score >= 0.62:
+        return "medium"
+    return "low"
+
+
+def _confidence_rank(label: str) -> int:
+    normalized = (label or "").lower().strip()
+    if normalized == "high":
+        return 3
+    if normalized == "medium":
+        return 2
+    return 1
 
 
 @router.post("/workspaces/{workspace_id}/documents", response_model=DocumentResponse)
@@ -563,6 +585,238 @@ async def get_document(
     return r
 
 
+@router.get("/documents/{document_id}/suggest-container", response_model=SmartContainerSuggestionResponse)
+async def suggest_document_container(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Suggest the best workspace container for a document using chunk similarity with safe fallbacks."""
+    document = check_document_access(current_user, document_id, db)
+    if document.status == DocumentStatus.DELETED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    if document.workspace_id is None:
+        return SmartContainerSuggestionResponse(
+            document_id=document.id,
+            confidence="low",
+            reason="Smart organization is available for workspace documents only.",
+            alternatives=[],
+        )
+
+    check_workspace_access(current_user, document.workspace_id, db)
+
+    workspace_containers = db.query(Container).filter(
+        Container.workspace_id == document.workspace_id,
+    ).all()
+
+    if not workspace_containers:
+        return SmartContainerSuggestionResponse(
+            document_id=document.id,
+            confidence="low",
+            reason="No destination folders exist in this workspace yet.",
+            alternatives=[],
+        )
+
+    if document.status != DocumentStatus.READY:
+        return SmartContainerSuggestionResponse(
+            document_id=document.id,
+            confidence="low",
+            reason="Document is still processing. Try again when indexing is complete.",
+            alternatives=[],
+        )
+
+    container_by_id = {container.id: container for container in workspace_containers}
+    alternatives: list[ContainerSuggestionOption] = []
+    best_container_id: int | None = None
+    best_score = 0.0
+    fallback_used = False
+
+    try:
+        chunks = db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == document.id,
+        ).order_by(DocumentChunk.chunk_index.asc()).limit(4).all()
+
+        combined_text = "\n".join((chunk.text or "") for chunk in chunks).strip()
+        if combined_text:
+            query_embedding = embeddings_service.generate_embedding(combined_text[:6000])
+            similar_rows = embeddings_service.find_similar_embeddings(
+                query_embedding=query_embedding,
+                workspace_id=document.workspace_id,
+                limit=120,
+                threshold=0.2,
+                db=db,
+            )
+
+            weighted_scores: dict[int, float] = {}
+            for _chunk_id, similar_doc_id, similarity in similar_rows:
+                if similar_doc_id == document.id:
+                    continue
+                similar_doc = db.query(Document).filter(
+                    Document.id == similar_doc_id,
+                    Document.workspace_id == document.workspace_id,
+                    Document.status != DocumentStatus.DELETED,
+                ).first()
+                if not similar_doc or not similar_doc.container_id:
+                    continue
+                if similar_doc.container_id not in container_by_id:
+                    continue
+                weighted_scores[similar_doc.container_id] = weighted_scores.get(similar_doc.container_id, 0.0) + float(similarity)
+
+            ranked = sorted(weighted_scores.items(), key=lambda item: item[1], reverse=True)
+            top = ranked[:3]
+            if top:
+                best_container_id, best_score = top[0]
+                alternatives = [
+                    ContainerSuggestionOption(
+                        container_id=container_id,
+                        container_name=container_by_id[container_id].name,
+                        score=round(score, 3),
+                    )
+                    for container_id, score in top
+                ]
+    except Exception as exc:
+        logger.warning("Container suggestion similarity failed for document %s: %s", document.id, exc)
+
+    if not best_container_id:
+        fallback_used = True
+        counts: dict[int, int] = {container.id: 0 for container in workspace_containers}
+        docs_in_workspace = db.query(Document).filter(
+            Document.workspace_id == document.workspace_id,
+            Document.status != DocumentStatus.DELETED,
+            Document.container_id.isnot(None),
+        ).all()
+        for doc in docs_in_workspace:
+            if doc.container_id in counts:
+                counts[doc.container_id] += 1
+
+        ranked_counts = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        if ranked_counts and ranked_counts[0][1] > 0:
+            best_container_id = ranked_counts[0][0]
+            best_score = 0.55
+            alternatives = [
+                ContainerSuggestionOption(
+                    container_id=container_id,
+                    container_name=container_by_id[container_id].name,
+                    score=float(count),
+                )
+                for container_id, count in ranked_counts[:3]
+            ]
+
+    if not best_container_id:
+        return SmartContainerSuggestionResponse(
+            document_id=document.id,
+            confidence="low",
+            reason="No strong destination signal found. Pick a folder manually.",
+            alternatives=[],
+        )
+
+    best_container = container_by_id[best_container_id]
+    reason = (
+        f"Suggested based on semantic similarity to other files in '{best_container.name}'."
+        if not fallback_used
+        else f"Suggested by workspace usage pattern: '{best_container.name}' has the strongest current grouping."
+    )
+
+    create_audit_log(
+        db,
+        current_user,
+        action=AuditActions.DOCUMENT_CONTAINER_SUGGESTED,
+        object_type="document",
+        object_id=document.id,
+        metadata={
+            "workspace_id": document.workspace_id,
+            "suggested_container_id": best_container_id,
+            "suggested_container_name": best_container.name,
+            "confidence": _confidence_label(best_score),
+            "fallback_used": fallback_used,
+        },
+        workspace_id=document.workspace_id,
+    )
+
+    return SmartContainerSuggestionResponse(
+        document_id=document.id,
+        suggested_container_id=best_container_id,
+        suggested_container_name=best_container.name,
+        confidence=_confidence_label(best_score),
+        reason=reason,
+        alternatives=alternatives,
+    )
+
+
+@router.post("/workspaces/{workspace_id}/documents/auto-organize", response_model=AutoOrganizeWorkspaceResponse)
+async def auto_organize_workspace_documents(
+    workspace_id: int,
+    min_confidence: str = Query(default="high"),
+    dry_run: bool = Query(default=False),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Autonomously move ready workspace documents into suggested containers."""
+    require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
+
+    target_rank = _confidence_rank(min_confidence)
+    docs = db.query(Document).filter(
+        Document.workspace_id == workspace_id,
+        Document.status == DocumentStatus.READY,
+        Document.status != DocumentStatus.DELETED,
+    ).order_by(Document.created_at.desc()).all()
+
+    considered = 0
+    moved = 0
+    skipped_low_confidence = 0
+    skipped_no_suggestion = 0
+    skipped_already_organized = 0
+    moved_documents: list[AutoOrganizedDocumentResult] = []
+
+    for doc in docs:
+        considered += 1
+        suggestion = await suggest_document_container(doc.id, current_user, db)
+        suggested_container_id = suggestion.suggested_container_id
+
+        if not suggested_container_id:
+            skipped_no_suggestion += 1
+            continue
+
+        if _confidence_rank(suggestion.confidence) < target_rank:
+            skipped_low_confidence += 1
+            continue
+
+        if doc.container_id == suggested_container_id:
+            skipped_already_organized += 1
+            continue
+
+        moved_documents.append(
+            AutoOrganizedDocumentResult(
+                document_id=doc.id,
+                filename=doc.filename,
+                from_container_id=doc.container_id,
+                to_container_id=suggested_container_id,
+                confidence=suggestion.confidence,
+            )
+        )
+
+        if not dry_run:
+            await update_document(
+                document_id=doc.id,
+                request=UpdateDocumentRequest(container_id=suggested_container_id),
+                current_user=current_user,
+                db=db,
+            )
+            moved += 1
+
+    return AutoOrganizeWorkspaceResponse(
+        workspace_id=workspace_id,
+        considered=considered,
+        moved=moved if not dry_run else len(moved_documents),
+        skipped_low_confidence=skipped_low_confidence,
+        skipped_no_suggestion=skipped_no_suggestion,
+        skipped_already_organized=skipped_already_organized,
+        dry_run=dry_run,
+        moved_documents=moved_documents,
+    )
+
+
 @router.put("/documents/{document_id}", response_model=DocumentResponse)
 async def update_document(
     document_id: int,
@@ -571,19 +825,24 @@ async def update_document(
     db: Session = Depends(get_db)
 ):
     """Updates document metadata"""
-    
+
     document = check_document_access(current_user, document_id, db)
     if document.status == DocumentStatus.DELETED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
+
     old_filename = document.filename
+    old_container_id = document.container_id
+
     if request.filename:
         document.filename = request.filename
-    
+
+    if request.container_id is not None:
+        _validate_container_for_workspace(db, current_user, document.workspace_id, request.container_id)
+        document.container_id = request.container_id
+
     db.commit()
     db.refresh(document)
-    
-    # Log the update action with structured metadata
+
     create_audit_log(
         db,
         current_user,
@@ -592,12 +851,29 @@ async def update_document(
         object_id=document.id,
         metadata={
             "old_filename": old_filename,
-            "new_filename": document.filename if request.filename else old_filename,
-            "workspace_id": document.workspace_id
+            "new_filename": document.filename,
+            "old_container_id": old_container_id,
+            "new_container_id": document.container_id,
+            "workspace_id": document.workspace_id,
         },
-        workspace_id=document.workspace_id
+        workspace_id=document.workspace_id,
     )
-    
+
+    if request.container_id is not None and old_container_id != document.container_id:
+        create_audit_log(
+            db,
+            current_user,
+            action=AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
+            object_type="document",
+            object_id=document.id,
+            metadata={
+                "workspace_id": document.workspace_id,
+                "old_container_id": old_container_id,
+                "new_container_id": document.container_id,
+            },
+            workspace_id=document.workspace_id,
+        )
+
     return DocumentResponse.model_validate(document)
 
 
@@ -640,11 +916,17 @@ async def download_document(
     db: Session = Depends(get_db)
 ):
     """Generate a time-limited signed URL for downloading a document"""
-    
+
     document = check_document_access(current_user, document_id, db)
     if document.status == DocumentStatus.DELETED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
+
+    if not document.storage_uri:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Document does not have a valid storage location. It may still be initializing.",
+        )
+
     ttl_seconds = max(60, min(int(settings.download_url_ttl_seconds), 7 * 24 * 60 * 60))
 
     try:

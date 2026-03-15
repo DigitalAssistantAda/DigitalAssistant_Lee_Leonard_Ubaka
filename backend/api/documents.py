@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from docx import Document as DocxDocument
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from io import BytesIO
+import hashlib
 import os
 import re
 import uuid
@@ -14,6 +15,7 @@ from database import get_db
 from models.user import User
 from models.document import Document, DocumentStatus
 from models.container import Container
+from models.workspace import WorkspaceMember, MemberStatus
 from models.document_chunk import DocumentChunk
 from models.chunk_embedding import ChunkEmbedding
 from models.document_deletion_request import DocumentDeletionRequest, DeletionRequestStatus
@@ -23,7 +25,9 @@ from models.document_duplicate import DocumentDuplicate
 from models.summary import Summary
 from models.job import Job
 from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
-from sqlalchemy import desc
+from models.audit_log import AuditLog
+import math
+from sqlalchemy import desc, func
 from schemas.document import (
     DocumentResponse,
     DocumentListResponse,
@@ -33,6 +37,7 @@ from schemas.document import (
     ContainerSuggestionOption,
     AutoOrganizeWorkspaceResponse,
     AutoOrganizedDocumentResult,
+    DuplicateUploadCheckResponse,
 )
 from schemas.auth import SuccessResponse
 from utils.auth import get_current_user
@@ -47,6 +52,7 @@ from utils.embeddings import embeddings_service
 from config import settings
 from tasks.embeddings import process_document_embeddings
 from errors import AppError
+from realtime import connection_manager
 
 router = APIRouter(tags=["Documents"])
 
@@ -60,6 +66,53 @@ ALLOWED_MIME_TYPES = [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/msword",
 ]
+
+
+def _active_workspace_member_ids(db: Session, workspace_id: int) -> list[int]:
+    rows = db.query(WorkspaceMember.user_id).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.status == MemberStatus.ACTIVE,
+    ).all()
+    return [int(row.user_id) for row in rows]
+
+
+async def _notify_documents_changed(
+    db: Session,
+    workspace_id: int | None,
+    actor_user_id: int,
+    container_id: int | None,
+) -> None:
+    if workspace_id is not None:
+        user_ids = _active_workspace_member_ids(db, workspace_id)
+    else:
+        user_ids = [actor_user_id]
+
+    payload = {
+        "workspace_id": workspace_id,
+        "container_id": container_id,
+    }
+    for user_id in user_ids:
+        await connection_manager.send_to_user(
+            user_id,
+            {
+                "type": "documents.changed",
+                "payload": payload,
+            },
+        )
+        await connection_manager.send_to_user(
+            user_id,
+            {
+                "type": "containers.changed",
+                "payload": {"workspace_id": workspace_id},
+            },
+        )
+        await connection_manager.send_to_user(
+            user_id,
+            {
+                "type": "workspaces.changed",
+                "payload": {"workspace_id": workspace_id},
+            },
+        )
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -226,11 +279,182 @@ def _confidence_rank(label: str) -> int:
     return 1
 
 
+def _infer_auto_container_name(document: Document) -> str:
+    """Generate a readable workspace-scoped folder name for uncategorized docs."""
+    stem = os.path.splitext(document.filename or "")[0]
+    tokens = [part for part in re.split(r"[^A-Za-z0-9]+", stem) if part]
+    if not tokens:
+        return "Ada Organizing"
+    topic = " ".join(tokens[:3]).title().strip()
+    if not topic:
+        return "Ada Organizing"
+    return f"Ada - {topic}"
+
+
+def _ensure_workspace_container(
+    db: Session,
+    workspace_id: int,
+    name: str,
+    actor: User,
+) -> Container:
+    existing = db.query(Container).filter(
+        Container.workspace_id == workspace_id,
+        func.lower(Container.name) == func.lower(name),
+    ).first()
+    if existing:
+        return existing
+
+    created = Container(
+        workspace_id=workspace_id,
+        name=name,
+        color="#6f93ff",
+        created_by=actor.id,
+    )
+    db.add(created)
+    db.commit()
+    db.refresh(created)
+
+    create_audit_log(
+        db,
+        actor,
+        action="container.created_by_auto_organize",
+        object_type="container",
+        object_id=created.id,
+        metadata={
+            "workspace_id": workspace_id,
+            "name": created.name,
+            "trigger": "auto_organize",
+        },
+        workspace_id=workspace_id,
+    )
+    return created
+
+
+def _workspace_feedback_boosts(db: Session, workspace_id: int, limit: int = 400) -> dict[int, float]:
+    """Learn from accepted moves in this workspace and boost likely destination containers."""
+    rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.workspace_id == workspace_id,
+            AuditLog.action == AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    counts: dict[int, int] = {}
+    for row in rows:
+        metadata = row.metadata_json or {}
+        if isinstance(metadata, str):
+            try:
+                import json
+                metadata = json.loads(metadata)
+            except Exception:
+                metadata = {}
+        container_id = metadata.get("new_container_id") if isinstance(metadata, dict) else None
+        if not isinstance(container_id, (int, float, str)):
+            continue
+        try:
+            normalized = int(container_id)
+        except (TypeError, ValueError):
+            continue
+        counts[normalized] = counts.get(normalized, 0) + 1
+
+    # Diminishing returns keeps feedback as a guide, not a hard override.
+    return {cid: min(0.18, 0.035 * math.log1p(count)) for cid, count in counts.items()}
+
+
+def _sha256_digest(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+async def _find_exact_duplicate_in_container(
+    db: Session,
+    container_id: int,
+    content_hash: str,
+) -> Document | None:
+    """Return an existing non-deleted document in the container with identical file bytes."""
+    existing_docs = (
+        db.query(Document)
+        .filter(
+            Document.container_id == container_id,
+            Document.status != DocumentStatus.DELETED,
+        )
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+
+    for existing_doc in existing_docs:
+        if not existing_doc.storage_uri:
+            continue
+        try:
+            bucket, path = _parse_storage_uri(existing_doc.storage_uri)
+            existing_content = await storage.download(bucket=bucket, path=path)
+        except Exception:
+            # If storage read fails for one doc, continue checking others.
+            continue
+
+        if _sha256_digest(existing_content) == content_hash:
+            return existing_doc
+
+    return None
+
+
+@router.post("/containers/{container_id}/documents/duplicate-check", response_model=DuplicateUploadCheckResponse)
+async def check_duplicate_upload_in_container(
+    container_id: int,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Preflight duplicate detection by exact content match within the target container."""
+    _validate_container_access(db, current_user, container_id)
+
+    if not file.content_type or file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type not allowed. Allowed types: {', '.join(ALLOWED_MIME_TYPES)}"
+        )
+
+    content = await file.read()
+    size_bytes = len(content)
+
+    if size_bytes > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB"
+        )
+
+    _validate_upload_content(content, file.content_type)
+
+    duplicate_doc = await _find_exact_duplicate_in_container(
+        db=db,
+        container_id=container_id,
+        content_hash=_sha256_digest(content),
+    )
+
+    if duplicate_doc:
+        return DuplicateUploadCheckResponse(
+            is_duplicate=True,
+            duplicate_document_id=duplicate_doc.id,
+            duplicate_filename=duplicate_doc.filename,
+            duplicate_created_at=duplicate_doc.created_at,
+            message="A matching file already exists in this folder.",
+        )
+
+    return DuplicateUploadCheckResponse(
+        is_duplicate=False,
+        message="No duplicate found in this folder.",
+    )
+
+
 @router.post("/workspaces/{workspace_id}/documents", response_model=DocumentResponse)
 async def upload_document(
     workspace_id: int,
     file: UploadFile = File(...),
     container_id: int | None = Form(default=None),
+    allow_duplicate: bool = Form(default=False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -259,6 +483,19 @@ async def upload_document(
         )
 
     _validate_upload_content(content, file.content_type)
+
+    if container_id is not None:
+        duplicate_doc = await _find_exact_duplicate_in_container(
+            db=db,
+            container_id=container_id,
+            content_hash=_sha256_digest(content),
+        )
+        if duplicate_doc and not allow_duplicate:
+            raise AppError(
+                code="DUPLICATE_DOCUMENT_DETECTED",
+                message=f'A matching file already exists in this folder ("{duplicate_doc.filename}"). Confirm to upload anyway.',
+                status_code=status.HTTP_409_CONFLICT,
+            )
 
     # Check document limit before uploading to avoid wasted storage on rejected requests
     if container_id is not None:
@@ -362,6 +599,7 @@ async def upload_document(
 async def upload_document_to_container(
     container_id: int,
     file: UploadFile = File(...),
+    allow_duplicate: bool = Form(default=False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -387,6 +625,18 @@ async def upload_document_to_container(
         )
 
     _validate_upload_content(content, file.content_type)
+
+    duplicate_doc = await _find_exact_duplicate_in_container(
+        db=db,
+        container_id=container_id,
+        content_hash=_sha256_digest(content),
+    )
+    if duplicate_doc and not allow_duplicate:
+        raise AppError(
+            code="DUPLICATE_DOCUMENT_DETECTED",
+            message=f'A matching file already exists in this folder ("{duplicate_doc.filename}"). Confirm to upload anyway.',
+            status_code=status.HTTP_409_CONFLICT,
+        )
 
     # Enforce per-container document limit
     doc_count = db.query(Document).filter(
@@ -480,6 +730,20 @@ async def upload_document_to_container(
             process_document_embeddings.delay(document.id, current_user.id)
     else:
         process_document_embeddings.delay(document.id, current_user.id)
+
+    await _notify_documents_changed(
+        db=db,
+        workspace_id=document.workspace_id,
+        actor_user_id=current_user.id,
+        container_id=document.container_id,
+    )
+
+    await _notify_documents_changed(
+        db=db,
+        workspace_id=document.workspace_id,
+        actor_user_id=current_user.id,
+        container_id=document.container_id,
+    )
 
     return DocumentResponse.model_validate(document)
 
@@ -600,6 +864,8 @@ async def suggest_document_container(
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
+            confidence_score=None,
+            boost_applied=False,
             reason="Smart organization is available for workspace documents only.",
             alternatives=[],
         )
@@ -614,6 +880,8 @@ async def suggest_document_container(
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
+            confidence_score=None,
+            boost_applied=False,
             reason="No destination folders exist in this workspace yet.",
             alternatives=[],
         )
@@ -622,6 +890,8 @@ async def suggest_document_container(
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
+            confidence_score=None,
+            boost_applied=False,
             reason="Document is still processing. Try again when indexing is complete.",
             alternatives=[],
         )
@@ -631,6 +901,7 @@ async def suggest_document_container(
     best_container_id: int | None = None
     best_score = 0.0
     fallback_used = False
+    feedback_boosts = _workspace_feedback_boosts(db, document.workspace_id)
 
     try:
         chunks = db.query(DocumentChunk).filter(
@@ -648,7 +919,7 @@ async def suggest_document_container(
                 db=db,
             )
 
-            weighted_scores: dict[int, float] = {}
+            max_similarity_by_container: dict[int, float] = {}
             for _chunk_id, similar_doc_id, similarity in similar_rows:
                 if similar_doc_id == document.id:
                     continue
@@ -661,9 +932,18 @@ async def suggest_document_container(
                     continue
                 if similar_doc.container_id not in container_by_id:
                     continue
-                weighted_scores[similar_doc.container_id] = weighted_scores.get(similar_doc.container_id, 0.0) + float(similarity)
+                sim = float(similarity)
+                max_similarity_by_container[similar_doc.container_id] = max(
+                    max_similarity_by_container.get(similar_doc.container_id, 0.0),
+                    sim,
+                )
 
-            ranked = sorted(weighted_scores.items(), key=lambda item: item[1], reverse=True)
+            adjusted_scores = {
+                container_id: score + feedback_boosts.get(container_id, 0.0)
+                for container_id, score in max_similarity_by_container.items()
+            }
+
+            ranked = sorted(adjusted_scores.items(), key=lambda item: item[1], reverse=True)
             top = ranked[:3]
             if top:
                 best_container_id, best_score = top[0]
@@ -707,11 +987,14 @@ async def suggest_document_container(
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
+            confidence_score=None,
+            boost_applied=False,
             reason="No strong destination signal found. Pick a folder manually.",
             alternatives=[],
         )
 
     best_container = container_by_id[best_container_id]
+    boost_applied = feedback_boosts.get(best_container_id, 0.0) > 0
     reason = (
         f"Suggested based on semantic similarity to other files in '{best_container.name}'."
         if not fallback_used
@@ -739,6 +1022,8 @@ async def suggest_document_container(
         suggested_container_id=best_container_id,
         suggested_container_name=best_container.name,
         confidence=_confidence_label(best_score),
+        confidence_score=round(float(best_score), 3),
+        boost_applied=boost_applied,
         reason=reason,
         alternatives=alternatives,
     )
@@ -749,6 +1034,7 @@ async def auto_organize_workspace_documents(
     workspace_id: int,
     min_confidence: str = Query(default="high"),
     dry_run: bool = Query(default=False),
+    auto_create_missing: bool = Query(default=True),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -775,7 +1061,44 @@ async def auto_organize_workspace_documents(
         suggested_container_id = suggestion.suggested_container_id
 
         if not suggested_container_id:
-            skipped_no_suggestion += 1
+            if not auto_create_missing:
+                skipped_no_suggestion += 1
+                continue
+
+            inferred_name = _infer_auto_container_name(doc)
+            target_container_id = None
+            target_container_name = inferred_name
+            if not dry_run:
+                inferred_container = _ensure_workspace_container(
+                    db=db,
+                    workspace_id=workspace_id,
+                    name=inferred_name,
+                    actor=current_user,
+                )
+                target_container_id = inferred_container.id
+                target_container_name = inferred_container.name
+
+            moved_documents.append(
+                AutoOrganizedDocumentResult(
+                    document_id=doc.id,
+                    filename=doc.filename,
+                    from_container_id=doc.container_id,
+                    to_container_id=target_container_id,
+                    to_container_name=target_container_name,
+                    confidence="low",
+                    confidence_score=None,
+                    boost_applied=False,
+                )
+            )
+
+            if not dry_run and target_container_id is not None:
+                await update_document(
+                    document_id=doc.id,
+                    request=UpdateDocumentRequest(container_id=target_container_id),
+                    current_user=current_user,
+                    db=db,
+                )
+                moved += 1
             continue
 
         if _confidence_rank(suggestion.confidence) < target_rank:
@@ -792,7 +1115,10 @@ async def auto_organize_workspace_documents(
                 filename=doc.filename,
                 from_container_id=doc.container_id,
                 to_container_id=suggested_container_id,
+                to_container_name=suggestion.suggested_container_name,
                 confidence=suggestion.confidence,
+                confidence_score=suggestion.confidence_score,
+                boost_applied=suggestion.boost_applied,
             )
         )
 
@@ -874,6 +1200,13 @@ async def update_document(
             workspace_id=document.workspace_id,
         )
 
+    await _notify_documents_changed(
+        db=db,
+        workspace_id=document.workspace_id,
+        actor_user_id=current_user.id,
+        container_id=document.container_id,
+    )
+
     return DocumentResponse.model_validate(document)
 
 
@@ -896,13 +1229,45 @@ async def retry_document_indexing(
             ChunkEmbedding.chunk_id.in_(chunk_ids)
         ).delete(synchronize_session=False)
     db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete(synchronize_session=False)
+    db.query(DocumentHint).filter(DocumentHint.document_id == document_id).delete(synchronize_session=False)
+    db.query(Job).filter(Job.document_id == document_id).delete(synchronize_session=False)
     db.query(EmbeddingJob).filter(EmbeddingJob.document_id == document_id).delete(synchronize_session=False)
+    db.query(Summary).filter(
+        Summary.document_id == document_id
+    ).update({Summary.document_id: None}, synchronize_session=False)
+    db.query(DocumentDuplicate).filter(
+        DocumentDuplicate.duplicate_of_id == document_id
+    ).update({DocumentDuplicate.duplicate_of_id: None}, synchronize_session=False)
+    db.query(DocumentDuplicate).filter(
+        DocumentDuplicate.document_id == document_id
+    ).delete(synchronize_session=False)
 
     document.status = DocumentStatus.UPLOADED
     db.commit()
     db.refresh(document)
 
+    create_audit_log(
+        db,
+        current_user,
+        action="document.retry_indexing_requested",
+        object_type="document",
+        object_id=document.id,
+        metadata={
+            "filename": document.filename,
+            "workspace_id": document.workspace_id,
+            "container_id": document.container_id,
+        },
+        workspace_id=document.workspace_id,
+    )
+
     process_document_embeddings.delay(document_id, current_user.id)
+
+    await _notify_documents_changed(
+        db=db,
+        workspace_id=document.workspace_id,
+        actor_user_id=current_user.id,
+        container_id=document.container_id,
+    )
 
     r = DocumentResponse.model_validate(document)
     r.status_label, r.status_detail = _user_friendly_status(document, None)
@@ -1168,6 +1533,7 @@ async def approve_deletion_request(
     requester = db.query(User).filter(User.id == deletion_request.requested_by).first()
     workspace_id = document.workspace_id
     filename = document.filename
+    container_id = document.container_id
     bucket, path = _parse_storage_uri(document.storage_uri)
     
     try:
@@ -1233,6 +1599,13 @@ async def approve_deletion_request(
             "workspace_id": workspace_id
         },
         workspace_id=workspace_id
+    )
+
+    await _notify_documents_changed(
+        db=db,
+        workspace_id=workspace_id,
+        actor_user_id=current_user.id,
+        container_id=container_id,
     )
     
     return DocumentDeletionRequestResponse.model_validate(deletion_request)
@@ -1319,6 +1692,7 @@ async def delete_document(
     # Get document details for audit log before deletion
     workspace_id = document.workspace_id
     filename = document.filename
+    container_id = document.container_id
 
     bucket, path = _parse_storage_uri(document.storage_uri)
 
@@ -1385,6 +1759,13 @@ async def delete_document(
             "workspace_id": workspace_id
         },
         workspace_id=workspace_id
+    )
+
+    await _notify_documents_changed(
+        db=db,
+        workspace_id=workspace_id,
+        actor_user_id=current_user.id,
+        container_id=container_id,
     )
     
     return SuccessResponse()

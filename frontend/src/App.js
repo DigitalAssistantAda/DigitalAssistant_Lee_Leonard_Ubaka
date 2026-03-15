@@ -351,7 +351,13 @@ function App() {
               window.dispatchEvent(new Event('notifications-updated'));
             }
             if (msg?.type === 'workspaces.changed') {
-              window.dispatchEvent(new Event('workspaces-updated'));
+              window.dispatchEvent(new CustomEvent('workspaces-updated', { detail: msg?.payload || {} }));
+            }
+            if (msg?.type === 'containers.changed') {
+              window.dispatchEvent(new CustomEvent('containers-updated', { detail: msg?.payload || {} }));
+            }
+            if (msg?.type === 'documents.changed') {
+              window.dispatchEvent(new CustomEvent('documents-updated', { detail: msg?.payload || {} }));
             }
           } catch (_) {}
         };
@@ -485,15 +491,15 @@ function App() {
           />
           <Route 
             path="/documents" 
-            element={user ? <Documents /> : <Navigate to="/login" />} 
+            element={user ? <Documents currentUser={user} /> : <Navigate to="/login" />} 
           />
           <Route 
             path="/documents/:containerId" 
-            element={user ? <Documents /> : <Navigate to="/login" />} 
+            element={user ? <Documents currentUser={user} /> : <Navigate to="/login" />} 
           />
           <Route 
             path="/documents/:containerId/:documentId" 
-            element={user ? <Documents /> : <Navigate to="/login" />} 
+            element={user ? <Documents currentUser={user} /> : <Navigate to="/login" />} 
           />
           <Route 
             path="/search" 

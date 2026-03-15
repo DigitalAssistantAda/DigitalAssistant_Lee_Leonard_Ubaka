@@ -193,6 +193,27 @@ function WorkspaceDetail() {
     };
   }, [location.search]);
 
+  const fetchWorkspaceDetail = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/v1/workspaces/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to fetch workspace');
+        throw new Error(message);
+      }
+      const data = await response.json();
+      setWorkspace(data);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [API_URL, id]);
+
   const handleMessageInputChange = (event) => {
     const value = event.target.value;
     const caretPosition = event.target.selectionStart ?? value.length;
@@ -245,31 +266,43 @@ function WorkspaceDetail() {
   };
 
   useEffect(() => {
-    const fetchWorkspaceDetail = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch(`${API_URL}/api/v1/workspaces/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!response.ok) {
-          const message = await getApiErrorMessage(response, 'Failed to fetch workspace');
-          throw new Error(message);
-        }
-        const data = await response.json();
-        setWorkspace(data);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchWorkspaceDetail();
     fetchMessages();
     fetchMemberCount();
     fetchIssueSummary();
-  }, [id, API_URL, fetchMessages, fetchIssueSummary, fetchMemberCount]);
+  }, [fetchWorkspaceDetail, fetchMessages, fetchIssueSummary, fetchMemberCount]);
+
+  useEffect(() => {
+    const workspaceId = Number(id);
+    if (!Number.isFinite(workspaceId)) return;
+
+    const handleWorkspaceRefresh = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      if (Number.isFinite(changedWorkspaceId) && changedWorkspaceId !== workspaceId) {
+        return;
+      }
+      fetchWorkspaceDetail();
+      fetchMemberCount();
+      fetchIssueSummary();
+    };
+
+    const handleDocumentsRefresh = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      if (!Number.isFinite(changedWorkspaceId) || changedWorkspaceId === workspaceId) {
+        fetchWorkspaceDetail();
+      }
+    };
+
+    window.addEventListener('workspaces-updated', handleWorkspaceRefresh);
+    window.addEventListener('containers-updated', handleDocumentsRefresh);
+    window.addEventListener('documents-updated', handleDocumentsRefresh);
+
+    return () => {
+      window.removeEventListener('workspaces-updated', handleWorkspaceRefresh);
+      window.removeEventListener('containers-updated', handleDocumentsRefresh);
+      window.removeEventListener('documents-updated', handleDocumentsRefresh);
+    };
+  }, [id, fetchWorkspaceDetail, fetchMemberCount, fetchIssueSummary]);
 
   useEffect(() => {
     const { tab, messageId } = getSearchState();

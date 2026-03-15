@@ -129,6 +129,23 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
     fetchWorkspaceData();
   }, [resolvedWorkspaceId, fetchWorkspaceData]);
 
+  useEffect(() => {
+    if (!resolvedWorkspaceId) return;
+
+    const handleWorkspaceUpdated = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      if (Number.isFinite(changedWorkspaceId) && changedWorkspaceId !== Number(resolvedWorkspaceId)) {
+        return;
+      }
+      fetchWorkspaceData();
+    };
+
+    window.addEventListener('workspaces-updated', handleWorkspaceUpdated);
+    return () => {
+      window.removeEventListener('workspaces-updated', handleWorkspaceUpdated);
+    };
+  }, [resolvedWorkspaceId, fetchWorkspaceData]);
+
   const handleUpdateWorkspaceName = async () => {
     if (!newName.trim() || !workspace) return;
 

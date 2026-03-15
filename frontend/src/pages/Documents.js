@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, MoreVertical, Eye } from 'lucide-react';
+import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, ChevronRight, GripVertical, MoreVertical, Eye, RotateCcw } from 'lucide-react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import AccessState from '../components/AccessState';
 import ColorSwatchPicker from '../components/ColorSwatchPicker';
@@ -8,7 +8,7 @@ import { CONTAINER_SWATCH_PRESETS } from '../utils/colorPresets';
 import LoadingState from '../components/LoadingState';
 import './Documents.css';
 
-function Documents() {
+function Documents({ currentUser }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { containerId: containerIdParam } = useParams();
@@ -22,6 +22,7 @@ function Documents() {
   const [uploadFile, setUploadFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [showCreateContainer, setShowCreateContainer] = useState(false);
+  const [createContainerParentId, setCreateContainerParentId] = useState(null);
   const [containerName, setContainerName] = useState('');
   const [containerColor, setContainerColor] = useState('#f59e0b');
   const [createdContainers, setCreatedContainers] = useState([]);
@@ -30,6 +31,7 @@ function Documents() {
   const [ownerFilter, setOwnerFilter] = useState('all');
   const [viewMode, setViewMode] = useState('list');
   const [selectedDocuments, setSelectedDocuments] = useState(new Set());
+  const [selectedFolders, setSelectedFolders] = useState(new Set());
   const [openedFolder, setOpenedFolder] = useState(null);
   const [folderDocuments, setFolderDocuments] = useState([]);
   const [folderSearchQuery, setFolderSearchQuery] = useState('');
@@ -47,34 +49,26 @@ function Documents() {
   const [suggestingDocIds, setSuggestingDocIds] = useState(new Set());
   const [applyingSuggestionIds, setApplyingSuggestionIds] = useState(new Set());
   const [autoOrganizing, setAutoOrganizing] = useState(false);
+  const [autoOrganizeReport, setAutoOrganizeReport] = useState(null);
+  const [draggedContainerId, setDraggedContainerId] = useState(null);
+  const [dropTargetContainerId, setDropTargetContainerId] = useState(null);
+  const [collapsedContainerIds, setCollapsedContainerIds] = useState(new Set());
+  const [retryingDocIds, setRetryingDocIds] = useState(new Set());
+  const [moveTargetSubfolderId, setMoveTargetSubfolderId] = useState('');
+  const [movingDocuments, setMovingDocuments] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
   const workspaceIdFromQuery = useMemo(() => {
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(location.search || '');
     const value = Number(params.get('workspaceId'));
-    return Number.isFinite(value) && value > 0 ? value : null;
+    return Number.isFinite(value) && value > 0 ? String(value) : '';
   }, [location.search]);
 
-  /** User-friendly status for a document (from backend status_label/status_detail or fallback). */
-  const getDocumentStatusDisplay = (doc) => {
-    const label = doc.status_label || (doc.status ? String(doc.status).replace(/_/g, ' ') : 'Uploaded');
-    const detail = doc.status_detail || null;
-    const statusKey = (doc.status && String(doc.status).toLowerCase()) || 'uploaded';
-    const key = ['ready', 'processing', 'failed', 'uploaded'].includes(statusKey) ? statusKey : 'uploaded';
-    return { label, detail, statusKey: key };
-  };
-
   const currentUserId = useMemo(() => {
-    try {
-      const raw = localStorage.getItem('user');
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      const id = parsed?.id ?? parsed?.user_id ?? null;
-      return id == null ? null : Number(id);
-    } catch {
-      return null;
-    }
-  }, []);
+    const value = Number(currentUser?.id ?? currentUser?.user_id ?? NaN);
+    return Number.isFinite(value) ? value : null;
+  }, [currentUser]);
 
 // TXT Preview Component
 function TxtPreview({ docId }) {
@@ -92,11 +86,11 @@ function TxtPreview({ docId }) {
           setLoading(false);
           return;
         }
-        
+
         const response = await fetch(
           `${API_URL}/api/v1/documents/${docId}/content`,
           {
-            headers: { 
+            headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             },
@@ -298,9 +292,6 @@ function PdfPreview({ docId }) {
           setSelectedWorkspace(workspaceIdFromQuery);
           return;
         }
-        if (!containerIdParam && items.length > 0 && !selectedWorkspace) {
-          setSelectedWorkspace(items[0].id);
-        }
       }
     } catch (err) {
       console.error('Error fetching workspaces:', err);
@@ -343,6 +334,41 @@ function PdfPreview({ docId }) {
   // Returns true if any doc is still processing/pending (poll should continue).
   const hasProcessingDocuments = (newDocs) => {
     return newDocs.some((doc) => doc.status === 'processing' || doc.status === 'pending');
+  };
+
+  const getDocumentStatusDisplay = (doc) => {
+    const rawStatus = String(doc?.status || 'uploaded').toLowerCase();
+    const statusDetail = String(doc?.status_detail || '').trim();
+
+    if (rawStatus === 'ready') {
+      return {
+        label: doc?.status_label || 'Ready',
+        statusKey: 'ready',
+        detail: statusDetail || '',
+      };
+    }
+
+    if (rawStatus === 'processing' || rawStatus === 'pending') {
+      return {
+        label: doc?.status_label || 'Processing',
+        statusKey: 'processing',
+        detail: statusDetail || '',
+      };
+    }
+
+    if (rawStatus === 'failed') {
+      return {
+        label: doc?.status_label || 'Failed',
+        statusKey: 'failed',
+        detail: statusDetail || 'Document processing failed.',
+      };
+    }
+
+    return {
+      label: doc?.status_label || 'Uploaded',
+      statusKey: 'uploaded',
+      detail: statusDetail || '',
+    };
   };
 
   // Polls the workspace document list every 3 s while any doc is processing.
@@ -425,90 +451,212 @@ function PdfPreview({ docId }) {
       : [];
   };
 
-  const handleFileUpload = async (e) => {
-  e.preventDefault();
-  const targetWorkspaceId = openedFolder?.workspace_id || selectedWorkspace;
-  const uploadToPersonalContainer = Boolean(openedFolder?.id && !openedFolder?.workspace_id);
-  if (uploadFiles.length === 0) {
-    setError('Please select at least one file to upload.');
-    return;
-  }
-
-  if (!uploadToPersonalContainer && !targetWorkspaceId) {
-    setError('Please select a workspace before uploading.');
-    return;
-  }
-
-  setUploading(true);
-  setError(null);
-
-  try {
-    const token = localStorage.getItem('token');
-    const uploadPromises = uploadFiles.map(async (file, index) => {
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-        if (openedFolder?.id && !uploadToPersonalContainer) {
-          formData.append('container_id', String(openedFolder.id));
-        }
-
-        const uploadUrl = uploadToPersonalContainer
-          ? `${API_URL}/api/v1/containers/${openedFolder.id}/documents`
-          : `${API_URL}/api/v1/workspaces/${targetWorkspaceId}/documents`;
-
-        const response = await fetch(
-          uploadUrl,
-          {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-            body: formData,
-          }
-        );
-
-        if (!response.ok) {
-          const message = await getApiErrorMessage(response, `Failed to upload ${file.name}`);
-          throw new Error(message);
-        }
-
-        // Update progress for this file
-        setUploadProgress(prev => ({
-          ...prev,
-          [file.name]: 100
-        }));
-
-        return response.json();
-      } catch (err) {
-        setError(`Error uploading ${file.name}: ${err.message}`);
-        return null;
+  useEffect(() => {
+    const refreshVisibleDocuments = () => {
+      if (openedFolder?.id) {
+        fetchDocumentsForContainer(openedFolder.id)
+          .then((items) => {
+            setFolderDocuments(items);
+          })
+          .catch((err) => {
+            setError(err.message || 'Failed to refresh folder documents');
+          });
+        return;
       }
+
+      if (selectedWorkspace || workspaceIdFromQuery) {
+        fetchDocuments();
+      }
+    };
+
+    const handleWorkspaceUpdated = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      const activeWorkspaceId = Number(openedFolder?.workspace_id || selectedWorkspace || workspaceIdFromQuery);
+      if (Number.isFinite(changedWorkspaceId) && Number.isFinite(activeWorkspaceId) && changedWorkspaceId !== activeWorkspaceId) {
+        return;
+      }
+
+      fetchWorkspaces();
+      fetchContainers();
+      refreshVisibleDocuments();
+    };
+
+    const handleContainersUpdated = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      const activeWorkspaceId = Number(openedFolder?.workspace_id || selectedWorkspace || workspaceIdFromQuery);
+      if (Number.isFinite(changedWorkspaceId) && Number.isFinite(activeWorkspaceId) && changedWorkspaceId !== activeWorkspaceId) {
+        return;
+      }
+
+      fetchContainers();
+      refreshVisibleDocuments();
+    };
+
+    const handleDocumentsUpdated = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      const activeWorkspaceId = Number(openedFolder?.workspace_id || selectedWorkspace || workspaceIdFromQuery);
+      if (Number.isFinite(changedWorkspaceId) && Number.isFinite(activeWorkspaceId) && changedWorkspaceId !== activeWorkspaceId) {
+        return;
+      }
+
+      refreshVisibleDocuments();
+    };
+
+    window.addEventListener('workspaces-updated', handleWorkspaceUpdated);
+    window.addEventListener('containers-updated', handleContainersUpdated);
+    window.addEventListener('documents-updated', handleDocumentsUpdated);
+
+    return () => {
+      window.removeEventListener('workspaces-updated', handleWorkspaceUpdated);
+      window.removeEventListener('containers-updated', handleContainersUpdated);
+      window.removeEventListener('documents-updated', handleDocumentsUpdated);
+    };
+  }, [openedFolder, selectedWorkspace, workspaceIdFromQuery, containerIdParam]);
+
+  const checkDuplicateUploadInContainer = async (containerId, file) => {
+    const token = localStorage.getItem('token');
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_URL}/api/v1/containers/${containerId}/documents/duplicate-check`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
     });
 
-        await Promise.all(uploadPromises);
-    setUploadFiles([]);
-    setUploadProgress({});
-    setShowUploadModal(false);
-    setSuccessMessage('Files uploaded successfully to workspace folder');
-    setTimeout(() => setSuccessMessage(null), 3000);
-    // Poll until all just-uploaded docs finish processing
-    const wsId = openedFolder?.workspace_id || selectedWorkspace;
-    if (wsId) startProcessingPoll(wsId);
-
-    // Only refresh the folder view if the user has it open
-    if (openedFolder?.id) {
-      try {
-        const items = await fetchDocumentsForContainer(openedFolder.id);
-        setFolderDocuments(items);
-      } catch (err) {
-        console.error('Error refreshing folder:', err);
-      }
+    if (!response.ok) {
+      const message = await getApiErrorMessage(response, 'Could not verify duplicate status');
+      throw new Error(message);
     }
-    // DO NOT call fetchDocuments() - this prevents files from appearing in main list
-  } catch (err) {
-    setError(err.message);
-  } finally {
-    setUploading(false);
-  }
-};
+
+    return response.json();
+  };
+
+  const handleFileUpload = async (e) => {
+    e.preventDefault();
+    const targetWorkspaceId = openedFolder?.workspace_id || selectedWorkspace;
+    const uploadToPersonalContainer = Boolean(openedFolder?.id && !openedFolder?.workspace_id);
+    const targetContainerId = Number(openedFolder?.id || NaN);
+    const hasTargetContainer = Number.isFinite(targetContainerId) && targetContainerId > 0;
+
+    if (uploadFiles.length === 0) {
+      setError('Please select at least one file to upload.');
+      return;
+    }
+
+    if (!uploadToPersonalContainer && !targetWorkspaceId) {
+      setError('Please select a workspace before uploading.');
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      const uploadResults = await Promise.all(
+        uploadFiles.map(async (file) => {
+          try {
+            let allowDuplicate = false;
+            if (hasTargetContainer) {
+              const duplicateCheck = await checkDuplicateUploadInContainer(targetContainerId, file);
+              if (duplicateCheck?.is_duplicate) {
+                const existingLabel = duplicateCheck.duplicate_filename || `Document #${duplicateCheck.duplicate_document_id}`;
+                const shouldUploadDuplicate = window.confirm(
+                  `"${file.name}" looks identical to "${existingLabel}" in this folder. Upload anyway?`
+                );
+                if (!shouldUploadDuplicate) {
+                  return { status: 'skipped-duplicate' };
+                }
+                allowDuplicate = true;
+              }
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+            if (openedFolder?.id && !uploadToPersonalContainer) {
+              formData.append('container_id', String(openedFolder.id));
+            }
+            if (allowDuplicate) {
+              formData.append('allow_duplicate', 'true');
+            }
+
+            const uploadUrl = uploadToPersonalContainer
+              ? `${API_URL}/api/v1/containers/${openedFolder.id}/documents`
+              : `${API_URL}/api/v1/workspaces/${targetWorkspaceId}/documents`;
+
+            const response = await fetch(uploadUrl, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${token}` },
+              body: formData,
+            });
+
+            if (!response.ok) {
+              const message = await getApiErrorMessage(response, `Failed to upload ${file.name}`);
+              throw new Error(message);
+            }
+
+            setUploadProgress((prev) => ({
+              ...prev,
+              [file.name]: 100,
+            }));
+
+            await response.json();
+            return { status: 'uploaded' };
+          } catch (err) {
+            return {
+              status: 'failed',
+              error: err.message || `Failed to upload ${file.name}`,
+            };
+          }
+        })
+      );
+
+      const uploadedCount = uploadResults.filter((item) => item.status === 'uploaded').length;
+      const duplicateSkippedCount = uploadResults.filter((item) => item.status === 'skipped-duplicate').length;
+      const failedUploads = uploadResults.filter((item) => item.status === 'failed');
+
+      if (uploadedCount > 0) {
+        setUploadFiles([]);
+        setUploadProgress({});
+        setShowUploadModal(false);
+
+        const messageParts = [`Uploaded ${uploadedCount} file${uploadedCount !== 1 ? 's' : ''}.`];
+        if (duplicateSkippedCount > 0) {
+          messageParts.push(`${duplicateSkippedCount} duplicate${duplicateSkippedCount !== 1 ? 's were' : ' was'} skipped.`);
+        }
+        if (failedUploads.length > 0) {
+          messageParts.push(`${failedUploads.length} failed.`);
+        }
+        setSuccessMessage(messageParts.join(' '));
+        setTimeout(() => setSuccessMessage(null), 4000);
+
+        const wsId = openedFolder?.workspace_id || selectedWorkspace;
+        if (wsId) startProcessingPoll(wsId);
+
+        if (openedFolder?.id) {
+          try {
+            const items = await fetchDocumentsForContainer(openedFolder.id);
+            setFolderDocuments(items);
+          } catch (err) {
+            console.error('Error refreshing folder:', err);
+          }
+        }
+      }
+
+      if (uploadedCount === 0 && failedUploads.length > 0) {
+        setError(failedUploads[0].error || 'Upload failed');
+      } else if (uploadedCount === 0 && duplicateSkippedCount > 0) {
+        setError('Upload canceled for duplicate files.');
+      } else if (failedUploads.length > 0) {
+        setError(failedUploads[0].error || 'Some files failed to upload');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
 
 
   // Drag and drop handlers - UPDATED
@@ -568,13 +716,17 @@ const handleFileInputClick = () => {
 
 const handleCreateContainer = async (e) => {
   e.preventDefault();
-  if (!containerName) {
+  const trimmedName = String(containerName || '').trim();
+  if (!trimmedName) {
     setError('Please enter a container name');
     return;
   }
 
-  const createUrl = `${API_URL}/api/v1/containers`;
   const scopedWorkspaceId = openedFolder?.workspace_id || null;
+  const isNestedCreation = Number.isFinite(Number(createContainerParentId));
+  const createUrl = scopedWorkspaceId
+    ? `${API_URL}/api/v1/workspaces/${Number(scopedWorkspaceId)}/containers`
+    : `${API_URL}/api/v1/containers`;
 
   try {
     const token = localStorage.getItem('token');
@@ -585,62 +737,60 @@ const handleCreateContainer = async (e) => {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        name: containerName,
+        name: trimmedName,
         color: containerColor,
         workspace_id: scopedWorkspaceId ? Number(scopedWorkspaceId) : null,
+        parent_container_id: Number.isFinite(Number(createContainerParentId))
+          ? Number(createContainerParentId)
+          : null,
       }),
     });
 
-    let created = null;
-    let serverErr = null;
-    if (response.ok) {
-      try {
-        const data = await response.json().catch(() => null);
-        created = data?.item || data?.container || data || null;
-      } catch (err) {
-        created = null;
-      }
-    } else {
-      const text = await response.text().catch(() => null);
-      serverErr = text || `Server returned ${response.status}`;
-      created = null;
-      if (response.status === 401 || (typeof serverErr === 'string' && serverErr.toLowerCase().includes('could not validate'))) {
-        serverErr = 'Authentication required — please sign in to persist containers. Container created locally.';
-      }
+    if (!response.ok) {
+      const message = await getApiErrorMessage(
+        response,
+        isNestedCreation ? 'Failed to create subfolder' : 'Failed to create folder'
+      );
+      throw new Error(message);
     }
 
-    if (created && created.id) {
-      const rawType = String(created?.type || created?.owner_type || created?.created_by_type || 'user').toLowerCase();
-      const normalizedType = rawType.includes('ai') ? 'ai' : rawType.includes('workspace') ? 'workspace' : 'user';
-      const newContainer = {
-        id: created.id,
-        name: created.name || containerName,
-        color: created.color || containerColor,
-        workspace_id: created.workspace_id ?? (scopedWorkspaceId ? Number(scopedWorkspaceId) : null),
-        created_by: created.created_by,
-        created_at: created.created_at,
-        type: normalizedType,
-      };
-      setDbContainers(prev => [...prev, newContainer]);
-      setCreatedContainers(prev => [...prev, newContainer]);
-      // Save to localStorage
-      localStorage.setItem('createdContainers', JSON.stringify([...createdContainers, newContainer]));
-    } else {
-      const placeholder = { id: `local-${Date.now()}`, name: containerName, color: containerColor, type: 'user' };
-      setCreatedContainers(prev => [...prev, placeholder]);
-      // Save to localStorage
-      localStorage.setItem('createdContainers', JSON.stringify([...createdContainers, placeholder]));
-      if (serverErr) {
-        setError(serverErr);
-      }
+    const data = await response.json().catch(() => null);
+    const created = data?.item || data?.container || data || null;
+    if (!created?.id) {
+      throw new Error(isNestedCreation ? 'Subfolder was created but the server returned an invalid response.' : 'Folder was created but the server returned an invalid response.');
     }
+
+    const rawType = String(created?.type || created?.owner_type || created?.created_by_type || 'user').toLowerCase();
+    const normalizedType = rawType.includes('ai') ? 'ai' : rawType.includes('workspace') ? 'workspace' : 'user';
+    const newContainer = {
+      id: created.id,
+      name: created.name || trimmedName,
+      color: created.color || containerColor,
+      workspace_id: created.workspace_id ?? (scopedWorkspaceId ? Number(scopedWorkspaceId) : null),
+      parent_container_id: created.parent_container_id ?? (Number.isFinite(Number(createContainerParentId)) ? Number(createContainerParentId) : null),
+      created_by: created.created_by,
+      created_at: created.created_at,
+      type: normalizedType,
+      is_workspace_default: Boolean(created.is_workspace_default),
+    };
+
+    setDbContainers((prev) => [...prev, newContainer]);
+    setCreatedContainers((prev) => {
+      const next = [...prev, newContainer];
+      localStorage.setItem('createdContainers', JSON.stringify(next));
+      return next;
+    });
+
+    await fetchContainers();
 
     setContainerName('');
     setContainerColor('#f59e0b');
     setShowCreateContainer(false);
+    setCreateContainerParentId(null);
 
-    setSuccessMessage('Container created');
+    setSuccessMessage(isNestedCreation ? 'Subfolder created' : 'Folder created');
     setTimeout(() => setSuccessMessage(null), 3000);
+    setError(null);
   } catch (err) {
     setError(err.message || 'Failed to create container');
   }
@@ -823,6 +973,131 @@ const handleCreateContainer = async (e) => {
     }
   };
 
+  const handleRetryIndexing = async (doc, event) => {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    const docId = Number(doc?.id);
+    if (!Number.isFinite(docId)) return;
+
+    setRetryingDocIds((prev) => {
+      const next = new Set(prev);
+      next.add(docId);
+      return next;
+    });
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/api/v1/documents/${docId}/retry-indexing`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to retry indexing');
+        throw new Error(message);
+      }
+
+      const updatedDoc = await response.json();
+      setFolderDocuments((prev) => prev.map((item) => (Number(item.id) === docId ? { ...item, ...updatedDoc } : item)));
+      setDocuments((prev) => prev.map((item) => (Number(item.id) === docId ? { ...item, ...updatedDoc } : item)));
+      setSuccessMessage(`Retrying indexing for "${doc.filename}".`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+      setError(null);
+
+      const workspaceId = Number(updatedDoc?.workspace_id || openedFolder?.workspace_id || selectedWorkspace || workspaceIdFromQuery);
+      if (Number.isFinite(workspaceId) && workspaceId > 0) {
+        startProcessingPoll(workspaceId);
+      }
+    } catch (err) {
+      setError(err.message || 'Could not retry indexing');
+    } finally {
+      setRetryingDocIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
+    }
+  };
+
+  const buildAutoOrganizeReport = ({ result, beforeCount, afterCount, mode }) => {
+    const containerNameById = new Map(
+      displayedContainers.map((container) => [Number(container.id), container.name])
+    );
+    const movedDocuments = Array.isArray(result?.moved_documents)
+      ? result.moved_documents.map((item) => {
+          const fromId = item?.from_container_id == null ? null : Number(item.from_container_id);
+          const rawToId = item?.to_container_id;
+          const toId = rawToId == null ? null : Number(rawToId);
+          const fromName =
+            fromId == null
+              ? 'Unassigned'
+              : containerNameById.get(fromId) || `Folder #${fromId}`;
+          const toName =
+            item?.to_container_name
+            || (toId == null ? 'Ada Suggested Folder' : containerNameById.get(toId) || `Folder #${toId}`);
+          return {
+            document_id: Number(item?.document_id),
+            filename: item?.filename || `Document #${item?.document_id}`,
+            confidence: String(item?.confidence || '').toLowerCase(),
+            confidence_score: Number.isFinite(Number(item?.confidence_score))
+              ? Number(Number(item?.confidence_score).toFixed(3))
+              : null,
+            boost_applied: Boolean(item?.boost_applied),
+            from_container_name: fromName,
+            to_container_name: toName,
+          };
+        })
+      : [];
+
+    const scoredMoves = movedDocuments.filter((item) => Number.isFinite(item.confidence_score));
+    const averageConfidenceScore = scoredMoves.length
+      ? Number((scoredMoves.reduce((sum, item) => sum + item.confidence_score, 0) / scoredMoves.length).toFixed(3))
+      : null;
+    const boostedMoves = movedDocuments.filter((item) => item.boost_applied).length;
+
+    let trendFromPreviousRun = null;
+    try {
+      const previousRaw = localStorage.getItem('ada:auto-organize-last-report');
+      if (previousRaw) {
+        const previous = JSON.parse(previousRaw);
+        const previousAverage = Number(previous?.average_confidence_score);
+        if (Number.isFinite(previousAverage) && Number.isFinite(averageConfidenceScore)) {
+          trendFromPreviousRun = Number((averageConfidenceScore - previousAverage).toFixed(3));
+        }
+      }
+    } catch {
+      trendFromPreviousRun = null;
+    }
+
+    const report = {
+      ranAt: new Date().toISOString(),
+      mode,
+      considered: Number(result?.considered || 0),
+      moved: Number(result?.moved || 0),
+      skipped_low_confidence: Number(result?.skipped_low_confidence || 0),
+      skipped_no_suggestion: Number(result?.skipped_no_suggestion || 0),
+      skipped_already_organized: Number(result?.skipped_already_organized || 0),
+      folder_before_count: beforeCount,
+      folder_after_count: afterCount,
+      moved_documents: movedDocuments,
+      average_confidence_score: averageConfidenceScore,
+      boosted_moves: boostedMoves,
+      trend_from_previous_run: trendFromPreviousRun,
+    };
+
+    try {
+      localStorage.setItem(
+        'ada:auto-organize-last-report',
+        JSON.stringify({ average_confidence_score: averageConfidenceScore, ran_at: report.ranAt })
+      );
+    } catch {}
+
+    return report;
+  };
+
   const handleAutoOrganizeWorkspace = async () => {
     const workspaceId = Number(openedFolder?.workspace_id);
     if (!Number.isFinite(workspaceId) || workspaceId <= 0) {
@@ -830,16 +1105,13 @@ const handleCreateContainer = async (e) => {
       return;
     }
 
-    const shouldContinue = window.confirm(
-      'Auto-organize will move ready documents to suggested folders using high-confidence matches. Continue?'
-    );
-    if (!shouldContinue) return;
+    const beforeFolderCount = folderDocuments.length;
 
     setAutoOrganizing(true);
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(
-        `${API_URL}/api/v1/workspaces/${workspaceId}/documents/auto-organize?min_confidence=high&dry_run=false`,
+        `${API_URL}/api/v1/workspaces/${workspaceId}/documents/auto-organize?min_confidence=high&dry_run=true`,
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
@@ -854,23 +1126,87 @@ const handleCreateContainer = async (e) => {
       const result = await response.json();
       const movedCount = Number(result?.moved || 0);
       const skippedCount = Number(result?.skipped_low_confidence || 0) + Number(result?.skipped_no_suggestion || 0);
-
       setSuccessMessage(
         movedCount > 0
-          ? `Auto-organized ${movedCount} document${movedCount !== 1 ? 's' : ''}.`
-          : `No moves applied. ${skippedCount} document${skippedCount !== 1 ? 's were' : ' was'} skipped.`
+          ? `Ada suggested ${movedCount} move${movedCount !== 1 ? 's' : ''}. Review and accept to apply.`
+          : `No suggestions generated. ${skippedCount} document${skippedCount !== 1 ? 's were' : ' was'} skipped.`
       );
       setTimeout(() => setSuccessMessage(null), 4000);
 
+      setAutoOrganizeReport(
+        buildAutoOrganizeReport({
+          result,
+          beforeCount: beforeFolderCount,
+          afterCount: beforeFolderCount,
+          mode: 'preview',
+        })
+      );
+      setError(null);
+    } catch (err) {
+      setError(err.message || 'Auto-organize failed');
+    } finally {
+      setAutoOrganizing(false);
+    }
+  };
+
+  const handleApplyAutoOrganizeSuggestions = async () => {
+    const workspaceId = Number(openedFolder?.workspace_id);
+    if (!Number.isFinite(workspaceId) || workspaceId <= 0) {
+      setError('Auto-organize is available only for workspace folders.');
+      return;
+    }
+
+    const shouldApply = window.confirm('Apply the suggested moves from Ada?');
+    if (!shouldApply) return;
+
+    const beforeFolderCount = folderDocuments.length;
+    setAutoOrganizing(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(
+        `${API_URL}/api/v1/workspaces/${workspaceId}/documents/auto-organize?min_confidence=high&dry_run=false`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to apply suggestions');
+        throw new Error(message);
+      }
+
+      const result = await response.json();
+      let afterFolderCount = beforeFolderCount;
       if (openedFolder?.id) {
         const refreshed = await fetchDocumentsForContainer(openedFolder.id);
         setFolderDocuments(refreshed);
+        afterFolderCount = refreshed.length;
       }
+
+      setAutoOrganizeReport(
+        buildAutoOrganizeReport({
+          result,
+          beforeCount: beforeFolderCount,
+          afterCount: afterFolderCount,
+          mode: 'applied',
+        })
+      );
+
+      const movedCount = Number(result?.moved || 0);
+      setSuccessMessage(
+        movedCount > 0
+          ? `Applied ${movedCount} Ada suggestion${movedCount !== 1 ? 's' : ''}.`
+          : 'No suggestions were applied.'
+      );
+      setTimeout(() => setSuccessMessage(null), 4000);
+
       fetchDocuments();
       setSuggestionsByDoc({});
       setError(null);
     } catch (err) {
-      setError(err.message || 'Auto-organize failed');
+      setError(err.message || 'Failed to apply suggestions');
     } finally {
       setAutoOrganizing(false);
     }
@@ -882,13 +1218,29 @@ const handleCreateContainer = async (e) => {
   };
 
   const handleBackFromFolder = () => {
+    if (parentFolder?.id) {
+      setSelectedDocuments(new Set());
+      setSelectedFolders(new Set());
+      setAutoOrganizeReport(null);
+      setFolderSearchQuery('');
+      setSortBy('lastOpened');
+      setShowCreateContainer(false);
+      setCreateContainerParentId(null);
+      navigate(`/documents/${parentFolder.id}`);
+      return;
+    }
+
     const backTarget = '/documents';
 
     setOpenedFolder(null);
     setFolderDocuments([]);
+    setAutoOrganizeReport(null);
     setFolderSearchQuery('');
     setSelectedDocuments(new Set());
+    setSelectedFolders(new Set());
     setSortBy('lastOpened');
+    setShowCreateContainer(false);
+    setCreateContainerParentId(null);
     navigate(backTarget);
   };
 
@@ -934,44 +1286,217 @@ const handleCreateContainer = async (e) => {
     }
   };
 
+  const deleteContainerById = async (containerId, { suppressSuccessMessage = false } = {}) => {
+    if (typeof containerId === 'string' && containerId.startsWith('local-')) {
+      setCreatedContainers((prev) => {
+        const next = prev.filter((container) => container.id !== containerId);
+        localStorage.setItem('createdContainers', JSON.stringify(next));
+        return next;
+      });
+      setSelectedFolders((prev) => new Set([...prev].filter((id) => String(id) !== String(containerId))));
+      if (!suppressSuccessMessage) {
+        setSuccessMessage('Container deleted');
+        setTimeout(() => setSuccessMessage(null), 2500);
+      }
+      return;
+    }
+
+    const container = dbContainers.find((entry) => Number(entry.id) === Number(containerId));
+    const token = localStorage.getItem('token');
+    const deleteUrl = !container?.workspace_id
+      ? `${API_URL}/api/v1/containers/${containerId}`
+      : `${API_URL}/api/v1/workspaces/${container.workspace_id}/containers/${containerId}`;
+
+    const response = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (response.status === 401) {
+      throw new Error('Authentication required — please sign in to delete containers.');
+    }
+
+    if (!response.ok) {
+      const message = await getApiErrorMessage(response, 'Failed to delete container');
+      throw new Error(message);
+    }
+
+    setCreatedContainers((prev) => {
+      const next = prev.filter((entry) => entry.id !== containerId);
+      localStorage.setItem('createdContainers', JSON.stringify(next));
+      return next;
+    });
+    setDbContainers((prev) => prev.filter((entry) => Number(entry.id) !== Number(containerId)));
+    setSelectedFolders((prev) => new Set([...prev].filter((id) => Number(id) !== Number(containerId))));
+
+    if (!suppressSuccessMessage) {
+      setSuccessMessage('Container deleted');
+      setTimeout(() => setSuccessMessage(null), 2500);
+    }
+  };
+
   const handleBulkDeleteFolderDocuments = async () => {
-    if (selectedDocuments.size === 0) return;
-    const count = selectedDocuments.size;
-    if (!window.confirm(`Delete ${count} document${count > 1 ? 's' : ''}?`)) return;
+    const selectedDocIds = Array.from(selectedDocuments).map((id) => Number(id));
+    const selectedFolderIds = Array.from(selectedFolders).map((id) => Number(id));
+    const deletableFolderIds = selectedFolderIds.filter((id) => isUserCreatedContainer(id));
+    const undeletableFolderCount = selectedFolderIds.length - deletableFolderIds.length;
+    const totalSelectedCount = selectedDocIds.length + selectedFolderIds.length;
+
+    if (totalSelectedCount === 0) return;
+
+    const summaryParts = [];
+    if (selectedDocIds.length > 0) {
+      summaryParts.push(`${selectedDocIds.length} document${selectedDocIds.length > 1 ? 's' : ''}`);
+    }
+    if (selectedFolderIds.length > 0) {
+      summaryParts.push(`${selectedFolderIds.length} subfolder${selectedFolderIds.length > 1 ? 's' : ''}`);
+    }
+    if (!window.confirm(`Delete ${summaryParts.join(' and ')}?`)) return;
 
     setLoading(true);
     setError(null);
+
     try {
       const token = localStorage.getItem('token');
-      const deletionResults = await Promise.allSettled(
-        Array.from(selectedDocuments).map(docId =>
+      const documentDeletionResults = await Promise.allSettled(
+        selectedDocIds.map((docId) =>
           fetch(`${API_URL}/api/v1/documents/${docId}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
-          }).then(response => {
+          }).then((response) => {
             if (!response.ok) throw new Error(`Failed to delete document ${docId}`);
             return response;
           })
         )
       );
 
-      const failed = deletionResults.filter(r => r.status === 'rejected');
-      if (failed.length > 0) {
-        setError(`Failed to delete ${failed.length} document${failed.length > 1 ? 's' : ''}`);
-        return;
+      const folderDeletionResults = await Promise.allSettled(
+        deletableFolderIds.map((folderId) => deleteContainerById(folderId, { suppressSuccessMessage: true }))
+      );
+
+      const successfulDocIds = documentDeletionResults
+        .map((result, index) => (result.status === 'fulfilled' ? selectedDocIds[index] : null))
+        .filter((id) => id != null);
+      const successfulFolderIds = folderDeletionResults
+        .map((result, index) => (result.status === 'fulfilled' ? deletableFolderIds[index] : null))
+        .filter((id) => id != null);
+      const failedDocCount = documentDeletionResults.length - successfulDocIds.length;
+      const failedFolderCount = folderDeletionResults.length - successfulFolderIds.length;
+
+      if (successfulDocIds.length > 0) {
+        setFolderDocuments((prev) => prev.filter((doc) => !successfulDocIds.includes(Number(doc.id))));
       }
 
-      setFolderDocuments(prev => 
-        prev.filter(doc => !selectedDocuments.has(doc.id))
-      );
-      setSelectedDocuments(new Set());
-      setSuccessMessage(`${count} document${count > 1 ? 's' : ''} deleted successfully`);
-      setTimeout(() => setSuccessMessage(null), 3000);
+      setSelectedDocuments((prev) => new Set([...prev].filter((id) => !successfulDocIds.includes(Number(id)))));
+      setSelectedFolders((prev) => new Set([...prev].filter((id) => !successfulFolderIds.includes(Number(id)))));
+
+      const successParts = [];
+      if (successfulDocIds.length > 0) {
+        successParts.push(`${successfulDocIds.length} document${successfulDocIds.length > 1 ? 's' : ''}`);
+      }
+      if (successfulFolderIds.length > 0) {
+        successParts.push(`${successfulFolderIds.length} subfolder${successfulFolderIds.length > 1 ? 's' : ''}`);
+      }
+      if (successParts.length > 0) {
+        setSuccessMessage(`Deleted ${successParts.join(' and ')}.`);
+        setTimeout(() => setSuccessMessage(null), 3000);
+      }
+
+      const failureParts = [];
+      if (failedDocCount > 0) {
+        failureParts.push(`${failedDocCount} document${failedDocCount > 1 ? 's' : ''}`);
+      }
+      if (failedFolderCount > 0) {
+        failureParts.push(`${failedFolderCount} subfolder${failedFolderCount > 1 ? 's' : ''}`);
+      }
+      if (undeletableFolderCount > 0) {
+        failureParts.push(`${undeletableFolderCount} locked subfolder${undeletableFolderCount > 1 ? 's' : ''}`);
+      }
+      if (failureParts.length > 0) {
+        setError(`Could not delete ${failureParts.join(' and ')}.`);
+      }
     } catch (err) {
       console.error('Bulk delete error:', err);
-      setError(`Failed to delete documents: ${err.message}`);
+      setError(`Failed to delete selected items: ${err.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleMoveSelectedToSubfolder = async () => {
+    const targetContainerId = Number(moveTargetSubfolderId);
+    const selectedDocIds = Array.from(selectedDocuments).map((id) => Number(id));
+    if (!selectedDocIds.length) return;
+    if (!Number.isFinite(targetContainerId) || targetContainerId <= 0) {
+      setError('Select a subfolder to move documents into.');
+      return;
+    }
+
+    const targetFolder = openedFolderSubfolders.find(
+      (folder) => Number(folder.id) === targetContainerId
+    );
+    if (!targetFolder) {
+      setError('Selected subfolder is no longer available.');
+      return;
+    }
+
+    const count = selectedDocIds.length;
+    const shouldMove = window.confirm(
+      `Move ${count} document${count > 1 ? 's' : ''} to "${targetFolder.name}"?`
+    );
+    if (!shouldMove) return;
+
+    setMovingDocuments(true);
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      const moveResults = await Promise.allSettled(
+        selectedDocIds.map((docId) =>
+          fetch(`${API_URL}/api/v1/documents/${docId}`, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ container_id: targetContainerId }),
+          }).then(async (response) => {
+            if (!response.ok) {
+              const message = await getApiErrorMessage(response, `Failed to move document ${docId}`);
+              throw new Error(message);
+            }
+            return response.json();
+          })
+        )
+      );
+
+      const successfulDocIds = moveResults
+        .map((result, index) => (result.status === 'fulfilled' ? selectedDocIds[index] : null))
+        .filter((id) => id != null);
+      const failedCount = moveResults.length - successfulDocIds.length;
+
+      if (successfulDocIds.length > 0) {
+        setFolderDocuments((prev) => prev.filter((doc) => !successfulDocIds.includes(Number(doc.id))));
+        setSelectedDocuments(new Set());
+        setMoveTargetSubfolderId('');
+        setSuccessMessage(
+          `Moved ${successfulDocIds.length} document${successfulDocIds.length > 1 ? 's' : ''} to ${targetFolder.name}.`
+        );
+        setTimeout(() => setSuccessMessage(null), 3500);
+
+        if (openedFolder?.id) {
+          const refreshed = await fetchDocumentsForContainer(openedFolder.id);
+          setFolderDocuments(refreshed);
+        }
+      }
+
+      if (failedCount > 0) {
+        setError(`Could not move ${failedCount} document${failedCount > 1 ? 's' : ''}.`);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to move selected documents.');
+    } finally {
+      setMovingDocuments(false);
     }
   };
 
@@ -998,83 +1523,11 @@ const handleCreateContainer = async (e) => {
     });
   };
 
-  const sortedFolderDocuments = useMemo(() => {
-    const normalizedQuery = folderSearchQuery.trim().toLowerCase();
-    let sorted = folderDocuments.filter((document) => {
-      const filename = String(document?.filename || '').toLowerCase();
-      return !normalizedQuery || filename.includes(normalizedQuery);
-    });
-    switch (sortBy) {
-      case 'name':
-        sorted.sort((a, b) => a.filename.localeCompare(b.filename));
-        break;
-      case 'size':
-        sorted.sort((a, b) => {
-          const sizeA = parseInt(a.size);
-          const sizeB = parseInt(b.size);
-          return sizeB - sizeA;
-        });
-        break;
-      case 'lastModified':
-        break;
-      case 'lastOpened':
-      default:
-        break;
-    }
-    return sorted;
-  }, [folderDocuments, sortBy, folderSearchQuery]);
-
-
     // Otherwise call backend delete endpoint. Use workspace-scoped path if selectedWorkspace is set
     const handleDeleteContainer = async (containerId) => {
-    if (!window.confirm('Delete this container?')) return;
-
-    // If this is a local-only placeholder, just remove it
-    if (typeof containerId === 'string' && containerId.startsWith('local-')) {
-      setCreatedContainers(prev => prev.filter(c => c.id !== containerId));
-      setSuccessMessage('Container deleted');
-      setTimeout(() => setSuccessMessage(null), 2500);
-      return;
-    }
-
-    const container = dbContainers.find((entry) => Number(entry.id) === Number(containerId));
-
-    const token = localStorage.getItem('token');
-    
-    // Build delete URL based on container type
-    let deleteUrl;
-    if (!container?.workspace_id) {
-      // Personal container - delete from general endpoint
-      deleteUrl = `${API_URL}/api/v1/containers/${containerId}`;
-    } else {
-      // Workspace container - delete from workspace-scoped endpoint
-      deleteUrl = container.workspace_id
-        ? `${API_URL}/api/v1/workspaces/${container.workspace_id}/containers/${containerId}`
-        : `${API_URL}/api/v1/containers/${containerId}`;
-    }
-
     try {
-      const response = await fetch(deleteUrl, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.status === 401) {
-        setError('Authentication required — please sign in to delete containers.');
-        return;
-      }
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => null);
-        setError(text || `Failed to delete container (${response.status})`);
-        return;
-      }
-
-      // Remove from local created containers if present
-      setCreatedContainers(prev => prev.filter(c => c.id !== containerId));
-      setDbContainers(prev => prev.filter(c => Number(c.id) !== Number(containerId)));
-      setSuccessMessage('Container deleted');
-      setTimeout(() => setSuccessMessage(null), 2500);
+      if (!window.confirm('Delete this container?')) return;
+      await deleteContainerById(containerId);
     } catch (err) {
       setError(err.message || 'Failed to delete container');
     }
@@ -1085,6 +1538,89 @@ const handleCreateContainer = async (e) => {
     setOwnerFilter('all');
   };
 
+  const handleToggleContainerCollapse = (containerId) => {
+    setCollapsedContainerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(containerId)) {
+        next.delete(containerId);
+      } else {
+        next.add(containerId);
+      }
+      return next;
+    });
+  };
+
+  const isMoveCreatingCycle = (movingContainerId, nextParentContainerId) => {
+    if (!nextParentContainerId) return false;
+    if (Number(movingContainerId) === Number(nextParentContainerId)) return true;
+
+    const byId = new Map(displayedContainers.map((container) => [Number(container.id), container]));
+    let cursor = byId.get(Number(nextParentContainerId));
+    let safety = 0;
+    while (cursor && safety < 200) {
+      if (Number(cursor.id) === Number(movingContainerId)) {
+        return true;
+      }
+      const parentId = cursor.parent_container_id;
+      if (parentId == null) {
+        return false;
+      }
+      cursor = byId.get(Number(parentId));
+      safety += 1;
+    }
+    return false;
+  };
+
+  const handleMoveContainer = async (containerId, parentContainerId) => {
+    const numericContainerId = Number(containerId);
+    if (!Number.isFinite(numericContainerId)) return;
+
+    const targetParentId = parentContainerId == null ? null : Number(parentContainerId);
+    const container = displayedContainers.find((entry) => Number(entry.id) === numericContainerId);
+    if (!container) return;
+    if (Number(container.parent_container_id ?? -1) === Number(targetParentId ?? -1)) return;
+
+    if (isMoveCreatingCycle(numericContainerId, targetParentId)) {
+      setError('Cannot move a folder into itself or one of its descendants.');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const endpoint = container.workspace_id
+        ? `${API_URL}/api/v1/workspaces/${container.workspace_id}/containers/${numericContainerId}/move`
+        : `${API_URL}/api/v1/containers/${numericContainerId}/move`;
+
+      const response = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ parent_container_id: targetParentId }),
+      });
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to move folder');
+        throw new Error(message);
+      }
+
+      const updated = await response.json();
+      setDbContainers((prev) =>
+        prev.map((entry) =>
+          Number(entry.id) === numericContainerId
+            ? { ...entry, parent_container_id: updated.parent_container_id ?? null }
+            : entry
+        )
+      );
+      setSuccessMessage('Folder moved');
+      setTimeout(() => setSuccessMessage(null), 2200);
+      setError(null);
+    } catch (err) {
+      setError(err.message || 'Failed to move folder');
+    }
+  };
+
   const handleCheckboxChange = (docId) => {
     const newSelected = new Set(selectedDocuments);
     if (newSelected.has(docId)) {
@@ -1093,6 +1629,16 @@ const handleCreateContainer = async (e) => {
       newSelected.add(docId);
     }
     setSelectedDocuments(newSelected);
+  };
+
+  const handleFolderCheckboxChange = (folderId) => {
+    const nextSelected = new Set(selectedFolders);
+    if (nextSelected.has(folderId)) {
+      nextSelected.delete(folderId);
+    } else {
+      nextSelected.add(folderId);
+    }
+    setSelectedFolders(nextSelected);
   };
 
   const handleSelectAll = () => {
@@ -1154,6 +1700,84 @@ const handleCreateContainer = async (e) => {
     return [...containers, ...localOnly];
   }, [containers, createdContainers]);
 
+  const openedFolderSubfolders = useMemo(() => {
+    if (!openedFolder?.id) return [];
+    return displayedContainers
+      .filter((container) => Number(container?.parent_container_id ?? -1) === Number(openedFolder.id))
+      .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
+  }, [displayedContainers, openedFolder?.id]);
+
+  const openedFolderPath = useMemo(() => {
+    if (!openedFolder?.id) return [];
+
+    const byId = new Map(displayedContainers.map((container) => [Number(container.id), container]));
+    const path = [];
+    let cursor = openedFolder;
+    let safety = 0;
+
+    while (cursor && safety < 200) {
+      path.unshift(cursor);
+      const parentId = cursor.parent_container_id;
+      cursor = parentId == null ? null : byId.get(Number(parentId));
+      safety += 1;
+    }
+
+    return path;
+  }, [displayedContainers, openedFolder]);
+
+  const parentFolder = openedFolderPath.length > 1
+    ? openedFolderPath[openedFolderPath.length - 2]
+    : null;
+
+  const folderTableEntries = useMemo(() => {
+    const normalizedQuery = folderSearchQuery.trim().toLowerCase();
+    const visibleSubfolders = openedFolderSubfolders
+      .filter((folder) => {
+        const name = String(folder?.name || '').toLowerCase();
+        return !normalizedQuery || name.includes(normalizedQuery);
+      })
+      .map((folder) => ({ kind: 'folder', item: folder }));
+
+    const visibleDocuments = folderDocuments.filter((document) => {
+      const filename = String(document?.filename || '').toLowerCase();
+      return !normalizedQuery || filename.includes(normalizedQuery);
+    });
+
+    let sortedDocuments = [...visibleDocuments];
+    switch (sortBy) {
+      case 'name':
+        visibleSubfolders.sort((a, b) => String(a.item?.name || '').localeCompare(String(b.item?.name || '')));
+        sortedDocuments.sort((a, b) => a.filename.localeCompare(b.filename));
+        break;
+      case 'size':
+        sortedDocuments.sort((a, b) => {
+          const sizeA = parseInt(a.size);
+          const sizeB = parseInt(b.size);
+          return sizeB - sizeA;
+        });
+        break;
+      case 'lastModified':
+        visibleSubfolders.sort(
+          (a, b) => new Date(b.item?.updated_at || b.item?.created_at || 0).getTime() - new Date(a.item?.updated_at || a.item?.created_at || 0).getTime()
+        );
+        sortedDocuments.sort(
+          (a, b) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime()
+        );
+        break;
+      case 'lastOpened':
+      default:
+        visibleSubfolders.sort(
+          (a, b) => new Date(b.item?.created_at || 0).getTime() - new Date(a.item?.created_at || 0).getTime()
+        );
+        sortedDocuments.sort(
+          (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        );
+        break;
+    }
+    const mappedDocuments = sortedDocuments.map((document) => ({ kind: 'document', item: document }));
+    return [...visibleSubfolders, ...mappedDocuments];
+  }, [folderDocuments, openedFolderSubfolders, sortBy, folderSearchQuery]);
+
   const workspaceScopedContainers = useMemo(() => {
     return displayedContainers;
   }, [displayedContainers]);
@@ -1201,10 +1825,7 @@ const handleCreateContainer = async (e) => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
     const isWorkspaceDefaultContainer = (container) => {
-      if (!container?.workspace_id) return false;
-      const workspace = workspaces.find((item) => Number(item.id) === Number(container.workspace_id));
-      if (!workspace) return false;
-      return String(container?.name || '').trim().toLowerCase() === String(workspace?.name || '').trim().toLowerCase();
+      return Boolean(container?.is_workspace_default);
     };
 
     const getOwnershipType = (container) => {
@@ -1229,7 +1850,40 @@ const handleCreateContainer = async (e) => {
 
       return matchesOwner && matchesSearch;
     });
-  }, [workspaceScopedContainers, ownerFilter, searchQuery, currentUserId, workspaces]);
+  }, [workspaceScopedContainers, ownerFilter, searchQuery, currentUserId]);
+
+  const containerTreeChildren = useMemo(() => {
+    const idSet = new Set(filteredDisplayedContainers.map((container) => String(container.id)));
+    const childrenByParent = new Map();
+
+    const pushChild = (parentKey, child) => {
+      const existing = childrenByParent.get(parentKey) || [];
+      existing.push(child);
+      childrenByParent.set(parentKey, existing);
+    };
+
+    filteredDisplayedContainers.forEach((container) => {
+      const parentId = container.parent_container_id;
+      const parentKey =
+        parentId != null && idSet.has(String(parentId))
+          ? String(parentId)
+          : '__ROOT__';
+      pushChild(parentKey, container);
+    });
+
+    for (const [key, list] of childrenByParent.entries()) {
+      childrenByParent.set(
+        key,
+        [...list].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+      );
+    }
+
+    return childrenByParent;
+  }, [filteredDisplayedContainers]);
+
+  const rootTreeContainers = useMemo(() => {
+    return containerTreeChildren.get('__ROOT__') || [];
+  }, [containerTreeChildren]);
 
   const emptyStateMessage = useMemo(() => {
     if (filteredDisplayedContainers.length > 0) {
@@ -1243,6 +1897,101 @@ const handleCreateContainer = async (e) => {
 
     return 'No folders available yet.';
   }, [filteredDisplayedContainers, searchQuery, ownerFilter]);
+
+  const renderContainerTreeNode = (container, depth = 0) => {
+    const childContainers = containerTreeChildren.get(String(container.id)) || [];
+    const hasChildren = childContainers.length > 0;
+    const isCollapsed = collapsedContainerIds.has(container.id);
+    const isDropTarget = dropTargetContainerId === String(container.id);
+    const isUserCreated = isUserCreatedContainer(container.id);
+
+    return (
+      <div key={container.id} className="container-tree-node" style={{ marginLeft: `${depth * 18}px` }}>
+        <div
+          className={`container-card ${depth > 0 ? 'container-card-child' : ''} ${isUserCreated ? 'user-created' : 'default-workspace'} ${isDropTarget ? 'is-drop-target' : ''}`}
+          onClick={() => handleFolderDoubleClick(container)}
+          draggable={Number.isFinite(Number(container.id))}
+          onDragStart={(event) => {
+            setDraggedContainerId(Number(container.id));
+            event.dataTransfer.setData('text/plain', String(container.id));
+            event.dataTransfer.effectAllowed = 'move';
+          }}
+          onDragEnd={() => {
+            setDropTargetContainerId(null);
+            setDraggedContainerId(null);
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            if (Number(container.id) !== Number(draggedContainerId)) {
+              setDropTargetContainerId(String(container.id));
+            }
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            const movingId = Number(event.dataTransfer.getData('text/plain') || draggedContainerId);
+            if (Number.isFinite(movingId)) {
+              handleMoveContainer(movingId, Number(container.id));
+            }
+            setDropTargetContainerId(null);
+            setDraggedContainerId(null);
+          }}
+          style={{
+            background: `linear-gradient(90deg, ${hexToRgba(container.color, depth > 0 ? 0.05 : 0.06)}, ${hexToRgba(container.color, depth > 0 ? 0.02 : 0.03)})`,
+            borderColor: hexToRgba(container.color, 0.12),
+            cursor: 'pointer'
+          }}
+        >
+          <div className="container-left">
+            <span className="container-drag-handle" title="Drag to move folder" aria-hidden="true">
+              <GripVertical size={14} />
+            </span>
+            {hasChildren ? (
+              <button
+                type="button"
+                className="container-tree-toggle"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleToggleContainerCollapse(container.id);
+                }}
+                title={isCollapsed ? 'Expand subfolders' : 'Collapse subfolders'}
+                aria-label={isCollapsed ? 'Expand subfolders' : 'Collapse subfolders'}
+              >
+                {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+              </button>
+            ) : (
+              <span className="container-tree-toggle-spacer" aria-hidden="true" />
+            )}
+            <div className="container-icon" style={{ background: hexToRgba(container.color, 0.18), borderColor: hexToRgba(container.color, 0.28) }}>
+              <Folder size={18} />
+            </div>
+            <div className="container-wrapper">
+              <div className="container-name">{container.name}</div>
+              <span className="container-origin">{getContainerCreatorLabel(container)}</span>
+            </div>
+          </div>
+          {isUserCreated && (
+            <button
+              type="button"
+              className="container-delete-btn"
+              onClick={(event) => {
+                event.stopPropagation();
+                handleDeleteContainer(container.id);
+              }}
+              aria-label={`Delete ${container.name}`}
+              title="Delete folder"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+        {!isCollapsed && hasChildren && (
+          <div className="container-tree-children">
+            {childContainers.map((child) => renderContainerTreeNode(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   useEffect(() => {
     if (!containerIdParam) {
@@ -1267,6 +2016,8 @@ const handleCreateContainer = async (e) => {
     setOpenedFolder(routeContainer);
     setSelectedWorkspace(routeContainer.workspace_id || '');
     setSelectedDocuments(new Set());
+    setSelectedFolders(new Set());
+    setAutoOrganizeReport(null);
     setError(null);
 
     let isMounted = true;
@@ -1292,11 +2043,7 @@ const handleCreateContainer = async (e) => {
   const isUserCreatedContainer = (containerId) => {
     return displayedContainers.some((container) => {
       const sameId = String(container.id) === String(containerId);
-      const workspace = workspaces.find((item) => Number(item.id) === Number(container.workspace_id));
-      const isWorkspaceDefault =
-        container?.workspace_id &&
-        workspace &&
-        String(container?.name || '').trim().toLowerCase() === String(workspace?.name || '').trim().toLowerCase();
+      const isWorkspaceDefault = Boolean(container?.is_workspace_default);
       const isOwnedByCurrentUser =
         currentUserId != null && Number(container?.created_by) === Number(currentUserId);
       return sameId && isOwnedByCurrentUser && !isWorkspaceDefault;
@@ -1305,11 +2052,7 @@ const handleCreateContainer = async (e) => {
 
   const getContainerCreatorLabel = (container) => {
     const rawType = String(container?.type || '').toLowerCase();
-    const workspace = workspaces.find((item) => Number(item.id) === Number(container.workspace_id));
-    const isWorkspaceDefault =
-      container?.workspace_id &&
-      workspace &&
-      String(container?.name || '').trim().toLowerCase() === String(workspace?.name || '').trim().toLowerCase();
+    const isWorkspaceDefault = Boolean(container?.is_workspace_default);
     if (rawType.includes('ai')) return 'Created by AI';
     if (isWorkspaceDefault) return 'Belongs to workspace';
     if (currentUserId != null && Number(container?.created_by) === Number(currentUserId)) {
@@ -1319,6 +2062,7 @@ const handleCreateContainer = async (e) => {
   };
 
   const colorInputRef = useRef(null);
+  const totalSelectedFolderItems = selectedDocuments.size + selectedFolders.size;
 
     // RENDER FOLDER VIEW - ADD THIS BEFORE THE MAIN VIEW
   if (openedFolder) {
@@ -1330,10 +2074,10 @@ const handleCreateContainer = async (e) => {
             <button
               className="folder-back"
               onClick={handleBackFromFolder}
-              aria-label="Back to documents"
-              title="Back to documents"
+              aria-label={parentFolder ? `Back to ${parentFolder.name}` : 'Back to documents'}
+              title={parentFolder ? `Back to ${parentFolder.name}` : 'Back to documents'}
             >
-              Back
+              {parentFolder ? 'Up one level' : 'Back'}
             </button>
             <div
               className="folder-header-icon folder-color-trigger"
@@ -1383,6 +2127,60 @@ const handleCreateContainer = async (e) => {
           </div>
         </div>
 
+        {openedFolderPath.length > 0 && (
+          <div className="folder-breadcrumbs" aria-label="Folder path">
+            <button
+              type="button"
+              className="folder-breadcrumb"
+              onClick={() => {
+                setOpenedFolder(null);
+                setFolderDocuments([]);
+                setAutoOrganizeReport(null);
+                setFolderSearchQuery('');
+                setSelectedDocuments(new Set());
+                setSelectedFolders(new Set());
+                setSortBy('lastOpened');
+                setShowCreateContainer(false);
+                setCreateContainerParentId(null);
+                navigate('/documents');
+              }}
+            >
+              All folders
+            </button>
+            {openedFolderPath.map((folder, index) => {
+              const isCurrentFolder = index === openedFolderPath.length - 1;
+
+              return (
+                <React.Fragment key={`breadcrumb-${folder.id}`}>
+                  <span className="folder-breadcrumb-separator" aria-hidden="true">
+                    <ChevronRight size={14} />
+                  </span>
+                  {isCurrentFolder ? (
+                    <span className="folder-breadcrumb folder-breadcrumb-current">{folder.name}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="folder-breadcrumb"
+                      onClick={() => {
+                        setSelectedDocuments(new Set());
+                        setSelectedFolders(new Set());
+                        setAutoOrganizeReport(null);
+                        setFolderSearchQuery('');
+                        setSortBy('lastOpened');
+                        setShowCreateContainer(false);
+                        setCreateContainerParentId(null);
+                        navigate(`/documents/${folder.id}`);
+                      }}
+                    >
+                      {folder.name}
+                    </button>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        )}
+
         <div className="folder-meta">
           <button
             type="button"
@@ -1396,46 +2194,85 @@ const handleCreateContainer = async (e) => {
           <div className="meta-pill">
             {isUserCreatedContainer(openedFolder.id) ? 'Personal folder' : 'Workspace folder'}
           </div>
-          <div className="meta-pill">Items: {folderDocuments.length}</div>
+          <div className="meta-pill">Items: {folderTableEntries.length}</div>
           <div className="meta-pill">Access: Private</div>
         </div>
 
         {/* Folder Content */}
         <div className="folder-content">
-          {selectedDocuments.size > 0 && (
+          {totalSelectedFolderItems > 0 && (
             <div className="bulk-actions-bar folder-bulk-actions">
-                <span>{selectedDocuments.size} selected</span>
+              <span>{totalSelectedFolderItems} selected</span>
+              <div className="folder-bulk-actions-controls">
+                <select
+                  className="folder-move-select"
+                  value={moveTargetSubfolderId}
+                  onChange={(event) => setMoveTargetSubfolderId(event.target.value)}
+                  disabled={movingDocuments || selectedDocuments.size === 0 || openedFolderSubfolders.length === 0}
+                  aria-label="Choose a subfolder to move selected documents"
+                >
+                  <option value="">Move to subfolder...</option>
+                  {openedFolderSubfolders.map((folder) => (
+                    <option key={folder.id} value={folder.id}>
+                      {folder.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="action-btn"
+                  onClick={handleMoveSelectedToSubfolder}
+                  disabled={movingDocuments || selectedDocuments.size === 0 || !moveTargetSubfolderId || openedFolderSubfolders.length === 0}
+                  title={selectedDocuments.size === 0 ? 'Select one or more documents to move' : openedFolderSubfolders.length === 0 ? 'Create a subfolder first' : 'Move selected documents to chosen subfolder'}
+                >
+                  <Folder size={18} />
+                  {movingDocuments ? 'Moving…' : 'Move'}
+                </button>
                 <button 
                   className="action-btn delete-btn"
                   onClick={handleBulkDeleteFolderDocuments}
-                  title={`Delete ${selectedDocuments.size} document${selectedDocuments.size > 1 ? 's' : ''}`}
+                  title="Delete selected items"
+                  disabled={movingDocuments}
                 >
                   <Trash2 size={18} />
-                  Delete
+                  Delete Selected
                 </button>
+              </div>
             </div>
           )}
 
           <div className="folder-top-toolbar">
-            <button
-              className="new-document-btn"
-              onClick={() => {
-                setSelectedWorkspace(Number(openedFolder.workspace_id || ''));
-                setShowUploadModal(true);
-              }}
-            >
-              <Plus size={18} />
-              New Document
-            </button>
-            <button
-              className="new-document-btn auto-organize-btn"
-              onClick={handleAutoOrganizeWorkspace}
-              disabled={autoOrganizing || !openedFolder?.workspace_id}
-              title={openedFolder?.workspace_id ? 'Auto-organize workspace documents' : 'Auto-organize is only available for workspace folders'}
-            >
-              <Folder size={18} />
-              {autoOrganizing ? 'Auto-organizing…' : 'Auto-organize'}
-            </button>
+            <div className="folder-primary-actions">
+              <button
+                className="new-document-btn"
+                onClick={() => {
+                  setSelectedWorkspace(Number(openedFolder.workspace_id || ''));
+                  setShowUploadModal(true);
+                }}
+              >
+                <Plus size={18} />
+                New Document
+              </button>
+              <button
+                className="new-document-btn subfolder-btn"
+                onClick={() => {
+                  setCreateContainerParentId(Number(openedFolder?.id));
+                  setShowCreateContainer((prev) => !prev);
+                }}
+                title="Create a subfolder inside this folder"
+              >
+                <Plus size={18} />
+                New Subfolder
+              </button>
+              <button
+                className="new-document-btn auto-organize-btn"
+                onClick={handleAutoOrganizeWorkspace}
+                disabled={autoOrganizing || !openedFolder?.workspace_id}
+                title={openedFolder?.workspace_id ? 'Generate Ada organization suggestions' : 'Auto-organize suggestions are only available for workspace folders'}
+              >
+                <Folder size={18} />
+                {autoOrganizing ? 'Analyzing…' : 'Suggest organize'}
+              </button>
+            </div>
             <div className="search-box">
               <Search size={18} />
               <input
@@ -1495,6 +2332,135 @@ const handleCreateContainer = async (e) => {
             </div>
           </div>
 
+          {showCreateContainer && Number(createContainerParentId) === Number(openedFolder?.id) && (
+            <div className="folder-create-panel-wrap">
+              <div className="create-container-panel folder-create-subfolder-panel" role="region" aria-label="Create subfolder panel">
+                <div className="panel-header">
+                  <strong>Create Subfolder</strong>
+                  <button
+                    className="panel-close"
+                    onClick={() => {
+                      setShowCreateContainer(false);
+                      setCreateContainerParentId(null);
+                    }}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="create-container-note">
+                  This subfolder will be created inside <strong>{openedFolder.name}</strong>.
+                </p>
+
+                <form onSubmit={handleCreateContainer}>
+                  <div className="form-group">
+                    <label htmlFor="subfolder-name">Name</label>
+                    <input
+                      id="subfolder-name"
+                      type="text"
+                      value={containerName}
+                      onChange={(e) => setContainerName(e.target.value)}
+                      placeholder="e.g., Nigerian Dishes"
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Pick color</label>
+                    <ColorSwatchPicker
+                      className="color-swatches"
+                      colors={CONTAINER_SWATCH_PRESETS}
+                      value={containerColor}
+                      onChange={setContainerColor}
+                      ariaLabel="Subfolder color options"
+                      optionAriaLabelPrefix="Select color"
+                      customAriaLabel="Choose custom color from wheel"
+                      customTitle="Click to open color picker"
+                    />
+                  </div>
+
+                  <div className="panel-actions">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setShowCreateContainer(false);
+                        setCreateContainerParentId(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" className="btn btn-primary">Create Subfolder</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {autoOrganizeReport && (
+            <section className="auto-organize-report" aria-live="polite">
+              <div className="auto-organize-report-header">
+                <h3>{autoOrganizeReport.mode === 'preview' ? 'Ada Organization Suggestions' : 'Last Applied Organization Run'}</h3>
+                <span>{new Date(autoOrganizeReport.ranAt).toLocaleString()}</span>
+              </div>
+
+              <div className="auto-organize-report-stats">
+                <span>{autoOrganizeReport.considered} scanned</span>
+                <span>{autoOrganizeReport.moved} moved</span>
+                <span>{autoOrganizeReport.skipped_already_organized} already organized</span>
+                <span>{autoOrganizeReport.skipped_low_confidence} low confidence</span>
+                <span>{autoOrganizeReport.skipped_no_suggestion} no suggestion</span>
+                {Number.isFinite(autoOrganizeReport.average_confidence_score) && (
+                  <span>avg confidence {autoOrganizeReport.average_confidence_score}</span>
+                )}
+                {Number.isFinite(autoOrganizeReport.trend_from_previous_run) && (
+                  <span>
+                    trend {autoOrganizeReport.trend_from_previous_run > 0 ? '+' : ''}
+                    {autoOrganizeReport.trend_from_previous_run}
+                  </span>
+                )}
+                {autoOrganizeReport.boosted_moves > 0 && (
+                  <span>{autoOrganizeReport.boosted_moves} boost-informed</span>
+                )}
+              </div>
+
+              <div className="auto-organize-before-after">
+                Current folder items: {autoOrganizeReport.folder_before_count} before, {autoOrganizeReport.folder_after_count} after.
+              </div>
+
+              {autoOrganizeReport.mode === 'preview' && autoOrganizeReport.moved_documents.length > 0 && (
+                <div className="auto-organize-report-actions">
+                  <button
+                    type="button"
+                    className="auto-organize-apply-btn"
+                    onClick={handleApplyAutoOrganizeSuggestions}
+                    disabled={autoOrganizing}
+                  >
+                    {autoOrganizing ? 'Applying…' : 'Accept Ada Changes'}
+                  </button>
+                </div>
+              )}
+
+              {autoOrganizeReport.moved_documents.length > 0 ? (
+                <ul className="auto-organize-moves">
+                  {autoOrganizeReport.moved_documents.map((move) => (
+                    <li key={move.document_id}>
+                      <strong>{move.filename}</strong>
+                      <span>{move.from_container_name} → {move.to_container_name}</span>
+                      <em>
+                        {move.confidence}
+                        {Number.isFinite(move.confidence_score) ? ` (${move.confidence_score})` : ''}
+                        {move.boost_applied ? ' +boost' : ''}
+                      </em>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="auto-organize-no-moves">No documents were moved in this run.</p>
+              )}
+            </section>
+          )}
+
           <div className="folder-main-content">
           {/* Folder Documents List */}
           <main className="folder-main">
@@ -1508,8 +2474,60 @@ const handleCreateContainer = async (e) => {
                 <div className="col-opened">Opened</div>
                 <div className="col-actions"></div>
               </div>
-                {sortedFolderDocuments.map((doc) => {
+                {folderTableEntries.map((entry) => {
+                if (entry.kind === 'folder') {
+                  const folder = entry.item;
+                  const canDeleteFolder = isUserCreatedContainer(folder.id);
+                  return (
+                    <div
+                      key={`folder-${folder.id}`}
+                      className={`table-row table-row-folder ${selectedFolders.has(folder.id) ? 'is-selected' : ''}`}
+                      onClick={() => handleFolderDoubleClick(folder)}
+                    >
+                      <div className="col-icon">
+                        <input
+                          type="checkbox"
+                          checked={selectedFolders.has(folder.id)}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={() => handleFolderCheckboxChange(folder.id)}
+                          title={`Select ${folder.name}`}
+                          aria-label={`Select ${folder.name}`}
+                        />
+                      </div>
+                      <div className="col-name">
+                        <div className="doc-name-main doc-name-main--folder">{folder.name}</div>
+                      </div>
+                      <div className="col-size">-</div>
+                      <div className="col-status">
+                        <span className="document-status document-status--tag folder">Folder</span>
+                      </div>
+                      <div className="col-modified">{folder.created_at ? new Date(folder.created_at).toLocaleDateString() : '-'}</div>
+                      <div className="col-opened">-</div>
+                      <div className="col-actions">
+                        {canDeleteFolder && (
+                          <button
+                            className="action-menu delete-btn"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (window.confirm(`Delete ${folder.name}?`)) {
+                                handleDeleteContainer(folder.id);
+                              }
+                            }}
+                            title="Delete subfolder"
+                            aria-label={`Delete ${folder.name}`}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
+                const doc = entry.item;
                 const statusDisplay = getDocumentStatusDisplay(doc);
+                const isRetryingIndex = retryingDocIds.has(doc.id);
+                const canRetryIndexing = statusDisplay.statusKey === 'failed';
                 return (
                   <div
                     key={doc.id}
@@ -1533,7 +2551,12 @@ const handleCreateContainer = async (e) => {
                           {suggestionsByDoc[doc.id].suggested_container_id ? (
                             <>
                               <span>
-                                Ada suggests: {suggestionsByDoc[doc.id].suggested_container_name} ({suggestionsByDoc[doc.id].confidence})
+                                Ada suggests: {suggestionsByDoc[doc.id].suggested_container_name}
+                                {' '}({suggestionsByDoc[doc.id].confidence}
+                                {Number.isFinite(Number(suggestionsByDoc[doc.id].confidence_score))
+                                  ? ` ${Number(suggestionsByDoc[doc.id].confidence_score).toFixed(3)}`
+                                  : ''}
+                                {suggestionsByDoc[doc.id].boost_applied ? ' +boost' : ''})
                               </span>
                               {Number(suggestionsByDoc[doc.id].suggested_container_id) !== Number(openedFolder?.id) && (
                                 <button
@@ -1568,6 +2591,18 @@ const handleCreateContainer = async (e) => {
                     <div className="col-modified">{new Date(doc.created_at).toLocaleDateString()}</div>
                     <div className="col-opened">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>
                                         <div className="col-actions">
+                                          {canRetryIndexing && (
+                                            <button
+                                              className="action-menu retry-btn"
+                                              onClick={(event) => handleRetryIndexing(doc, event)}
+                                              title="Retry indexing"
+                                              aria-label={`Retry indexing ${doc.filename}`}
+                                              disabled={isRetryingIndex}
+                                            >
+                                              <RotateCcw size={16} className={isRetryingIndex ? 'spin' : ''} />
+                                              <span>{isRetryingIndex ? 'Retrying' : 'Retry'}</span>
+                                            </button>
+                                          )}
                                           <button
                                             className="action-menu"
                                             onClick={(event) => {
@@ -1634,8 +2669,8 @@ const handleCreateContainer = async (e) => {
             </div>
             <div className="pagination">
               <span>
-                {sortedFolderDocuments.length > 0
-                  ? `1 - ${sortedFolderDocuments.length} of ${sortedFolderDocuments.length}`
+                {folderTableEntries.length > 0
+                  ? `1 - ${folderTableEntries.length} of ${folderTableEntries.length}`
                   : '0 of 0'}
               </span>
               <div className="pagination-buttons">
@@ -1912,7 +2947,10 @@ const handleCreateContainer = async (e) => {
           <div className="sidebar-card sidebar-actions">
             <button
               className="btn btn-secondary create-container-inline"
-              onClick={() => setShowCreateContainer(true)}
+              onClick={() => {
+                setCreateContainerParentId(null);
+                setShowCreateContainer(true);
+              }}
               title="Create New Container"
               aria-label="Create new container"
             >
@@ -2183,45 +3221,30 @@ const handleCreateContainer = async (e) => {
       
             {/* Containers / Cards Grid (design) */}
       <div className={`container-grid container-grid-${viewMode}`}>
-              {filteredDisplayedContainers.map((c) => {
-          const isUserCreated = isUserCreatedContainer(c.id);
-          return (
-            <div
-              key={c.id}
-              className={`container-card ${isUserCreated ? 'user-created' : 'default-workspace'}`}
-              onClick={() => handleFolderDoubleClick(c)}
-              style={{ 
-                background: `linear-gradient(90deg, ${hexToRgba(c.color, 0.06)}, ${hexToRgba(c.color, 0.03)})`, 
-                borderColor: hexToRgba(c.color, 0.12),
-                cursor: 'pointer'
-              }}
-            >
-              <div className="container-left">
-                <div className="container-icon" style={{ background: hexToRgba(c.color, 0.18), borderColor: hexToRgba(c.color, 0.28) }}>
-                  <Folder size={18} />
-                </div>
-                <div className="container-wrapper">
-                  <div className="container-name">{c.name}</div>
-                  <span className="container-origin">{getContainerCreatorLabel(c)}</span>
-                </div>
+              <div className="container-drag-hint">
+                Tip: drag a folder onto another folder to nest it. Drop on the top-level zone to unnest.
               </div>
-              {isUserCreated && (
-                <button
-                  type="button"
-                  className="container-delete-btn"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleDeleteContainer(c.id);
+              {draggedContainerId != null && (
+                <div
+                  className={`container-root-drop-zone ${dropTargetContainerId === 'ROOT' ? 'is-active' : ''}`}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDropTargetContainerId('ROOT');
                   }}
-                  aria-label={`Delete ${c.name}`}
-                  title="Delete folder"
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const movingId = Number(event.dataTransfer.getData('text/plain') || draggedContainerId);
+                    if (Number.isFinite(movingId)) {
+                      handleMoveContainer(movingId, null);
+                    }
+                    setDropTargetContainerId(null);
+                    setDraggedContainerId(null);
+                  }}
                 >
-                  <Trash2 size={14} />
-                </button>
+                  Drop here to move folder to top level
+                </div>
               )}
-            </div>
-          );
-        })}
+              {rootTreeContainers.map((c) => renderContainerTreeNode(c, 0))}
         {filteredDisplayedContainers.length === 0 && (
           <p className="empty-state-text">{emptyStateMessage}</p>
         )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
@@ -63,53 +63,69 @@ function Dashboard() {
     return { monthIndex, year };
   }, [currentMonth]);
 
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const statsData = await apiFetch('/api/v1/dashboard/stats');
+      setStats({
+        workspaces: statsData.workspaces,
+        documents: statsData.documents,
+        recentItems: statsData.recent_items,
+        openTasks: 0,
+        overdueTasks: 0,
+      });
+      setUser({
+        username: statsData.username,
+        email: statsData.email,
+        joinedDate: statsData.member_since,
+        status: statsData.status_message || '',
+      });
+
+      const activityData = await apiFetch('/api/v1/dashboard/activity?limit=8');
+      setRecentActivity(activityData.items || []);
+
+      const issuesData = await apiFetch('/api/v1/dashboard/issues');
+      const issueItems = issuesData.items || [];
+      setIssues(issueItems);
+      setStats((prev) => ({
+        ...prev,
+        openTasks: issueItems.length,
+      }));
+
+      const deadlinesData = await apiFetch('/api/v1/dashboard/deadlines');
+      const deadlineItems = deadlinesData.items || [];
+      const overdueCount = deadlineItems.filter((deadline) => deadline?.is_overdue).length;
+      setDeadlines(deadlineItems);
+      setStats((prev) => ({
+        ...prev,
+        overdueTasks: overdueCount,
+      }));
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
-        const statsData = await apiFetch('/api/v1/dashboard/stats');
-        setStats({
-          workspaces: statsData.workspaces,
-          documents: statsData.documents,
-          recentItems: statsData.recent_items,
-          openTasks: 0,
-          overdueTasks: 0,
-        });
-        setUser({
-          username: statsData.username,
-          email: statsData.email,
-          joinedDate: statsData.member_since,
-          status: statsData.status_message || '',
-        });
-
-        const activityData = await apiFetch('/api/v1/dashboard/activity?limit=8');
-        setRecentActivity(activityData.items || []);
-
-        const issuesData = await apiFetch('/api/v1/dashboard/issues');
-        const issueItems = issuesData.items || [];
-        setIssues(issueItems);
-        setStats((prev) => ({
-          ...prev,
-          openTasks: issueItems.length,
-        }));
-
-        const deadlinesData = await apiFetch('/api/v1/dashboard/deadlines');
-        const deadlineItems = deadlinesData.items || [];
-        const overdueCount = deadlineItems.filter((deadline) => deadline?.is_overdue).length;
-        setDeadlines(deadlineItems);
-        setStats((prev) => ({
-          ...prev,
-          overdueTasks: overdueCount,
-        }));
-      } catch (err) {
-        console.error('Error fetching dashboard data:', err);
-      }
+  useEffect(() => {
+    const handleRealtimeRefresh = () => {
+      fetchDashboardData();
     };
 
-    fetchDashboardData();
-  }, []);
+    window.addEventListener('workspaces-updated', handleRealtimeRefresh);
+    window.addEventListener('containers-updated', handleRealtimeRefresh);
+    window.addEventListener('documents-updated', handleRealtimeRefresh);
+
+    return () => {
+      window.removeEventListener('workspaces-updated', handleRealtimeRefresh);
+      window.removeEventListener('containers-updated', handleRealtimeRefresh);
+      window.removeEventListener('documents-updated', handleRealtimeRefresh);
+    };
+  }, [fetchDashboardData]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');

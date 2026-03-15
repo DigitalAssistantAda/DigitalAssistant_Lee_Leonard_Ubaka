@@ -47,6 +47,8 @@ class SmartContainerSuggestionResponse(BaseModel):
     suggested_container_id: Optional[int] = None
     suggested_container_name: Optional[str] = None
     confidence: str
+    confidence_score: Optional[float] = None
+    boost_applied: bool = False
     reason: str
     alternatives: List[ContainerSuggestionOption] = Field(default_factory=list)
 
@@ -55,8 +57,11 @@ class AutoOrganizedDocumentResult(BaseModel):
     document_id: int
     filename: str
     from_container_id: Optional[int] = None
-    to_container_id: int
+    to_container_id: Optional[int] = None
+    to_container_name: Optional[str] = None
     confidence: str
+    confidence_score: Optional[float] = None
+    boost_applied: bool = False
 
 
 class AutoOrganizeWorkspaceResponse(BaseModel):
@@ -68,6 +73,14 @@ class AutoOrganizeWorkspaceResponse(BaseModel):
     skipped_already_organized: int
     dry_run: bool = False
     moved_documents: List[AutoOrganizedDocumentResult] = Field(default_factory=list)
+
+
+class DuplicateUploadCheckResponse(BaseModel):
+    is_duplicate: bool
+    duplicate_document_id: Optional[int] = None
+    duplicate_filename: Optional[str] = None
+    duplicate_created_at: Optional[datetime] = None
+    message: str
 
 class DocumentDeletionRequestResponse(BaseModel):
     id: int

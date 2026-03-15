@@ -23,8 +23,28 @@ from utils.auth import get_current_user, create_audit_log
 from utils.authorization import require_workspace_access, check_workspace_access
 from errors import AppError
 from utils.audit import AuditActions
+from realtime import connection_manager
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
+
+
+def _active_workspace_member_ids(db: Session, workspace_id: int) -> list[int]:
+    rows = db.query(WorkspaceMember.user_id).filter(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.status == MemberStatus.ACTIVE,
+    ).all()
+    return [int(row.user_id) for row in rows]
+
+
+async def _notify_workspace_changed(db: Session, workspace_id: int) -> None:
+    for user_id in _active_workspace_member_ids(db, workspace_id):
+        await connection_manager.send_to_user(
+            user_id,
+            {
+                "type": "workspaces.changed",
+                "payload": {"workspace_id": workspace_id},
+            },
+        )
 
 
 def build_member_response(member: WorkspaceMember, user: User) -> WorkspaceMemberResponse:
@@ -78,6 +98,7 @@ async def create_workspace(
     default_container = Container(
         workspace_id=workspace.id,
         name=request.name,
+        is_workspace_default=True,
         color=workspace.accent_color,
         created_by=current_user.id,
     )
@@ -87,6 +108,7 @@ async def create_workspace(
     db.refresh(workspace)
     
     create_audit_log(db, current_user, "workspace.created", "workspace", workspace.id, workspace_id=workspace.id)
+    await _notify_workspace_changed(db, workspace.id)
     
     return WorkspaceResponse.model_validate(workspace)
 
@@ -240,8 +262,13 @@ async def get_workspace(
     """Retrieves details for a specific workspace"""
     workspace = require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
     default_container = db.query(Container).filter(
-        Container.workspace_id == workspace_id
+        Container.workspace_id == workspace_id,
+        Container.is_workspace_default == True,
     ).order_by(Container.id.asc()).first()
+    if not default_container:
+        default_container = db.query(Container).filter(
+            Container.workspace_id == workspace_id
+        ).order_by(Container.id.asc()).first()
     member_count = db.query(func.count(WorkspaceMember.id)).filter(
         WorkspaceMember.workspace_id == workspace_id,
         WorkspaceMember.status == MemberStatus.ACTIVE,
@@ -295,15 +322,26 @@ async def update_workspace(
             status_code=status.HTTP_403_FORBIDDEN,
         )
     
+    previous_name = workspace.name
     workspace.name = request.name
     if "accent_color" in request.model_fields_set:
         workspace.accent_color = request.accent_color
     if "autonomous_organization_enabled" in request.model_fields_set and request.autonomous_organization_enabled is not None:
         workspace.autonomous_organization_enabled = request.autonomous_organization_enabled
     db.commit()
+
+    # Keep the default workspace folder label aligned with workspace rename.
+    if previous_name != workspace.name:
+        db.query(Container).filter(
+            Container.workspace_id == workspace.id,
+            Container.is_workspace_default == True,
+        ).update({Container.name: workspace.name}, synchronize_session=False)
+        db.commit()
+
     db.refresh(workspace)
     
     create_audit_log(db, current_user, "workspace.updated", "workspace", workspace.id, workspace_id=workspace.id)
+    await _notify_workspace_changed(db, workspace.id)
     
     return WorkspaceResponse.model_validate(workspace)
 
@@ -322,6 +360,8 @@ async def delete_workspace(
         db=db,
         required_roles=[WorkspaceRole.OWNER],
     )
+
+    notify_user_ids = _active_workspace_member_ids(db, workspace_id)
     
     # Create audit log before deletion
     create_audit_log(db, current_user, "workspace.deleted", "workspace", workspace_id, workspace_id=workspace_id)
@@ -381,6 +421,15 @@ async def delete_workspace(
     # 9. And finally delete the workspace itself
     db.delete(workspace)
     db.commit()
+
+    for user_id in notify_user_ids:
+        await connection_manager.send_to_user(
+            user_id,
+            {
+                "type": "workspaces.changed",
+                "payload": {"workspace_id": workspace_id},
+            },
+        )
     
     return SuccessResponse()
 

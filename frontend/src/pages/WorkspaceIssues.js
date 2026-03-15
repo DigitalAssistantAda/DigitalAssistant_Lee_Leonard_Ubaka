@@ -165,6 +165,30 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   }, [resolvedWorkspaceId, API_URL, token, assignmentScope, currentUserId]);
 
   useEffect(() => {
+    if (!resolvedWorkspaceId) return;
+
+    const handleWorkspaceUpdated = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      if (Number.isFinite(changedWorkspaceId) && changedWorkspaceId !== Number(resolvedWorkspaceId)) {
+        return;
+      }
+      fetchIssues();
+      fetchMembers();
+      fetchWorkspaces();
+    };
+
+    window.addEventListener('workspaces-updated', handleWorkspaceUpdated);
+    window.addEventListener('documents-updated', handleWorkspaceUpdated);
+    window.addEventListener('containers-updated', handleWorkspaceUpdated);
+
+    return () => {
+      window.removeEventListener('workspaces-updated', handleWorkspaceUpdated);
+      window.removeEventListener('documents-updated', handleWorkspaceUpdated);
+      window.removeEventListener('containers-updated', handleWorkspaceUpdated);
+    };
+  }, [resolvedWorkspaceId, assignmentScope, currentUserId]);
+
+  useEffect(() => {
     if (!normalizedIssues.length) {
       setSelectedIssueId(null);
       return;

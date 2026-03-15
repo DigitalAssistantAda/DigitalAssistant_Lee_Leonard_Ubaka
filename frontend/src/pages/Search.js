@@ -20,7 +20,14 @@ function Search() {
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
       setWorkspaces(items);
       if (items.length > 0) {
-        setSelectedWorkspace(String(items[0].id));
+        setSelectedWorkspace((prev) => {
+          if (prev && items.some((workspace) => String(workspace.id) === String(prev))) {
+            return prev;
+          }
+          return String(items[0].id);
+        });
+      } else {
+        setSelectedWorkspace('');
       }
     } catch (err) {
       console.error('Error fetching workspaces:', err);
@@ -29,6 +36,17 @@ function Search() {
 
   useEffect(() => {
     fetchWorkspaces();
+  }, [fetchWorkspaces]);
+
+  useEffect(() => {
+    const handleWorkspaceUpdated = () => {
+      fetchWorkspaces();
+    };
+
+    window.addEventListener('workspaces-updated', handleWorkspaceUpdated);
+    return () => {
+      window.removeEventListener('workspaces-updated', handleWorkspaceUpdated);
+    };
   }, [fetchWorkspaces]);
 
   const runSearch = useCallback(async (queryValue, workspaceId) => {

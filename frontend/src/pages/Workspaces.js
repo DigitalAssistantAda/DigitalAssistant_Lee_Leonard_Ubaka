@@ -62,6 +62,22 @@ function Workspaces() {
     fetchWorkspaces();
   }, [fetchWorkspaces]);
 
+  useEffect(() => {
+    const handleRealtimeRefresh = () => {
+      fetchWorkspaces();
+    };
+
+    window.addEventListener('workspaces-updated', handleRealtimeRefresh);
+    window.addEventListener('containers-updated', handleRealtimeRefresh);
+    window.addEventListener('documents-updated', handleRealtimeRefresh);
+
+    return () => {
+      window.removeEventListener('workspaces-updated', handleRealtimeRefresh);
+      window.removeEventListener('containers-updated', handleRealtimeRefresh);
+      window.removeEventListener('documents-updated', handleRealtimeRefresh);
+    };
+  }, [fetchWorkspaces]);
+
   const handleCreateWorkspace = async (e) => {
     e.preventDefault();
     if (!newWorkspace.name.trim()) return;

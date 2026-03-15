@@ -7,6 +7,9 @@ from celery.utils.log import get_task_logger
 from typing import List
 import asyncio
 from datetime import datetime
+import os
+import re
+import math
 
 from database import SessionLocal
 from models.document import Document, DocumentStatus
@@ -22,6 +25,7 @@ from utils.audit import AuditActions
 from utils.embeddings import embeddings_service
 from utils.text_extraction import extract_text_from_storage
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from celery_app import celery_app
 
 logger = get_task_logger(__name__)
@@ -35,6 +39,62 @@ def _confidence_label(score: float) -> str:
     return "low"
 
 
+def _infer_auto_container_name(document: Document) -> str:
+    stem = os.path.splitext(document.filename or "")[0]
+    tokens = [part for part in re.split(r"[^A-Za-z0-9]+", stem) if part]
+    if not tokens:
+        return "Ada Organizing"
+    topic = " ".join(tokens[:3]).title().strip()
+    return f"Ada - {topic}" if topic else "Ada Organizing"
+
+
+def _ensure_workspace_container(db: Session, workspace_id: int, name: str, actor_user_id: int) -> Container:
+    existing = db.query(Container).filter(
+        Container.workspace_id == workspace_id,
+        func.lower(Container.name) == func.lower(name),
+    ).first()
+    if existing:
+        return existing
+
+    created = Container(
+        workspace_id=workspace_id,
+        name=name,
+        color="#6f93ff",
+        created_by=actor_user_id,
+    )
+    db.add(created)
+    db.commit()
+    db.refresh(created)
+    return created
+
+
+def _workspace_feedback_boosts(db: Session, workspace_id: int, limit: int = 400) -> dict[int, float]:
+    rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.workspace_id == workspace_id,
+            AuditLog.action == AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    counts: dict[int, int] = {}
+    for row in rows:
+        metadata = row.metadata_json or {}
+        if not isinstance(metadata, dict):
+            continue
+        container_id = metadata.get("new_container_id")
+        try:
+            normalized = int(container_id)
+        except (TypeError, ValueError):
+            continue
+        counts[normalized] = counts.get(normalized, 0) + 1
+
+    return {cid: min(0.18, 0.035 * math.log1p(count)) for cid, count in counts.items()}
+
+
 def _auto_organize_document_after_index(document: Document, db: Session, actor_user_id: int | None) -> bool:
     """Move newly indexed doc into best-matching container when workspace autonomous mode is enabled."""
     if not document.workspace_id or document.status != DocumentStatus.READY:
@@ -46,7 +106,36 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
 
     containers = db.query(Container).filter(Container.workspace_id == document.workspace_id).all()
     if not containers:
-        return False
+        inferred_container = _ensure_workspace_container(
+            db=db,
+            workspace_id=document.workspace_id,
+            name=_infer_auto_container_name(document),
+            actor_user_id=actor_user_id or document.uploaded_by,
+        )
+        if document.container_id == inferred_container.id:
+            return False
+        previous_container_id = document.container_id
+        document.container_id = inferred_container.id
+        db.commit()
+
+        audit_actor = actor_user_id or document.uploaded_by
+        db.add(AuditLog(
+            workspace_id=document.workspace_id,
+            actor_user_id=audit_actor,
+            action=AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
+            object_type="document",
+            object_id=document.id,
+            metadata_json={
+                "trigger": "autonomous_organization_auto_create",
+                "old_container_id": previous_container_id,
+                "new_container_id": inferred_container.id,
+                "confidence": "low",
+                "score": 0.0,
+            },
+            created_at=datetime.utcnow(),
+        ))
+        db.commit()
+        return True
     container_ids = {container.id for container in containers}
 
     chunks = db.query(DocumentChunk).filter(
@@ -75,6 +164,7 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
         return False
 
     max_similarity_by_container: dict[int, float] = {}
+    feedback_boosts = _workspace_feedback_boosts(db, document.workspace_id)
     for _chunk_id, similar_doc_id, similarity in similar_rows:
         if similar_doc_id == document.id:
             continue
@@ -94,9 +184,44 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
         )
 
     if not max_similarity_by_container:
-        return False
+        inferred_container = _ensure_workspace_container(
+            db=db,
+            workspace_id=document.workspace_id,
+            name=_infer_auto_container_name(document),
+            actor_user_id=actor_user_id or document.uploaded_by,
+        )
+        if document.container_id == inferred_container.id:
+            return False
 
-    best_container_id, best_score = max(max_similarity_by_container.items(), key=lambda item: item[1])
+        previous_container_id = document.container_id
+        document.container_id = inferred_container.id
+        db.commit()
+
+        audit_actor = actor_user_id or document.uploaded_by
+        db.add(AuditLog(
+            workspace_id=document.workspace_id,
+            actor_user_id=audit_actor,
+            action=AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
+            object_type="document",
+            object_id=document.id,
+            metadata_json={
+                "trigger": "autonomous_organization_auto_create",
+                "old_container_id": previous_container_id,
+                "new_container_id": inferred_container.id,
+                "confidence": "low",
+                "score": 0.0,
+            },
+            created_at=datetime.utcnow(),
+        ))
+        db.commit()
+        return True
+
+    adjusted_scores = {
+        container_id: score + feedback_boosts.get(container_id, 0.0)
+        for container_id, score in max_similarity_by_container.items()
+    }
+
+    best_container_id, best_score = max(adjusted_scores.items(), key=lambda item: item[1])
     confidence = _confidence_label(best_score)
 
     # Autonomous mode only applies high-confidence moves.

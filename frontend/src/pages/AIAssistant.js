@@ -163,12 +163,69 @@ function AIAssistant() {
       setWorkspaces(items);
 
       if (items.length > 0) {
-        setActiveWorkspaceId(items[0].id);
+        setActiveWorkspaceId((prev) => {
+          if (prev && items.some((workspace) => Number(workspace.id) === Number(prev))) {
+            return prev;
+          }
+          return items[0].id;
+        });
+      } else {
+        setActiveWorkspaceId(null);
       }
     } catch (err) {
       setError(getFriendlyErrorMessage(err, 'Failed to load workspaces'));
     }
   };
+
+  useEffect(() => {
+    const handleWorkspaceUpdated = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      if (Number.isFinite(changedWorkspaceId) && activeWorkspaceId && Number(changedWorkspaceId) !== Number(activeWorkspaceId)) {
+        fetchWorkspaces();
+        return;
+      }
+
+      fetchWorkspaces();
+      if (activeWorkspaceId) {
+        fetchWorkspaceContainers(activeWorkspaceId);
+        fetchDocuments(activeWorkspaceId, activeContainerId || null);
+      }
+    };
+
+    const handleContainerUpdated = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      if (Number.isFinite(changedWorkspaceId) && activeWorkspaceId && Number(changedWorkspaceId) !== Number(activeWorkspaceId)) {
+        return;
+      }
+
+      if (activeWorkspaceId) {
+        fetchWorkspaceContainers(activeWorkspaceId);
+        fetchDocuments(activeWorkspaceId, activeContainerId || null);
+      }
+    };
+
+    const handleDocumentsUpdated = (event) => {
+      const changedWorkspaceId = Number(event?.detail?.workspace_id);
+      if (Number.isFinite(changedWorkspaceId) && activeWorkspaceId && Number(changedWorkspaceId) !== Number(activeWorkspaceId)) {
+        return;
+      }
+
+      if (activeWorkspaceId) {
+        fetchDocuments(activeWorkspaceId, activeContainerId || null);
+      }
+    };
+
+    window.addEventListener('workspaces-updated', handleWorkspaceUpdated);
+    window.addEventListener('containers-updated', handleContainerUpdated);
+    window.addEventListener('documents-updated', handleDocumentsUpdated);
+
+    return () => {
+      window.removeEventListener('workspaces-updated', handleWorkspaceUpdated);
+      window.removeEventListener('containers-updated', handleContainerUpdated);
+      window.removeEventListener('documents-updated', handleDocumentsUpdated);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceId, activeContainerId]);
 
   const fetchWorkspaceContainers = async (workspaceId) => {
     try {

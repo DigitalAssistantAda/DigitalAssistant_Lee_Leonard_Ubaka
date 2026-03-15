@@ -1793,6 +1793,49 @@
   cursor: not-allowed;
 }
 
+.suggestion-move-label {
+  margin-left: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #6c757d);
+}
+
+.suggestion-move-select {
+  margin-left: 0.25rem;
+  font-size: 0.72rem;
+  padding: 0.16rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color, #e0e6ed);
+  background: var(--bg-primary, #fff);
+  color: var(--text-primary, #2b2b33);
+  cursor: pointer;
+}
+
+.suggestion-dismiss-btn {
+  margin-left: 0.35rem;
+  font-size: 0.72rem;
+  padding: 0.16rem 0.45rem;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #6c757d);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.suggestion-dismiss-btn:hover {
+  color: var(--text-primary, #2b2b33);
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+}
+
+.suggestion-dismiss-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.suggestion-create-new-btn {
+  margin-left: 0.35rem;
+  border-style: dashed;
+}
+
 .col-size {
   font-size: 0.9rem;
   color: var(--text-secondary, #6c757d);

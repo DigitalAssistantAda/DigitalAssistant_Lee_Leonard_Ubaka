@@ -29,3 +29,15 @@ celery_app.conf.update(
 
 # Auto-discover tasks from all registered modules
 celery_app.autodiscover_tasks(['tasks'], force=True)
+
+# Optional: periodic embedding refresh (run Celery Beat to enable)
+# Set EMBEDDING_REFRESH_ENABLED=true to schedule weekly refresh (Sunday 03:00 UTC)
+from celery.schedules import crontab
+if os.getenv("EMBEDDING_REFRESH_ENABLED", "").lower() in ("1", "true", "yes"):
+    celery_app.conf.beat_schedule = {
+        "embedding-refresh-weekly": {
+            "task": "tasks.embeddings.refresh_all_embeddings",
+            "schedule": crontab(minute=0, hour=3, day_of_week=0),
+            "kwargs": {"workspace_id": None, "training_job_id": None, "triggered_by_user_id": None},
+        },
+    }

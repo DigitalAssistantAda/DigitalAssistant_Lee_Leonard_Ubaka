@@ -54,11 +54,19 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_anon_key: str = ""
     
-    # Embeddings Settings - Using Voyage AI (privacy-first, high quality)
-    embedding_service: str = os.getenv("EMBEDDING_SERVICE", "voyage")  # "voyage"
+    # Embeddings Settings - local (Sentence Transformers) or voyage (API)
+    embedding_service: str = os.getenv("EMBEDDING_SERVICE", "local")  # "local" | "voyage"
+    # Local model (Sentence Transformers) - used when EMBEDDING_SERVICE=local
+    local_embedding_model: str = os.getenv(
+        "LOCAL_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+    )
+    local_embedding_model_path: str = os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "")  # Optional: path to fine-tuned model
+    embedding_finetune_output_dir: str = os.getenv("EMBEDDING_FINETUNE_OUTPUT_DIR", "./data/embedding_model")
+    # Voyage AI (used when EMBEDDING_SERVICE=voyage)
     voyage_api_key: str = os.getenv("VOYAGE_API_KEY", "")
-    voyage_model: str = os.getenv("VOYAGE_MODEL", "voyage-2")  # Or "voyage-large-2-instruct"
-    embedding_dimensions: int = 1024  # voyage-2 uses 1024 dims
+    voyage_model: str = os.getenv("VOYAGE_MODEL", "voyage-2")
+    # Dimension is derived from model; override only if needed (e.g. after fine-tune with same dim)
+    embedding_dimensions: int = int(os.getenv("EMBEDDING_DIMENSIONS", "0"))  # 0 = auto from model
 
     # LLM Summary Settings (supports anthropic, openai, azure)
     summary_llm_enabled: bool = os.getenv("SUMMARY_LLM_ENABLED", "true").lower() == "true"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, ChevronDown, ChevronRight, GripVertical, MoreVertical, Eye, RotateCcw } from 'lucide-react';
+import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, FolderPlus, ChevronDown, ChevronRight, GripVertical, MoreVertical, Eye, RotateCcw } from 'lucide-react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import AccessState from '../components/AccessState';
 import ColorSwatchPicker from '../components/ColorSwatchPicker';
@@ -701,9 +701,10 @@ const handleDrop = (e) => {
   }
 
   const combined = [...uploadFiles, ...files];
-  if (combined.length > 5) {
-    setError('You can only upload a maximum of 5 documents at once');
-    setUploadFiles(combined.slice(0, 5));
+  const maxFilesPerUpload = 50;
+  if (combined.length > maxFilesPerUpload) {
+    setError(`You can select up to ${maxFilesPerUpload} documents per upload`);
+    setUploadFiles(combined.slice(0, maxFilesPerUpload));
   } else {
     setError(null);
     setUploadFiles(combined);
@@ -889,30 +890,31 @@ const handleCreateContainer = async (e) => {
     }
   };
 
+  const fetchSuggestContainer = async (doc) => {
+    const docId = Number(doc?.id);
+    if (!Number.isFinite(docId)) return null;
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_URL}/api/v1/documents/${docId}/suggest-container`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      const message = await getApiErrorMessage(response, 'Failed to generate suggestion');
+      throw new Error(message);
+    }
+    return response.json();
+  };
+
   const handleSuggestContainer = async (doc) => {
     const docId = Number(doc?.id);
     if (!Number.isFinite(docId)) return;
 
-    setSuggestingDocIds((prev) => {
-      const next = new Set(prev);
-      next.add(docId);
-      return next;
-    });
-
+    setSuggestingDocIds((prev) => new Set(prev).add(docId));
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/documents/${docId}/suggest-container`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        const message = await getApiErrorMessage(response, 'Failed to generate suggestion');
-        throw new Error(message);
+      const payload = await fetchSuggestContainer(doc);
+      if (payload) {
+        setSuggestionsByDoc((prev) => ({ ...prev, [docId]: payload }));
+        setError(null);
       }
-
-      const payload = await response.json();
-      setSuggestionsByDoc((prev) => ({ ...prev, [docId]: payload }));
-      setError(null);
     } catch (err) {
       setError(err.message || 'Failed to generate suggestion');
     } finally {
@@ -964,6 +966,189 @@ const handleCreateContainer = async (e) => {
       setError(null);
     } catch (err) {
       setError(err.message || 'Failed to move document');
+    } finally {
+      setApplyingSuggestionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
+    }
+  };
+
+  const handleCorrectSuggestion = async (doc, suggestion, targetContainerId) => {
+    const docId = Number(doc?.id);
+    const targetId = Number(targetContainerId);
+    const suggestedId = Number(suggestion?.suggested_container_id);
+    if (!Number.isFinite(docId) || !Number.isFinite(targetId)) return;
+
+    setApplyingSuggestionIds((prev) => {
+      const next = new Set(prev);
+      next.add(docId);
+      return next;
+    });
+
+    try {
+      const token = localStorage.getItem('token');
+      const body = { container_id: targetId };
+      if (Number.isFinite(suggestedId) && suggestedId !== targetId) {
+        body.suggested_container_id = suggestedId;
+      }
+      const response = await fetch(`${API_URL}/api/v1/documents/${docId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, 'Failed to move document');
+        throw new Error(message);
+      }
+
+      const updatedDoc = await response.json();
+      setFolderDocuments((prev) => prev.filter((item) => item.id !== docId));
+      setDocuments((prev) => prev.map((item) => (item.id === docId ? updatedDoc : item)));
+      setSuggestionsByDoc((prev) => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+      const targetName = openedFolderSubfolders.find((f) => Number(f.id) === targetId)?.name || 'folder';
+      setSuccessMessage(`Moved "${doc.filename}" to ${targetName}. Ada will learn from this correction.`);
+      setTimeout(() => setSuccessMessage(null), 4000);
+      setError(null);
+    } catch (err) {
+      setError(err.message || 'Failed to move document');
+    } finally {
+      setApplyingSuggestionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(docId);
+        return next;
+      });
+    }
+  };
+
+  const handleDismissSuggestion = (docId) => {
+    setSuggestionsByDoc((prev) => {
+      const next = { ...prev };
+      delete next[docId];
+      return next;
+    });
+  };
+
+  const handleCreateSubfolderForDocument = async (doc) => {
+    const docId = Number(doc?.id);
+    const workspaceId = Number(openedFolder?.workspace_id);
+    const parentId = Number(openedFolder?.id);
+    if (!Number.isFinite(docId) || !Number.isFinite(workspaceId) || !Number.isFinite(parentId)) {
+      setError('Open a folder first to create a subfolder inside it.');
+      return;
+    }
+    let suggestion = suggestionsByDoc[docId];
+    if (!suggestion) {
+      setSuggestingDocIds((prev) => new Set(prev).add(docId));
+      try {
+        suggestion = await fetchSuggestContainer(doc);
+        if (suggestion) setSuggestionsByDoc((prev) => ({ ...prev, [docId]: suggestion }));
+      } catch (err) {
+        setError(err.message || 'Failed to get suggestion');
+        return;
+      } finally {
+        setSuggestingDocIds((prev) => {
+          const next = new Set(prev);
+          next.delete(docId);
+          return next;
+        });
+      }
+    }
+    const name = (suggestion?.suggested_new_container_name || '').trim();
+    if (!name) {
+      setError('Could not suggest a name from document content. Ensure the document is indexed and try again.');
+      return;
+    }
+    await handleCreateSuggestedSubfolderAndMove(doc, { ...suggestion, suggested_new_container_name: name });
+  };
+
+  const handleCreateSuggestedSubfolderAndMove = async (doc, suggestion) => {
+    const newName = (suggestion?.suggested_new_container_name || '').trim();
+    const docId = Number(doc?.id);
+    const workspaceId = Number(openedFolder?.workspace_id);
+    const parentId = Number(openedFolder?.id);
+    if (!newName || !Number.isFinite(docId)) {
+      setError('No folder name from document content. Use Suggest (folder icon) first or try again after the document is indexed.');
+      return;
+    }
+    if (!Number.isFinite(workspaceId) || !Number.isFinite(parentId)) {
+      setError('Open a folder first to create a subfolder inside it.');
+      return;
+    }
+
+    setApplyingSuggestionIds((prev) => new Set(prev).add(docId));
+    setError(null);
+
+    try {
+      const token = localStorage.getItem('token');
+      const createRes = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/containers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: newName,
+          color: '#6f93ff',
+          workspace_id: workspaceId,
+          parent_container_id: parentId,
+        }),
+      });
+
+      if (!createRes.ok) {
+        const msg = await getApiErrorMessage(createRes, 'Failed to create subfolder');
+        throw new Error(msg);
+      }
+
+      const createData = await createRes.json().catch(() => ({}));
+      const created = createData?.item || createData?.container || createData;
+      const newContainerId = created?.id;
+      if (!Number.isFinite(newContainerId)) {
+        throw new Error('Subfolder was created but the server returned an invalid response.');
+      }
+
+      setDbContainers((prev) => [...prev, { ...created, name: created?.name || newName }]);
+      setCreatedContainers((prev) => {
+        const next = [...prev, { id: created.id, name: created?.name || newName, ...created }];
+        localStorage.setItem('createdContainers', JSON.stringify(next));
+        return next;
+      });
+      await fetchContainers();
+
+      const moveRes = await fetch(`${API_URL}/api/v1/documents/${docId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ container_id: newContainerId }),
+      });
+
+      if (!moveRes.ok) {
+        const msg = await getApiErrorMessage(moveRes, 'Failed to move document');
+        throw new Error(msg);
+      }
+
+      setFolderDocuments((prev) => prev.filter((item) => item.id !== docId));
+      setDocuments((prev) => prev.map((item) => (item.id === docId ? { ...item, container_id: newContainerId } : item)));
+      setSuggestionsByDoc((prev) => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+      setSuccessMessage(`Created subfolder "${newName}" and moved "${doc.filename}" into it.`);
+      setTimeout(() => setSuccessMessage(null), 4000);
+    } catch (err) {
+      setError(err.message || 'Failed to create subfolder or move document');
     } finally {
       setApplyingSuggestionIds((prev) => {
         const next = new Set(prev);
@@ -2527,7 +2712,7 @@ const handleCreateContainer = async (e) => {
                 const doc = entry.item;
                 const statusDisplay = getDocumentStatusDisplay(doc);
                 const isRetryingIndex = retryingDocIds.has(doc.id);
-                const canRetryIndexing = statusDisplay.statusKey === 'failed';
+                const canRetryIndexing = statusDisplay.statusKey === 'failed' || statusDisplay.statusKey === 'processing' || statusDisplay.statusKey === 'uploaded';
                 return (
                   <div
                     key={doc.id}
@@ -2571,9 +2756,83 @@ const handleCreateContainer = async (e) => {
                                   {applyingSuggestionIds.has(doc.id) ? 'Applying…' : 'Apply'}
                                 </button>
                               )}
+                              {openedFolderSubfolders.length > 0 && (
+                                <>
+                                  <label className="suggestion-move-label" htmlFor={`move-to-${doc.id}`}>
+                                    Move to:
+                                  </label>
+                                  <select
+                                    id={`move-to-${doc.id}`}
+                                    className="suggestion-move-select"
+                                    value=""
+                                    disabled={applyingSuggestionIds.has(doc.id)}
+                                    onChange={(event) => {
+                                      event.stopPropagation();
+                                      const val = event.target.value;
+                                      if (val) {
+                                        handleCorrectSuggestion(doc, suggestionsByDoc[doc.id], val);
+                                        event.target.value = '';
+                                      }
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    aria-label={`Move ${doc.filename} to another folder`}
+                                  >
+                                    <option value="">Choose folder…</option>
+                                    {openedFolderSubfolders.map((folder) => (
+                                      <option key={folder.id} value={folder.id}>
+                                        {folder.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                className="suggestion-dismiss-btn"
+                                disabled={applyingSuggestionIds.has(doc.id)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleDismissSuggestion(doc.id);
+                                }}
+                                title="Dismiss suggestion"
+                                aria-label={`Dismiss suggestion for ${doc.filename}`}
+                              >
+                                Dismiss
+                              </button>
+                              {suggestionsByDoc[doc.id].suggested_new_container_name && openedFolder?.id && openedFolder?.workspace_id && (
+                                <button
+                                  type="button"
+                                  className="suggestion-apply-btn suggestion-create-new-btn"
+                                  disabled={applyingSuggestionIds.has(doc.id)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleCreateSuggestedSubfolderAndMove(doc, suggestionsByDoc[doc.id]);
+                                  }}
+                                  title={`Create subfolder "${suggestionsByDoc[doc.id].suggested_new_container_name}" and move document`}
+                                  aria-label={`Create subfolder ${suggestionsByDoc[doc.id].suggested_new_container_name} and move ${doc.filename}`}
+                                >
+                                  {applyingSuggestionIds.has(doc.id) ? 'Creating…' : `Create "${suggestionsByDoc[doc.id].suggested_new_container_name}" & move`}
+                                </button>
+                              )}
                             </>
                           ) : (
-                            <span>{suggestionsByDoc[doc.id].reason}</span>
+                            <>
+                              <span>{suggestionsByDoc[doc.id].reason}</span>
+                              {suggestionsByDoc[doc.id].suggested_new_container_name && openedFolder?.id && openedFolder?.workspace_id && (
+                                <button
+                                  type="button"
+                                  className="suggestion-apply-btn suggestion-create-new-btn"
+                                  disabled={applyingSuggestionIds.has(doc.id)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleCreateSuggestedSubfolderAndMove(doc, suggestionsByDoc[doc.id]);
+                                  }}
+                                  title={`Create subfolder "${suggestionsByDoc[doc.id].suggested_new_container_name}" and move document`}
+                                >
+                                  {applyingSuggestionIds.has(doc.id) ? 'Creating…' : `Create "${suggestionsByDoc[doc.id].suggested_new_container_name}" & move`}
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
@@ -2595,12 +2854,12 @@ const handleCreateContainer = async (e) => {
                                             <button
                                               className="action-menu retry-btn"
                                               onClick={(event) => handleRetryIndexing(doc, event)}
-                                              title="Retry indexing"
-                                              aria-label={`Retry indexing ${doc.filename}`}
+                                              title={statusDisplay.statusKey === 'failed' ? 'Retry indexing' : 'Restart indexing (in queue or stuck)'}
+                                              aria-label={`${statusDisplay.statusKey === 'failed' ? 'Retry' : 'Restart'} indexing ${doc.filename}`}
                                               disabled={isRetryingIndex}
                                             >
                                               <RotateCcw size={16} className={isRetryingIndex ? 'spin' : ''} />
-                                              <span>{isRetryingIndex ? 'Retrying' : 'Retry'}</span>
+                                              <span>{isRetryingIndex ? 'Restarting…' : (statusDisplay.statusKey === 'failed' ? 'Retry' : 'Restart')}</span>
                                             </button>
                                           )}
                                           <button
@@ -2615,7 +2874,22 @@ const handleCreateContainer = async (e) => {
                                           >
                                             <Folder size={18} />
                                           </button>
-                      <button
+                                          {openedFolder?.id && openedFolder?.workspace_id && (
+                                            <button
+                                              className="action-menu suggestion-create-new-btn"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                handleCreateSubfolderForDocument(doc);
+                                              }}
+                                              title="Create new subfolder and move document here"
+                                              aria-label={`Create subfolder and move ${doc.filename}`}
+                                              disabled={suggestingDocIds.has(doc.id) || applyingSuggestionIds.has(doc.id)}
+                                            >
+                                              <FolderPlus size={18} />
+                                              <span>{applyingSuggestionIds.has(doc.id) ? 'Creating…' : 'Create subfolder'}</span>
+                                            </button>
+                                          )}
+                                      <button
                         className="action-menu"
                         onClick={(event) => {
                           event.stopPropagation();
@@ -2753,9 +3027,10 @@ const handleCreateContainer = async (e) => {
                       onChange={(e) => {
                         const newFiles = Array.from(e.target.files);
                         const combined = [...uploadFiles, ...newFiles];
-                        if (combined.length > 5) {
-                          setError('You can only upload a maximum of 5 documents at once');
-                          setUploadFiles(combined.slice(0, 5));
+                        const maxFiles = 50;
+                        if (combined.length > maxFiles) {
+                          setError(`You can select up to ${maxFiles} documents per upload`);
+                          setUploadFiles(combined.slice(0, maxFiles));
                         } else {
                           setError(null);
                           setUploadFiles(combined);
@@ -2770,8 +3045,8 @@ const handleCreateContainer = async (e) => {
                   {uploadFiles.length > 0 && (
                     <div className="selected-files">
                       <div className="selected-files-header">
-                        <h4>Selected Files ({uploadFiles.length}/5):</h4>
-                        {uploadFiles.length === 5 && (
+                        <h4>Selected Files ({uploadFiles.length}/50):</h4>
+                        {uploadFiles.length === 50 && (
                           <span className="limit-reached-badge">Limit reached</span>
                         )}
                       </div>
@@ -3133,9 +3408,10 @@ const handleCreateContainer = async (e) => {
                     onChange={(e) => {
                       const newFiles = Array.from(e.target.files);
                       const combined = [...uploadFiles, ...newFiles];
-                      if (combined.length > 5) {
-                        setError('You can only upload a maximum of 5 documents at once');
-                        setUploadFiles(combined.slice(0, 5));
+                      const maxFilesUpload = 50;
+                      if (combined.length > maxFilesUpload) {
+                        setError(`You can select up to ${maxFilesUpload} documents per upload`);
+                        setUploadFiles(combined.slice(0, maxFilesUpload));
                       } else {
                         setError(null);
                         setUploadFiles(combined);
@@ -3151,8 +3427,8 @@ const handleCreateContainer = async (e) => {
                   {uploadFiles.length > 0 && (
                     <div className="selected-files">
                       <div className="selected-files-header">
-                        <h4>Selected Files ({uploadFiles.length}/5):</h4>
-                        {uploadFiles.length === 5 && (
+                        <h4>Selected Files ({uploadFiles.length}/50):</h4>
+                        {uploadFiles.length === 50 && (
                           <span className="limit-reached-badge">Limit reached</span>
                         )}
                       </div>

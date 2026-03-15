@@ -6,6 +6,11 @@ from .document_chunk import DocumentChunk
 from .chunk_embedding import ChunkEmbedding
 from .document_duplicate import DocumentDuplicate, DuplicateStatus
 from .embedding_job import EmbeddingJob, EmbeddingJobStatus
+from .embedding_training_job import (
+    EmbeddingTrainingJob,
+    EmbeddingTrainingJobType,
+    EmbeddingTrainingJobStatus,
+)
 from .document_hint import DocumentHint
 from .audit_log import AuditLog
 from .task import Task, TaskType, TaskStatus, TaskPriority
@@ -27,6 +32,9 @@ __all__ = [
     "DuplicateStatus",
     "EmbeddingJob",
     "EmbeddingJobStatus",
+    "EmbeddingTrainingJob",
+    "EmbeddingTrainingJobType",
+    "EmbeddingTrainingJobStatus",
     "DocumentHint",
     "AuditLog",
     "Task",

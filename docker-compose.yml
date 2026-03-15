@@ -1,4 +1,5 @@
 services:
+  # Optional: only needed if not using Supabase. Start with: docker compose --profile local-db up
   db:
     image: postgres:15
     container_name: digitalassistant-db
@@ -17,6 +18,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles:
+      - local-db
 
   redis:
     image: redis:7-alpine
@@ -59,13 +62,16 @@ services:
       - "8000:8000"
     env_file:
       - ./backend/.env
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - EMBEDDING_SERVICE=${EMBEDDING_SERVICE:-local}
+      - EMBEDDING_FINETUNE_OUTPUT_DIR=/app/data/embedding_model
     volumes:
       - ./backend:/app
+      - embedding_model_data:/app/data/embedding_model
     networks:
       - app-network
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
@@ -79,17 +85,46 @@ services:
       - ./backend/.env
     volumes:
       - ./backend:/app
+      - embedding_model_data:/app/data/embedding_model
     networks:
       - app-network
     environment:
+      - REDIS_URL=redis://redis:6379
       - CELERY_BROKER_URL=redis://redis:6379
       - CELERY_RESULT_BACKEND=redis://redis:6379
+      - EMBEDDING_SERVICE=${EMBEDDING_SERVICE:-local}
+      - EMBEDDING_FINETUNE_OUTPUT_DIR=/app/data/embedding_model
+      - EMBEDDING_REFRESH_ENABLED=${EMBEDDING_REFRESH_ENABLED:-false}
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=20
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: digitalassistant-celery-beat
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+      - embedding_model_data:/app/data/embedding_model
+    networks:
+      - app-network
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379
+      - CELERY_RESULT_BACKEND=redis://redis:6379
+      - EMBEDDING_SERVICE=${EMBEDDING_SERVICE:-local}
+      - EMBEDDING_FINETUNE_OUTPUT_DIR=/app/data/embedding_model
+      - EMBEDDING_REFRESH_ENABLED=${EMBEDDING_REFRESH_ENABLED:-false}
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery -A celery_app beat --loglevel=info
+    profiles:
+      - schedule
 
   frontend:
     build:
@@ -117,3 +152,4 @@ networks:
 volumes:
   postgres_data:
   n8n_data:
+  embedding_model_data:

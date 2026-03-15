@@ -4,7 +4,7 @@ Handles async embedding generation, deduplication, and AI hint generation
 Uses local Ollama for embeddings (free, private, no API costs)
 """
 from celery.utils.log import get_task_logger
-from typing import List
+from typing import List, Optional
 import asyncio
 from datetime import datetime
 import os
@@ -20,9 +20,14 @@ from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
 from models.document_duplicate import DocumentDuplicate, DuplicateStatus
 from models.document_hint import DocumentHint
 from models.workspace import Workspace
+from models.embedding_training_job import (
+    EmbeddingTrainingJob,
+    EmbeddingTrainingJobType,
+    EmbeddingTrainingJobStatus,
+)
 from models.audit_log import AuditLog
 from utils.audit import AuditActions
-from utils.embeddings import embeddings_service
+from utils.embeddings import embeddings_service, reset_embeddings_service
 from utils.text_extraction import extract_text_from_storage
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -40,12 +45,13 @@ def _confidence_label(score: float) -> str:
 
 
 def _infer_auto_container_name(document: Document) -> str:
+    """Fallback folder name from filename (no prefix)."""
     stem = os.path.splitext(document.filename or "")[0]
     tokens = [part for part in re.split(r"[^A-Za-z0-9]+", stem) if part]
     if not tokens:
-        return "Ada Organizing"
+        return "New folder"
     topic = " ".join(tokens[:3]).title().strip()
-    return f"Ada - {topic}" if topic else "Ada Organizing"
+    return topic if topic else "New folder"
 
 
 def _ensure_workspace_container(db: Session, workspace_id: int, name: str, actor_user_id: int) -> Container:
@@ -563,3 +569,257 @@ def _generate_hints(document_id: int, chunks: List[str], db: Session) -> None:
     )
     db.add(hint)
     db.commit()
+
+
+# ---------- Embedding refresh and fine-tune tasks ----------
+
+
+@celery_app.task(bind=True)
+def refresh_all_embeddings(
+    self,
+    workspace_id: Optional[int] = None,
+    training_job_id: Optional[int] = None,
+    triggered_by_user_id: Optional[int] = None,
+) -> dict:
+    """
+    Re-embed all documents (optionally in a workspace). Clears existing chunks/embeddings
+    and re-queues process_document_embeddings for each document.
+    """
+    db = SessionLocal()
+    job = None
+    try:
+        if training_job_id:
+            job = db.query(EmbeddingTrainingJob).filter(EmbeddingTrainingJob.id == training_job_id).first()
+            if job:
+                job.status = EmbeddingTrainingJobStatus.RUNNING
+                job.started_at = datetime.utcnow()
+                job.celery_task_id = self.request.id
+                db.commit()
+
+        # Documents that are READY (have been indexed) or have chunks
+        q = db.query(Document.id).filter(Document.status != DocumentStatus.DELETED)
+        if workspace_id is not None:
+            q = q.filter(Document.workspace_id == workspace_id)
+        doc_ids = [r[0] for r in q.distinct().all()]
+
+        if training_job_id and job:
+            job.documents_total = len(doc_ids)
+            db.commit()
+
+        processed = 0
+        for document_id in doc_ids:
+            doc = db.query(Document).filter(Document.id == document_id).first()
+            if not doc:
+                continue
+            # Delete chunk_embeddings for chunks of this document
+            chunk_ids = db.query(DocumentChunk.id).filter(DocumentChunk.document_id == document_id).all()
+            chunk_ids = [c[0] for c in chunk_ids]
+            if chunk_ids:
+                db.query(ChunkEmbedding).filter(ChunkEmbedding.chunk_id.in_(chunk_ids)).delete(
+                    synchronize_session=False
+                )
+            db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete(
+                synchronize_session=False
+            )
+            doc.status = DocumentStatus.PENDING
+            db.commit()
+            process_document_embeddings.delay(document_id, triggered_by_user_id)
+            processed += 1
+            if training_job_id and job:
+                job.documents_processed = processed
+                db.commit()
+
+        if training_job_id and job:
+            job.status = EmbeddingTrainingJobStatus.COMPLETE
+            job.documents_processed = processed
+            job.completed_at = datetime.utcnow()
+            db.commit()
+
+        return {"status": "ok", "documents_queued": processed}
+    except Exception as e:
+        if training_job_id:
+            job = db.query(EmbeddingTrainingJob).filter(EmbeddingTrainingJob.id == training_job_id).first()
+            if job:
+                job.status = EmbeddingTrainingJobStatus.FAILED
+                job.error_message = str(e)[:2000]
+                job.completed_at = datetime.utcnow()
+                db.commit()
+        logger.exception("refresh_all_embeddings failed: %s", e)
+        raise
+    finally:
+        db.close()
+
+
+def _build_finetune_dataset(db: Session, workspace_id: Optional[int], max_chunks: int = 50000):
+    """Build (anchor, positive) pairs from adjacent chunks in same document for contrastive fine-tuning."""
+    q = (
+        db.query(DocumentChunk.document_id, DocumentChunk.text)
+        .filter(DocumentChunk.text.isnot(None), DocumentChunk.text != "")
+        .order_by(DocumentChunk.document_id, DocumentChunk.chunk_index)
+    )
+    if workspace_id is not None:
+        q = q.join(Document).filter(Document.workspace_id == workspace_id)
+    rows = q.limit(max_chunks * 2).all()
+    by_doc = {}
+    for doc_id, text in rows:
+        by_doc.setdefault(doc_id, []).append((text or "").strip())
+    pairs = []
+    for doc_id, texts in by_doc.items():
+        for i in range(len(texts) - 1):
+            if texts[i] and texts[i + 1]:
+                pairs.append((texts[i], texts[i + 1]))
+    return pairs
+
+
+def _build_correction_pairs(db: Session, workspace_id: Optional[int], limit: int = 500):
+    """Build (anchor, positive) pairs from user corrections: doc moved to container -> pair with chunk from that container."""
+    from models.audit_log import AuditLog
+    from utils.audit import AuditActions
+
+    q = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit * 2)
+    )
+    if workspace_id is not None:
+        q = q.filter(AuditLog.workspace_id == workspace_id)
+    rows = q.all()
+    pairs = []
+    seen = set()
+    for row in rows:
+        meta = row.metadata_json or {}
+        if isinstance(meta, str):
+            try:
+                import json
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        doc_id = meta.get("object_id") or row.object_id
+        container_id = meta.get("new_container_id")
+        if not isinstance(doc_id, (int, float)) or not isinstance(container_id, (int, float)):
+            continue
+        doc_id, container_id = int(doc_id), int(container_id)
+        key = (doc_id, container_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        chunk_moved = (
+            db.query(DocumentChunk.text)
+            .filter(DocumentChunk.document_id == doc_id, DocumentChunk.text.isnot(None), DocumentChunk.text != "")
+            .order_by(DocumentChunk.chunk_index)
+            .limit(1)
+            .first()
+        )
+        if not chunk_moved or not (chunk_moved[0] or "").strip():
+            continue
+        other_doc = (
+            db.query(Document.id)
+            .filter(Document.container_id == container_id, Document.id != doc_id, Document.status != DocumentStatus.DELETED)
+            .limit(1)
+            .first()
+        )
+        if not other_doc:
+            continue
+        other_chunk = (
+            db.query(DocumentChunk.text)
+            .filter(DocumentChunk.document_id == other_doc[0], DocumentChunk.text.isnot(None), DocumentChunk.text != "")
+            .order_by(DocumentChunk.chunk_index)
+            .limit(1)
+            .first()
+        )
+        if not other_chunk or not (other_chunk[0] or "").strip():
+            continue
+        a, b = (chunk_moved[0] or "").strip(), (other_chunk[0] or "").strip()
+        if a and b:
+            pairs.append((a, b))
+    return pairs
+
+
+@celery_app.task(bind=True)
+def run_embedding_fine_tune(
+    self,
+    workspace_id: Optional[int] = None,
+    training_job_id: Optional[int] = None,
+    epochs: int = 1,
+    trigger_refresh_after: bool = True,
+) -> dict:
+    """
+    Fine-tune the local embedding model on document chunks (positive pairs from adjacent chunks),
+    then optionally trigger refresh_all_embeddings. Only runs when EMBEDDING_SERVICE=local.
+    """
+    from config import settings as config_settings
+    import os
+
+    db = SessionLocal()
+    job = None
+    try:
+        if config_settings.embedding_service.lower() != "local":
+            return {"status": "skipped", "reason": "EMBEDDING_SERVICE is not local"}
+
+        if training_job_id:
+            job = db.query(EmbeddingTrainingJob).filter(EmbeddingTrainingJob.id == training_job_id).first()
+            if job:
+                job.status = EmbeddingTrainingJobStatus.RUNNING
+                job.started_at = datetime.utcnow()
+                job.celery_task_id = self.request.id
+                db.commit()
+
+        pairs = _build_finetune_dataset(db, workspace_id)
+        correction_pairs = _build_correction_pairs(db, workspace_id, limit=500)
+        pairs = pairs + correction_pairs[:2000]
+        if len(pairs) < 10:
+            if job:
+                job.status = EmbeddingTrainingJobStatus.FAILED
+                job.error_message = "Not enough chunk pairs for training (need at least 10)"
+                job.completed_at = datetime.utcnow()
+                db.commit()
+            return {"status": "skipped", "reason": "Not enough document chunks for training", "pairs": len(pairs)}
+
+        try:
+            from sentence_transformers import SentenceTransformer
+            from sentence_transformers import InputExample, losses
+            from torch.utils.data import DataLoader
+        except ImportError:
+            if job:
+                job.status = EmbeddingTrainingJobStatus.FAILED
+                job.error_message = "sentence-transformers not installed"
+                job.completed_at = datetime.utcnow()
+                db.commit()
+            return {"status": "failed", "error": "sentence-transformers not installed"}
+
+        base_model = config_settings.local_embedding_model_path.strip() or config_settings.local_embedding_model
+        model = SentenceTransformer(base_model)
+        train_examples = [InputExample(texts=[a, b]) for a, b in pairs[:20000]]
+        train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=16)
+        train_loss = losses.MultipleNegativesRankingLoss(model)
+        out_dir = os.path.join(config_settings.embedding_finetune_output_dir, "latest")
+        os.makedirs(out_dir, exist_ok=True)
+        model.fit(
+            train_objectives=[(train_dataloader, train_loss)],
+            epochs=epochs,
+            output_path=out_dir,
+        )
+        reset_embeddings_service()
+
+        if job:
+            job.status = EmbeddingTrainingJobStatus.COMPLETE
+            job.completed_at = datetime.utcnow()
+            db.commit()
+
+        if trigger_refresh_after:
+            refresh_all_embeddings.delay(workspace_id=workspace_id, triggered_by_user_id=None)
+
+        return {"status": "ok", "pairs_used": len(train_examples), "output_path": out_dir}
+    except Exception as e:
+        if training_job_id:
+            job = db.query(EmbeddingTrainingJob).filter(EmbeddingTrainingJob.id == training_job_id).first()
+        if job:
+            job.status = EmbeddingTrainingJobStatus.FAILED
+            job.error_message = str(e)[:2000]
+            job.completed_at = datetime.utcnow()
+            db.commit()
+        logger.exception("run_embedding_fine_tune failed: %s", e)
+        raise
+    finally:
+        db.close()

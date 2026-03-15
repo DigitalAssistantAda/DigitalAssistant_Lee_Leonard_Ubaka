@@ -14,7 +14,13 @@ from models.user import User
 from models.document_duplicate import DocumentDuplicate, DuplicateStatus
 from models.document_hint import DocumentHint
 from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
+from models.embedding_training_job import (
+    EmbeddingTrainingJob,
+    EmbeddingTrainingJobType,
+    EmbeddingTrainingJobStatus,
+)
 from utils.embeddings import embeddings_service
+from config import settings as config_settings
 
 router = APIRouter(prefix="/embeddings", tags=["Embeddings & AI Features"])
 
@@ -59,6 +65,41 @@ class EmbeddingJobResponse(BaseModel):
     model_used: str
     error_message: Optional[str]
     
+    class Config:
+        from_attributes = True
+
+
+class EmbeddingModelInfo(BaseModel):
+    """Current embedding model/service info"""
+    service: str
+    model_name: str
+    embedding_dimension: int
+    supports_fine_tune: bool
+
+
+class RefreshRequest(BaseModel):
+    workspace_id: Optional[int] = None
+
+
+class FineTuneRequest(BaseModel):
+    workspace_id: Optional[int] = None
+    epochs: int = 1
+    trigger_refresh_after: bool = True
+
+
+class TrainingJobResponse(BaseModel):
+    id: int
+    job_type: str
+    status: str
+    workspace_id: Optional[int]
+    documents_processed: Optional[int]
+    documents_total: Optional[int]
+    error_message: Optional[str]
+    started_at: Optional[str]
+    completed_at: Optional[str]
+    created_at: str
+    celery_task_id: Optional[str]
+
     class Config:
         from_attributes = True
 
@@ -336,3 +377,143 @@ async def get_document_embedding_job(
         "progress": f"{job.chunks_processed}/{job.total_chunks}",
         "error": job.error_message
     }
+
+
+# ---------- Embedding model management (local model, fine-tune, refresh) ----------
+
+
+@router.get("/model", response_model=EmbeddingModelInfo)
+async def get_embedding_model_info(current_user: User = Depends(get_current_user)):
+    """Return current embedding service type, model name, and dimension. Supports fine-tune only when service is local."""
+    try:
+        svc = embeddings_service
+        return EmbeddingModelInfo(
+            service=config_settings.embedding_service,
+            model_name=svc.model_name,
+            embedding_dimension=svc.embedding_dimension,
+            supports_fine_tune=config_settings.embedding_service.lower() == "local",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/refresh")
+async def trigger_embedding_refresh(
+    request: Optional[RefreshRequest] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-embed all documents (optionally in a workspace). Queues a background job; use GET /embeddings/training/jobs to poll status."""
+    from tasks.embeddings import refresh_all_embeddings
+
+    req = request if request is not None else RefreshRequest()
+    job = EmbeddingTrainingJob(
+        job_type=EmbeddingTrainingJobType.REFRESH,
+        status=EmbeddingTrainingJobStatus.PENDING,
+        workspace_id=req.workspace_id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    task = refresh_all_embeddings.delay(
+        workspace_id=req.workspace_id,
+        training_job_id=job.id,
+        triggered_by_user_id=current_user.id,
+    )
+    return {
+        "message": "Refresh queued",
+        "training_job_id": job.id,
+        "celery_task_id": task.id,
+    }
+
+
+@router.post("/fine-tune")
+async def trigger_embedding_fine_tune(
+    request: Optional[FineTuneRequest] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fine-tune the local embedding model on document chunks, then optionally re-embed all. Only available when EMBEDDING_SERVICE=local."""
+    from tasks.embeddings import run_embedding_fine_tune
+
+    if config_settings.embedding_service.lower() != "local":
+        raise HTTPException(
+            status_code=400,
+            detail="Fine-tuning is only available when using local embeddings (EMBEDDING_SERVICE=local)",
+        )
+    req = request if request is not None else FineTuneRequest()
+    job = EmbeddingTrainingJob(
+        job_type=EmbeddingTrainingJobType.FINE_TUNE,
+        status=EmbeddingTrainingJobStatus.PENDING,
+        workspace_id=req.workspace_id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    task = run_embedding_fine_tune.delay(
+        workspace_id=req.workspace_id,
+        training_job_id=job.id,
+        epochs=req.epochs,
+        trigger_refresh_after=req.trigger_refresh_after,
+    )
+    return {
+        "message": "Fine-tune queued",
+        "training_job_id": job.id,
+        "celery_task_id": task.id,
+    }
+
+
+@router.get("/training/jobs", response_model=List[TrainingJobResponse])
+async def list_embedding_training_jobs(
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """List recent embedding training/refresh jobs (most recent first)."""
+    jobs = (
+        db.query(EmbeddingTrainingJob)
+        .order_by(EmbeddingTrainingJob.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        TrainingJobResponse(
+            id=j.id,
+            job_type=j.job_type.value,
+            status=j.status.value,
+            workspace_id=j.workspace_id,
+            documents_processed=j.documents_processed,
+            documents_total=j.documents_total,
+            error_message=j.error_message,
+            started_at=j.started_at.isoformat() if j.started_at else None,
+            completed_at=j.completed_at.isoformat() if j.completed_at else None,
+            created_at=j.created_at.isoformat(),
+            celery_task_id=j.celery_task_id,
+        )
+        for j in jobs
+    ]
+
+
+@router.get("/training/jobs/{job_id}", response_model=TrainingJobResponse)
+async def get_embedding_training_job(
+    job_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get a single embedding training/refresh job by id."""
+    job = db.query(EmbeddingTrainingJob).filter(EmbeddingTrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+    return TrainingJobResponse(
+        id=job.id,
+        job_type=job.job_type.value,
+        status=job.status.value,
+        workspace_id=job.workspace_id,
+        documents_processed=job.documents_processed,
+        documents_total=job.documents_total,
+        error_message=job.error_message,
+        started_at=job.started_at.isoformat() if job.started_at else None,
+        completed_at=job.completed_at.isoformat() if job.completed_at else None,
+        created_at=job.created_at.isoformat(),
+        celery_task_id=job.celery_task_id,
+    )

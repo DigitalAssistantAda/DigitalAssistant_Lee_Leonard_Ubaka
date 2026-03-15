@@ -74,6 +74,14 @@
   font-size: 0.9rem;
 }
 
+.embedding-model-info {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.embedding-model-info p {
+  margin: 0.35rem 0;
+}
+
 .user-settings-success {
   margin-bottom: 1rem;
   padding: 0.75rem 1rem;

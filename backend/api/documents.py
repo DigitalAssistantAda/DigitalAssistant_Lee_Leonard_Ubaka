@@ -59,7 +59,8 @@ router = APIRouter(tags=["Documents"])
 logger = logging.getLogger(__name__)
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-MAX_DOCUMENTS_PER_CONTAINER = 5
+# No practical per-container limit; use a high cap to avoid abuse (configurable via env if needed)
+MAX_DOCUMENTS_PER_CONTAINER = int(os.getenv("MAX_DOCUMENTS_PER_CONTAINER", "5000"))
 ALLOWED_MIME_TYPES = [
     "application/pdf",
     "text/plain",
@@ -233,7 +234,7 @@ def _user_friendly_status(document: Document, job: EmbeddingJob | None) -> tuple
             if job.total_chunks and job.chunks_processed is not None:
                 return ("Indexing…", f"Making it searchable ({job.chunks_processed}/{job.total_chunks})")
             return ("Indexing…", "Making it searchable.")
-        return ("In the queue", "We'll index it in a moment.")
+        return ("In the queue", "Waiting for background worker. Use Restart if it stays here, and ensure the Celery worker is running.")
     if status == "processing":
         if job and job.total_chunks and job.chunks_processed is not None:
             return ("Indexing…", f"Making it searchable ({job.chunks_processed}/{job.total_chunks})")
@@ -280,15 +281,35 @@ def _confidence_rank(label: str) -> int:
 
 
 def _infer_auto_container_name(document: Document) -> str:
-    """Generate a readable workspace-scoped folder name for uncategorized docs."""
+    """Fallback folder name from filename only (no prefix)."""
     stem = os.path.splitext(document.filename or "")[0]
     tokens = [part for part in re.split(r"[^A-Za-z0-9]+", stem) if part]
     if not tokens:
-        return "Ada Organizing"
+        return "New folder"
     topic = " ".join(tokens[:3]).title().strip()
-    if not topic:
-        return "Ada Organizing"
-    return f"Ada - {topic}"
+    return topic if topic else "New folder"
+
+
+def _suggest_container_name_from_content(document: Document, db: Session) -> str:
+    """Suggest a folder name from document content using LLM. Never uses filename-only; returns generic name when content/LLM unavailable."""
+    from utils.text_generation import summary_generation_service
+
+    chunks = (
+        db.query(DocumentChunk.text)
+        .filter(DocumentChunk.document_id == document.id, DocumentChunk.text.isnot(None))
+        .order_by(DocumentChunk.chunk_index.asc())
+        .limit(6)
+        .all()
+    )
+    combined = " ".join((c[0] or "").strip() for c in chunks).strip()[:4000]
+    if not combined:
+        return "New folder"
+    try:
+        if summary_generation_service.is_available():
+            return summary_generation_service.suggest_folder_name(combined)
+    except Exception:
+        logger.warning("LLM folder name suggestion failed for document %s, using generic name", document.id)
+    return "New folder"
 
 
 def _ensure_workspace_container(
@@ -352,14 +373,17 @@ def _workspace_feedback_boosts(db: Session, workspace_id: int, limit: int = 400)
                 metadata = json.loads(metadata)
             except Exception:
                 metadata = {}
-        container_id = metadata.get("new_container_id") if isinstance(metadata, dict) else None
+        if not isinstance(metadata, dict):
+            continue
+        container_id = metadata.get("new_container_id")
         if not isinstance(container_id, (int, float, str)):
             continue
         try:
             normalized = int(container_id)
         except (TypeError, ValueError):
             continue
-        counts[normalized] = counts.get(normalized, 0) + 1
+        weight = 2 if metadata.get("corrected") else 1
+        counts[normalized] = counts.get(normalized, 0) + weight
 
     # Diminishing returns keeps feedback as a guide, not a hard override.
     return {cid: min(0.18, 0.035 * math.log1p(count)) for cid, count in counts.items()}
@@ -868,6 +892,7 @@ async def suggest_document_container(
             boost_applied=False,
             reason="Smart organization is available for workspace documents only.",
             alternatives=[],
+            suggested_new_container_name=_suggest_container_name_from_content(document, db),
         )
 
     check_workspace_access(current_user, document.workspace_id, db)
@@ -884,6 +909,7 @@ async def suggest_document_container(
             boost_applied=False,
             reason="No destination folders exist in this workspace yet.",
             alternatives=[],
+            suggested_new_container_name=_suggest_container_name_from_content(document, db),
         )
 
     if document.status != DocumentStatus.READY:
@@ -894,6 +920,7 @@ async def suggest_document_container(
             boost_applied=False,
             reason="Document is still processing. Try again when indexing is complete.",
             alternatives=[],
+            suggested_new_container_name=_suggest_container_name_from_content(document, db),
         )
 
     container_by_id = {container.id: container for container in workspace_containers}
@@ -958,39 +985,17 @@ async def suggest_document_container(
     except Exception as exc:
         logger.warning("Container suggestion similarity failed for document %s: %s", document.id, exc)
 
-    if not best_container_id:
-        fallback_used = True
-        counts: dict[int, int] = {container.id: 0 for container in workspace_containers}
-        docs_in_workspace = db.query(Document).filter(
-            Document.workspace_id == document.workspace_id,
-            Document.status != DocumentStatus.DELETED,
-            Document.container_id.isnot(None),
-        ).all()
-        for doc in docs_in_workspace:
-            if doc.container_id in counts:
-                counts[doc.container_id] += 1
-
-        ranked_counts = sorted(counts.items(), key=lambda item: item[1], reverse=True)
-        if ranked_counts and ranked_counts[0][1] > 0:
-            best_container_id = ranked_counts[0][0]
-            best_score = 0.55
-            alternatives = [
-                ContainerSuggestionOption(
-                    container_id=container_id,
-                    container_name=container_by_id[container_id].name,
-                    score=float(count),
-                )
-                for container_id, count in ranked_counts[:3]
-            ]
-
+    # Only suggest an existing container when we have embedding-based semantic similarity (actual ML).
+    # We do not use keyword or count-based fallbacks.
     if not best_container_id:
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
             confidence_score=None,
             boost_applied=False,
-            reason="No strong destination signal found. Pick a folder manually.",
+            reason="No strong destination signal found. Create a new subfolder or pick one manually.",
             alternatives=[],
+            suggested_new_container_name=_suggest_container_name_from_content(document, db),
         )
 
     best_container = container_by_id[best_container_id]
@@ -1017,10 +1022,12 @@ async def suggest_document_container(
         workspace_id=document.workspace_id,
     )
 
+    suggested_new = _suggest_container_name_from_content(document, db)
     return SmartContainerSuggestionResponse(
         document_id=document.id,
         suggested_container_id=best_container_id,
         suggested_container_name=best_container.name,
+        suggested_new_container_name=suggested_new,
         confidence=_confidence_label(best_score),
         confidence_score=round(float(best_score), 3),
         boost_applied=boost_applied,
@@ -1065,7 +1072,7 @@ async def auto_organize_workspace_documents(
                 skipped_no_suggestion += 1
                 continue
 
-            inferred_name = _infer_auto_container_name(doc)
+            inferred_name = (suggestion.suggested_new_container_name or "").strip() or _suggest_container_name_from_content(doc, db)
             target_container_id = None
             target_container_name = inferred_name
             if not dry_run:
@@ -1186,17 +1193,21 @@ async def update_document(
     )
 
     if request.container_id is not None and old_container_id != document.container_id:
+        metadata = {
+            "workspace_id": document.workspace_id,
+            "old_container_id": old_container_id,
+            "new_container_id": document.container_id,
+        }
+        if request.suggested_container_id is not None and request.suggested_container_id != document.container_id:
+            metadata["suggested_container_id"] = request.suggested_container_id
+            metadata["corrected"] = True
         create_audit_log(
             db,
             current_user,
             action=AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
             object_type="document",
             object_id=document.id,
-            metadata={
-                "workspace_id": document.workspace_id,
-                "old_container_id": old_container_id,
-                "new_container_id": document.container_id,
-            },
+            metadata=metadata,
             workspace_id=document.workspace_id,
         )
 

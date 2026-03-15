@@ -76,6 +76,30 @@ class SummaryGenerationService:
             ]
         )
 
+    def suggest_folder_name(self, document_excerpt: str) -> str:
+        """Suggest a short folder name (2–4 words) from document content. Returns plain name, no prefix."""
+        if not self.is_available():
+            raise RuntimeError("LLM service is not configured")
+        excerpt = (document_excerpt or "").strip()[:4000]
+        if not excerpt:
+            raise ValueError("No document excerpt provided")
+
+        system_prompt = (
+            "You suggest short folder names for organizing documents. "
+            "Reply with only the folder name: 2 to 4 words, title case, no quotes or punctuation. "
+            "Base the name on the document's topic or type (e.g. 'German Recipes', 'Q4 Reports')."
+        )
+        user_prompt = f"Suggest a folder name for this document:\n\n{excerpt}"
+
+        out = self._generate_from_messages(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+        name = (out or "").strip().strip('"\'.,;:')
+        return name if name else "New folder"
+
     def generate_grounded_response(self, user_query: str, retrieved_context: str) -> str:
         if not self.is_available():
             raise RuntimeError("Summary LLM service is not configured")

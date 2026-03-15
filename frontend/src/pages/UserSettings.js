@@ -32,6 +32,13 @@ function UserSettings() {
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const navigate = useNavigate();
 
+  const [embeddingModel, setEmbeddingModel] = useState(null);
+  const [embeddingModelError, setEmbeddingModelError] = useState(null);
+  const [trainingJobs, setTrainingJobs] = useState([]);
+  const [embeddingRefreshLoading, setEmbeddingRefreshLoading] = useState(false);
+  const [embeddingFinetuneLoading, setEmbeddingFinetuneLoading] = useState(false);
+  const [embeddingActionMessage, setEmbeddingActionMessage] = useState(null);
+
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
 
@@ -88,9 +95,35 @@ function UserSettings() {
       }
     };
 
+    const fetchEmbeddingModel = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/embeddings/model`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setEmbeddingModel(data);
+        }
+      } catch (e) {
+        setEmbeddingModelError('Could not load embedding model info');
+      }
+    };
+    const fetchTrainingJobs = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/v1/embeddings/training/jobs?limit=10`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setTrainingJobs(Array.isArray(data) ? data : []);
+        }
+      } catch (_) {}
+    };
     if (token) {
       fetchProfile();
       fetchPreferences();
+      fetchEmbeddingModel();
+      fetchTrainingJobs();
     } else {
       setProfileLoaded(true);
       setAccentLoaded(true);
@@ -208,6 +241,70 @@ function UserSettings() {
     const { name, value } = event.target;
     setPasswordForm((prev) => ({ ...prev, [name]: value }));
     setPasswordSuccess(false);
+  };
+
+  const handleEmbeddingRefresh = async () => {
+    setEmbeddingActionMessage(null);
+    setEmbeddingRefreshLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/embeddings/refresh`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEmbeddingActionMessage(data?.detail || 'Failed to queue refresh');
+        return;
+      }
+      setEmbeddingActionMessage('Refresh queued. Documents will be re-embedded in the background.');
+      const jobsRes = await fetch(`${API_URL}/api/v1/embeddings/training/jobs?limit=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (jobsRes.ok) {
+        const jobs = await jobsRes.json();
+        setTrainingJobs(Array.isArray(jobs) ? jobs : []);
+      }
+    } catch (err) {
+      setEmbeddingActionMessage('Failed to trigger refresh');
+    } finally {
+      setEmbeddingRefreshLoading(false);
+    }
+  };
+
+  const handleEmbeddingFinetune = async () => {
+    setEmbeddingActionMessage(null);
+    setEmbeddingFinetuneLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/embeddings/fine-tune`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ epochs: 1, trigger_refresh_after: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEmbeddingActionMessage(data?.detail || 'Failed to queue fine-tune');
+        return;
+      }
+      setEmbeddingActionMessage('Fine-tune queued. The model will train on your documents, then re-embed.');
+      const jobsRes = await fetch(`${API_URL}/api/v1/embeddings/training/jobs?limit=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (jobsRes.ok) {
+        const jobs = await jobsRes.json();
+        setTrainingJobs(Array.isArray(jobs) ? jobs : []);
+      }
+    } catch (err) {
+      setEmbeddingActionMessage('Failed to trigger fine-tune');
+    } finally {
+      setEmbeddingFinetuneLoading(false);
+    }
   };
 
   const handlePasswordSave = async () => {
@@ -431,6 +528,72 @@ function UserSettings() {
               {passwordSaving ? 'Saving...' : 'Save password'}
             </button>
           </div>
+        </div>
+      </section>
+
+      <section className="user-settings-card">
+        <div className="user-settings-card-header">
+          <h2>Embeddings & search model</h2>
+          <p>Manage the local embedding model used for semantic search. You can re-embed all documents or fine-tune the model on your data.</p>
+        </div>
+        <div className="user-settings-form">
+          {embeddingModelError && <div className="user-settings-error">{embeddingModelError}</div>}
+          {embeddingModel && (
+            <>
+              <div className="embedding-model-info">
+                <p><strong>Service:</strong> {embeddingModel.service}</p>
+                <p><strong>Model:</strong> {embeddingModel.model_name}</p>
+                <p><strong>Dimension:</strong> {embeddingModel.embedding_dimension}</p>
+                {embeddingModel.supports_fine_tune && (
+                  <p className="settings-helper">Fine-tuning is available for this model.</p>
+                )}
+              </div>
+              <div className="settings-actions" style={{ marginTop: '1rem' }}>
+                <button
+                  className="accent-save"
+                  onClick={handleEmbeddingRefresh}
+                  disabled={embeddingRefreshLoading}
+                >
+                  {embeddingRefreshLoading ? 'Queuing...' : 'Refresh all embeddings'}
+                </button>
+                {embeddingModel.supports_fine_tune && (
+                  <button
+                    className="accent-save"
+                    onClick={handleEmbeddingFinetune}
+                    disabled={embeddingFinetuneLoading}
+                    style={{ marginLeft: '0.75rem' }}
+                  >
+                    {embeddingFinetuneLoading ? 'Queuing...' : 'Fine-tune model on documents'}
+                  </button>
+                )}
+              </div>
+              {embeddingActionMessage && (
+                <div className="user-settings-success" style={{ marginTop: '0.75rem' }}>
+                  {embeddingActionMessage}
+                </div>
+              )}
+            </>
+          )}
+          {trainingJobs.length > 0 && (
+            <div className="embedding-jobs-list" style={{ marginTop: '1.5rem' }}>
+              <h3 style={{ fontSize: '0.95rem', margin: '0 0 0.5rem' }}>Recent jobs</h3>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {trainingJobs.map((j) => (
+                  <li key={j.id} style={{ padding: '0.5rem 0', borderBottom: '1px solid var(--border-color)' }}>
+                    <span style={{ fontWeight: 500 }}>{j.job_type}</span> — {j.status}
+                    {j.documents_processed != null && j.documents_total != null && (
+                      <span> ({j.documents_processed}/{j.documents_total})</span>
+                    )}
+                    {j.error_message && <span style={{ color: 'var(--status-danger)' }}> — {j.error_message}</span>}
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}> — {new Date(j.created_at).toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="settings-helper" style={{ marginTop: '0.5rem' }}>
+                To run a weekly refresh automatically, set EMBEDDING_REFRESH_ENABLED=true and run Celery Beat.
+              </p>
+            </div>
+          )}
         </div>
       </section>
 

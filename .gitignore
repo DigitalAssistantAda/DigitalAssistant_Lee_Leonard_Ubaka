@@ -71,6 +71,7 @@ local-storage/
 *.log
 logs/
 celery-beat-schedule
+celerybeat-schedule
 
 # IDE
 .vscode/

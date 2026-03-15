@@ -29,6 +29,7 @@ class DocumentListResponse(BaseModel):
 class UpdateDocumentRequest(BaseModel):
     filename: Optional[str] = None
     container_id: Optional[int] = None
+    suggested_container_id: Optional[int] = None  # When correcting: Ada suggested this, user chose container_id
 
 
 class DownloadResponse(BaseModel):
@@ -46,6 +47,7 @@ class SmartContainerSuggestionResponse(BaseModel):
     document_id: int
     suggested_container_id: Optional[int] = None
     suggested_container_name: Optional[str] = None
+    suggested_new_container_name: Optional[str] = None  # Ada suggests creating a new subfolder with this name
     confidence: str
     confidence_score: Optional[float] = None
     boost_applied: bool = False

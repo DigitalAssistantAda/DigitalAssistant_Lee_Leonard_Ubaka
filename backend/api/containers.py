@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from database import get_db
 from models.container import Container
+from models.document import Document, DocumentStatus
 from models.user import User
 from models.workspace import WorkspaceMember, MemberStatus, WorkspaceRole
 from schemas.container import CreateContainerRequest, ContainerResponse, ContainerListResponse, MoveContainerRequest, UpdateContainerRequest
@@ -14,6 +15,31 @@ from utils.workspace_members import active_workspace_member_ids
 from realtime import connection_manager
 
 router = APIRouter()
+
+
+def _container_to_response(
+    db: Session,
+    container: Container,
+    user_map: dict[int, str] | None = None,
+) -> ContainerResponse:
+    """Build ContainerResponse with created_by_username populated."""
+    username = None
+    if user_map is not None:
+        username = user_map.get(container.created_by)
+    else:
+        user = db.query(User).filter(User.id == container.created_by).first()
+        username = user.username if user else None
+    return ContainerResponse(
+        id=container.id,
+        name=container.name,
+        is_workspace_default=container.is_workspace_default,
+        color=container.color,
+        workspace_id=container.workspace_id,
+        parent_container_id=container.parent_container_id,
+        created_by=container.created_by,
+        created_by_username=username,
+        created_at=container.created_at,
+    )
 
 
 async def _notify_containers_changed(db: Session, workspace_id: int | None, actor_user_id: int) -> None:
@@ -154,7 +180,7 @@ async def create_container(
     create_audit_log(db, current_user, "container.created", "container", container.id, workspace_id=container.workspace_id)
     await _notify_containers_changed(db, container.workspace_id, current_user.id)
 
-    return ContainerResponse.model_validate(container)
+    return _container_to_response(db, container)
 
 
 @router.get("/containers", response_model=ContainerListResponse, tags=["Containers"])
@@ -182,7 +208,12 @@ async def list_accessible_containers(
             Container.created_by == current_user.id
         ).all()
 
-    return ContainerListResponse(items=[ContainerResponse.model_validate(c) for c in containers])
+    user_ids = {c.created_by for c in containers}
+    user_map = {}
+    if user_ids:
+        for row in db.query(User.id, User.username).filter(User.id.in_(user_ids)):
+            user_map[row.id] = row.username
+    return ContainerListResponse(items=[_container_to_response(db, c, user_map) for c in containers])
 
 
 # Create a container inside a workspace (workspace-scoped path)
@@ -226,7 +257,7 @@ async def create_workspace_container(
     create_audit_log(db, current_user, "container.created", "container", container.id, workspace_id=workspace_id)
     await _notify_containers_changed(db, workspace_id, current_user.id)
 
-    return ContainerResponse.model_validate(container)
+    return _container_to_response(db, container)
 
 
 # List containers for a workspace
@@ -238,7 +269,12 @@ async def list_workspace_containers(
 ):
     require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
     containers = db.query(Container).filter(Container.workspace_id == workspace_id).all()
-    return ContainerListResponse(items=[ContainerResponse.model_validate(c) for c in containers])
+    user_ids = {c.created_by for c in containers}
+    user_map = {}
+    if user_ids:
+        for row in db.query(User.id, User.username).filter(User.id.in_(user_ids)):
+            user_map[row.id] = row.username
+    return ContainerListResponse(items=[_container_to_response(db, c, user_map) for c in containers])
 
 
 @router.delete("/containers/{container_id}", response_model=SuccessResponse, tags=["Containers"])
@@ -264,7 +300,7 @@ async def delete_container(
                 message="The workspace default folder is linked to the workspace and cannot be deleted.",
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
-        # Only the creator, admins, or owners may delete workspace containers
+        # Only the creator (user Ada created it for), admins, or owners may delete workspace containers
         if container.created_by != current_user.id:
             require_workspace_access(
                 workspace_id=container.workspace_id,
@@ -282,6 +318,19 @@ async def delete_container(
                 status_code=status.HTTP_404_NOT_FOUND,
             )
 
+    # Pre-check: container must be empty (no non-deleted documents)
+    doc_count = db.query(Document).filter(
+        Document.container_id == container_id,
+        Document.status != DocumentStatus.DELETED,
+    ).count()
+    if doc_count > 0:
+        raise AppError(
+            code="CONTAINER_NOT_EMPTY",
+            message=f"Container cannot be deleted because it contains {doc_count} document(s). Remove or move documents first.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    workspace_id = container.workspace_id
     db.query(Container).filter(Container.parent_container_id == container.id).update(
         {Container.parent_container_id: None},
         synchronize_session=False,
@@ -289,8 +338,8 @@ async def delete_container(
     db.delete(container)
     db.commit()
 
-    create_audit_log(db, current_user, "container.deleted", "container", container_id, workspace_id=container.workspace_id)
-    await _notify_containers_changed(db, container.workspace_id, current_user.id)
+    create_audit_log(db, current_user, "container.deleted", "container", container_id, workspace_id=workspace_id)
+    await _notify_containers_changed(db, workspace_id, current_user.id)
 
     return SuccessResponse()
 
@@ -320,7 +369,7 @@ async def delete_workspace_container(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    # Only the creator, admins, or owners may delete workspace containers
+    # Only the creator (user Ada created it for), admins, or owners may delete workspace containers
     if container.created_by != current_user.id:
         require_workspace_access(
             workspace_id=workspace_id,
@@ -328,6 +377,18 @@ async def delete_workspace_container(
             db=db,
             required_roles=[WorkspaceRole.ADMIN, WorkspaceRole.OWNER],
             insufficient_permissions_detail="Only the container creator, workspace admins, or owners can delete containers",
+        )
+
+    # Pre-check: container must be empty (no non-deleted documents)
+    doc_count = db.query(Document).filter(
+        Document.container_id == container_id,
+        Document.status != DocumentStatus.DELETED,
+    ).count()
+    if doc_count > 0:
+        raise AppError(
+            code="CONTAINER_NOT_EMPTY",
+            message=f"Container cannot be deleted because it contains {doc_count} document(s). Remove or move documents first.",
+            status_code=status.HTTP_400_BAD_REQUEST,
         )
 
     db.query(Container).filter(Container.parent_container_id == container.id).update(
@@ -404,7 +465,7 @@ async def move_container(
     )
     await _notify_containers_changed(db, container.workspace_id, current_user.id)
 
-    return ContainerResponse.model_validate(container)
+    return _container_to_response(db, container)
 
 
 @router.put("/workspaces/{workspace_id}/containers/{container_id}/move", response_model=ContainerResponse, tags=["Containers"])
@@ -455,7 +516,7 @@ async def move_workspace_container(
     )
     await _notify_containers_changed(db, workspace_id, current_user.id)
 
-    return ContainerResponse.model_validate(container)
+    return _container_to_response(db, container)
 
 
 @router.put("/containers/{container_id}", response_model=ContainerResponse, tags=["Containers"])
@@ -522,4 +583,4 @@ async def update_container(
     )
     await _notify_containers_changed(db, container.workspace_id, current_user.id)
 
-    return ContainerResponse.model_validate(container)
+    return _container_to_response(db, container)

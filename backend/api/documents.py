@@ -738,10 +738,16 @@ async def list_documents_for_container(
         for j in jobs:
             if j.document_id not in job_by_doc:
                 job_by_doc[j.document_id] = j
+    uploader_ids = {d.uploaded_by for d in documents}
+    uploader_names = {}
+    if uploader_ids:
+        for row in db.query(User.id, User.username).filter(User.id.in_(uploader_ids)):
+            uploader_names[row.id] = row.username
     items = []
     for d in documents:
         r = DocumentResponse.model_validate(d)
         r.status_label, r.status_detail = _user_friendly_status(d, job_by_doc.get(d.id))
+        r.uploaded_by_username = uploader_names.get(d.uploaded_by)
         items.append(r)
     return DocumentListResponse(items=items)
 

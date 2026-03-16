@@ -24,6 +24,7 @@ class ContainerResponse(BaseModel):
     workspace_id: Optional[int] = None
     parent_container_id: Optional[int] = None
     created_by: int
+    created_by_username: Optional[str] = None
     created_at: datetime
 
     class Config:

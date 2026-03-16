@@ -87,7 +87,12 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 async def http_exception_handler(request: Request, exc: HTTPException | StarletteHTTPException) -> JSONResponse:
     status_code = exc.status_code
     error_code = _status_code_to_error_code(status_code)
-    safe_message = _safe_message_for_status(status_code)
+    # Preserve custom detail for 4xx so API messages (e.g. "Only the document owner can delete") are shown
+    detail = getattr(exc, "detail", None)
+    if status_code < status.HTTP_500_INTERNAL_SERVER_ERROR and isinstance(detail, str) and detail.strip():
+        safe_message = detail.strip()
+    else:
+        safe_message = _safe_message_for_status(status_code)
 
     if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
         logger.exception(

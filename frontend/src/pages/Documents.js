@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, FolderPlus, ChevronDown, ChevronRight, GripVertical, MoreVertical, Eye, RotateCcw } from 'lucide-react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, FolderPlus, ChevronDown, ChevronRight, GripVertical, MoreVertical, Eye, RotateCcw, Check, Sparkles } from 'lucide-react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import AccessState from '../components/AccessState';
 import ColorSwatchPicker from '../components/ColorSwatchPicker';
@@ -62,6 +63,55 @@ function Documents({ currentUser }) {
   const [moveTargetSubfolderId, setMoveTargetSubfolderId] = useState('');
   const [movingDocuments, setMovingDocuments] = useState(false);
 
+  const FOLDER_COLUMNS_KEY = 'documentsFolderVisibleColumns';
+  const defaultVisibleColumns = { name: true, size: true, status: true, lastModified: true, dateCreated: true, owner: true };
+  const [openDocMenuId, setOpenDocMenuId] = useState(null);
+  const [docMenuPosition, setDocMenuPosition] = useState(null);
+  const docMenuRef = useRef(null);
+  const docMenuPortalRef = useRef(null);
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    try {
+      const saved = localStorage.getItem(FOLDER_COLUMNS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...defaultVisibleColumns, ...parsed };
+      }
+    } catch (_) {}
+    return { ...defaultVisibleColumns };
+  });
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [showFolderOptionsMenu, setShowFolderOptionsMenu] = useState(false);
+  const folderOptionsMenuRef = useRef(null);
+
+  const toggleColumn = (key) => {
+    setVisibleColumns((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem(FOLDER_COLUMNS_KEY, JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  };
+
+  const folderTableColumnConfig = useMemo(() => {
+    const config = [
+      { key: 'icon', width: '40px', always: true },
+      { key: 'name', width: '1.5fr', label: 'Name', always: false },
+      { key: 'size', width: '100px', label: 'Size', always: false },
+      { key: 'status', width: '140px', label: 'Status', always: false },
+      { key: 'lastModified', width: '120px', label: 'Last modified', always: false },
+      { key: 'dateCreated', width: '120px', label: 'Date created', always: false },
+      { key: 'owner', width: '100px', label: 'Owner', always: false },
+      { key: 'actions', width: '44px', always: true },
+    ];
+    return config.filter((c) => c.always || visibleColumns[c.key]);
+  }, [visibleColumns]);
+
+  const folderTableGridStyle = useMemo(
+    () => ({ gridTemplateColumns: folderTableColumnConfig.map((c) => c.width).join(' ') }),
+    [folderTableColumnConfig]
+  );
+
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
   const workspaceIdFromQuery = useMemo(() => {
@@ -86,6 +136,44 @@ function Documents({ currentUser }) {
       if (processingPollRef.current) clearInterval(processingPollRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!showFolderOptionsMenu) return;
+    const handleClickOutside = (e) => {
+      if (folderOptionsMenuRef.current && !folderOptionsMenuRef.current.contains(e.target)) {
+        setShowFolderOptionsMenu(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside, true);
+    return () => document.removeEventListener('click', handleClickOutside, true);
+  }, [showFolderOptionsMenu]);
+
+  useLayoutEffect(() => {
+    if (openDocMenuId == null) {
+      setDocMenuPosition(null);
+      return;
+    }
+    const el = docMenuRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setDocMenuPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+  }, [openDocMenuId]);
+
+  useEffect(() => {
+    if (openDocMenuId == null) return;
+    const handleClickOutside = (e) => {
+      const inTrigger = docMenuRef.current?.contains(e.target);
+      const inMenu = docMenuPortalRef.current?.contains(e.target);
+      if (!inTrigger && !inMenu) setOpenDocMenuId(null);
+    };
+    const handleScroll = () => setOpenDocMenuId(null);
+    document.addEventListener('click', handleClickOutside, true);
+    document.addEventListener('scroll', handleScroll, true);
+    return () => {
+      document.removeEventListener('click', handleClickOutside, true);
+      document.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [openDocMenuId]);
 
     // Add this useEffect after your other useEffect hooks
   useEffect(() => {
@@ -580,45 +668,35 @@ const handleCreateContainer = async (e) => {
     if (!window.confirm('Delete this document?')) return;
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/documents/${docId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) throw new Error('Delete failed');
+      await apiFetch(`/api/v1/documents/${docId}`, { method: 'DELETE' });
+      setError(null);
       fetchDocuments();
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || 'Failed to delete document');
     }
   };
 
+  const [requestingDeletionId, setRequestingDeletionId] = useState(null);
+
   const handleRequestDeletion = async (docId, docFilename) => {
-  const reason = prompt(`Request deletion of "${docFilename}"?\n\nOptional: Add a reason for the request:`, '');
-  
-  if (reason === null) return; // User cancelled
-  
-  try {
-    const token = localStorage.getItem('token');
-    const response = await fetch(
-      `${API_URL}/api/v1/documents/${docId}/deletion-request?reason=${encodeURIComponent(reason || '')}`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
+    const reason = prompt(`Request deletion of "${docFilename}"?\n\nOptional: Add a reason for the request:`, '');
+    if (reason === null) return;
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to request deletion');
+    setError(null);
+    setRequestingDeletionId(docId);
+    try {
+      await apiFetch(
+        `/api/v1/documents/${docId}/deletion-request?reason=${encodeURIComponent(reason || '')}`,
+        { method: 'POST' }
+      );
+      setSuccessMessage('Deletion request sent to document owner');
+      setTimeout(() => setSuccessMessage(null), 5000);
+    } catch (err) {
+      setError(err?.message || 'Failed to send deletion request');
+    } finally {
+      setRequestingDeletionId(null);
     }
-
-    setSuccessMessage(`Deletion request sent to document owner`);
-    setTimeout(() => setSuccessMessage(null), 3000);
-  } catch (err) {
-    setError(err.message);
-  }
-};
+  };
 
   const handleBulkDelete = async () => {
     if (selectedDocuments.size === 0) return;
@@ -626,20 +704,24 @@ const handleCreateContainer = async (e) => {
     if (!window.confirm(`Delete ${count} document${count > 1 ? 's' : ''}?`)) return;
 
     setLoading(true);
+    setError(null);
     try {
-      const token = localStorage.getItem('token');
-      const deletionPromises = Array.from(selectedDocuments).map(docId =>
-        fetch(`${API_URL}/api/v1/documents/${docId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
-        })
+      const docIds = Array.from(selectedDocuments);
+      const results = await Promise.allSettled(
+        docIds.map((docId) => apiFetch(`/api/v1/documents/${docId}`, { method: 'DELETE' }))
       );
-
-      await Promise.all(deletionPromises);
-      setSelectedDocuments(new Set());
-      fetchDocuments();
+      const succeededIds = new Set(docIds.filter((_, i) => results[i].status === 'fulfilled'));
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (succeededIds.size > 0) {
+        setSelectedDocuments((prev) => new Set([...prev].filter((id) => !succeededIds.has(id))));
+        fetchDocuments();
+      }
+      if (failed.length > 0) {
+        const firstReason = failed[0].reason?.message || 'Delete failed';
+        setError(failed.length === 1 ? firstReason : `${firstReason} (and ${failed.length - 1} other failure${failed.length > 2 ? 's' : ''})`);
+      }
     } catch (err) {
-      setError(err.message);
+      setError(err?.message || 'Failed to delete documents');
     } finally {
       setLoading(false);
     }
@@ -1218,35 +1300,17 @@ const handleCreateContainer = async (e) => {
     setSelectedWorkspace(nextWorkspaceId);
   };
 
-  // ADD THESE TWO FUNCTIONS HERE:
   const handleDeleteFolderDocument = async (docId) => {
     if (!window.confirm('Delete this document?')) return;
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/documents/${docId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.status === 401) {
-        setError('Authentication required — please sign in to delete documents.');
-        return;
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Delete failed');
-        throw new Error(errorText || `Failed to delete (${response.status})`);
-      }
-
-      // Remove from folder documents list
-      setFolderDocuments(prev => prev.filter(doc => doc.id !== docId));
+      await apiFetch(`/api/v1/documents/${docId}`, { method: 'DELETE' });
+      setFolderDocuments((prev) => prev.filter((doc) => Number(doc.id) !== Number(docId)));
       setError(null);
       setSuccessMessage('Document deleted successfully');
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      console.error('Delete error:', err);
-      setError(`Failed to delete document: ${err.message}`);
+      setError(err?.message || 'Failed to delete document');
     }
   };
 
@@ -1265,25 +1329,14 @@ const handleCreateContainer = async (e) => {
       return;
     }
 
-    const container = dbContainers.find((entry) => Number(entry.id) === Number(containerId));
-    const token = localStorage.getItem('token');
-    const deleteUrl = !container?.workspace_id
-      ? `${API_URL}/api/v1/containers/${containerId}`
-      : `${API_URL}/api/v1/workspaces/${container.workspace_id}/containers/${containerId}`;
+    const container =
+      dbContainers.find((entry) => Number(entry.id) === Number(containerId)) ||
+      displayedContainers.find((entry) => Number(entry.id) === Number(containerId));
+    const path = container?.workspace_id
+      ? `/api/v1/workspaces/${container.workspace_id}/containers/${containerId}`
+      : `/api/v1/containers/${containerId}`;
 
-    const response = await fetch(deleteUrl, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (response.status === 401) {
-      throw new Error('Authentication required — please sign in to delete containers.');
-    }
-
-    if (!response.ok) {
-      const message = await getApiErrorMessage(response, 'Failed to delete container');
-      throw new Error(message);
-    }
+    await apiFetch(path, { method: 'DELETE' });
 
     setCreatedContainers((prev) => {
       const next = prev.filter((entry) => entry.id !== containerId);
@@ -1302,7 +1355,7 @@ const handleCreateContainer = async (e) => {
   const handleBulkDeleteFolderDocuments = async () => {
     const selectedDocIds = Array.from(selectedDocuments).map((id) => Number(id));
     const selectedFolderIds = Array.from(selectedFolders).map((id) => Number(id));
-    const deletableFolderIds = selectedFolderIds.filter((id) => isUserCreatedContainer(id));
+    const deletableFolderIds = selectedFolderIds.filter((id) => canDeleteContainer(id));
     const undeletableFolderCount = selectedFolderIds.length - deletableFolderIds.length;
     const totalSelectedCount = selectedDocIds.length + selectedFolderIds.length;
 
@@ -1321,17 +1374,8 @@ const handleCreateContainer = async (e) => {
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
       const documentDeletionResults = await Promise.allSettled(
-        selectedDocIds.map((docId) =>
-          fetch(`${API_URL}/api/v1/documents/${docId}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-          }).then((response) => {
-            if (!response.ok) throw new Error(`Failed to delete document ${docId}`);
-            return response;
-          })
-        )
+        selectedDocIds.map((docId) => apiFetch(`/api/v1/documents/${docId}`, { method: 'DELETE' }))
       );
 
       const folderDeletionResults = await Promise.allSettled(
@@ -1367,8 +1411,11 @@ const handleCreateContainer = async (e) => {
       }
 
       const failureParts = [];
+      let firstDocError = null;
       if (failedDocCount > 0) {
         failureParts.push(`${failedDocCount} document${failedDocCount > 1 ? 's' : ''}`);
+        const rejected = documentDeletionResults.find((r) => r.status === 'rejected');
+        if (rejected?.reason?.message) firstDocError = rejected.reason.message;
       }
       if (failedFolderCount > 0) {
         failureParts.push(`${failedFolderCount} subfolder${failedFolderCount > 1 ? 's' : ''}`);
@@ -1377,7 +1424,7 @@ const handleCreateContainer = async (e) => {
         failureParts.push(`${undeletableFolderCount} locked subfolder${undeletableFolderCount > 1 ? 's' : ''}`);
       }
       if (failureParts.length > 0) {
-        setError(`Could not delete ${failureParts.join(' and ')}.`);
+        setError(firstDocError || `Could not delete ${failureParts.join(' and ')}.`);
       }
     } catch (err) {
       console.error('Bulk delete error:', err);
@@ -1493,7 +1540,12 @@ const handleCreateContainer = async (e) => {
       if (!window.confirm('Delete this container?')) return;
       await deleteContainerById(containerId);
     } catch (err) {
-      setError(err.message || 'Failed to delete container');
+      const msg = err?.message || '';
+      if (msg === 'Failed to fetch' || msg.includes('NetworkError')) {
+        setError('Could not reach the server. Check your connection and that the app URL is correct. If the folder was created by Ada, only the owner or a workspace admin can delete it.');
+      } else {
+        setError(msg || 'Failed to delete container');
+      }
     }
   };
 
@@ -1569,11 +1621,13 @@ const handleCreateContainer = async (e) => {
         throw new Error(message);
       }
 
-      const updated = await response.json();
+      const data = await response.json();
+      const updated = data?.item ?? data?.container ?? data;
+      const newParentId = (updated ?? data)?.parent_container_id ?? null;
       setDbContainers((prev) =>
         prev.map((entry) =>
           Number(entry.id) === numericContainerId
-            ? { ...entry, parent_container_id: updated.parent_container_id ?? null }
+            ? { ...entry, parent_container_id: newParentId }
             : entry
         )
       );
@@ -1793,6 +1847,8 @@ const handleCreateContainer = async (e) => {
     };
 
     const getOwnershipType = (container) => {
+      const name = String(container?.name ?? '').trim();
+      if (name.startsWith('Ada -')) return 'ai';
       const rawType = String(container?.type || '').toLowerCase();
       if (rawType.includes('ai')) return 'ai';
       if (isWorkspaceDefaultContainer(container)) return 'workspace';
@@ -1867,7 +1923,8 @@ const handleCreateContainer = async (e) => {
     const hasChildren = childContainers.length > 0;
     const isCollapsed = collapsedContainerIds.has(container.id);
     const isDropTarget = dropTargetContainerId === String(container.id);
-    const isUserCreated = isUserCreatedContainer(container.id);
+    const canDelete = canDeleteContainer(container.id);
+    const isUserCreated = canDelete; // alias: user-created or Ada-created (owned by current user)
 
     return (
       <div key={container.id} className="container-tree-node" style={{ marginLeft: `${depth * 18}px` }}>
@@ -1886,6 +1943,7 @@ const handleCreateContainer = async (e) => {
           }}
           onDragOver={(event) => {
             event.preventDefault();
+            event.dataTransfer.dropEffect = 'move';
             if (Number(container.id) !== Number(draggedContainerId)) {
               setDropTargetContainerId(String(container.id));
             }
@@ -2003,7 +2061,11 @@ const handleCreateContainer = async (e) => {
     };
   }, [containerIdParam, displayedContainers]);
 
-  // Helper function to check if a container is user-created
+  const isAdaCreatedContainer = (container) => {
+    const name = String(container?.name ?? '').trim();
+    return name.startsWith('Ada -');
+  };
+
   const isUserCreatedContainer = (containerId) => {
     return displayedContainers.some((container) => {
       const sameId = String(container.id) === String(containerId);
@@ -2014,13 +2076,24 @@ const handleCreateContainer = async (e) => {
     });
   };
 
+  const canDeleteContainer = (containerId) => {
+    const container = displayedContainers.find((c) => String(c.id) === String(containerId));
+    if (!container) return false;
+    if (Boolean(container?.is_workspace_default)) return false;
+    return isUserCreatedContainer(containerId);
+  };
+
   const getContainerCreatorLabel = (container) => {
+    if (isAdaCreatedContainer(container)) return 'Created by Ada';
     const rawType = String(container?.type || '').toLowerCase();
     const isWorkspaceDefault = Boolean(container?.is_workspace_default);
-    if (rawType.includes('ai')) return 'Created by AI';
+    if (rawType.includes('ai')) return 'Created by Ada';
     if (isWorkspaceDefault) return 'Belongs to workspace';
     if (currentUserId != null && Number(container?.created_by) === Number(currentUserId)) {
       return 'Created by you';
+    }
+    if (container?.created_by_username) {
+      return `Created by ${container.created_by_username}`;
     }
     return 'Belongs to workspace';
   };
@@ -2070,25 +2143,6 @@ const handleCreateContainer = async (e) => {
             </div>
             <h1 className="folder-title">{openedFolder.name}</h1>
           </div>
-          <div className="folder-header-actions">
-            {isUserCreatedContainer(openedFolder.id) && (
-              <button
-                type="button"
-                className="folder-delete-btn"
-                onClick={() => {
-                  if (window.confirm(`Delete ${openedFolder.name}?`)) {
-                    handleDeleteContainer(openedFolder.id);
-                    handleBackFromFolder();
-                  }
-                }}
-                aria-label={`Delete ${openedFolder.name}`}
-                title="Delete folder"
-              >
-                <Trash2 size={16} />
-                Delete
-              </button>
-            )}
-          </div>
         </div>
 
         {openedFolderPath.length > 0 && (
@@ -2111,56 +2165,57 @@ const handleCreateContainer = async (e) => {
             >
               All folders
             </button>
-            {openedFolderPath.map((folder, index) => {
-              const isCurrentFolder = index === openedFolderPath.length - 1;
-
-              return (
-                <React.Fragment key={`breadcrumb-${folder.id}`}>
-                  <span className="folder-breadcrumb-separator" aria-hidden="true">
-                    <ChevronRight size={14} />
-                  </span>
-                  {isCurrentFolder ? (
-                    <span className="folder-breadcrumb folder-breadcrumb-current">{folder.name}</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="folder-breadcrumb"
-                      onClick={() => {
-                        setSelectedDocuments(new Set());
-                        setSelectedFolders(new Set());
-                        setAutoOrganizeReport(null);
-                        setFolderSearchQuery('');
-                        setSortBy('lastOpened');
-                        setShowCreateContainer(false);
-                        setCreateContainerParentId(null);
-                        navigate(`/documents/${folder.id}`);
-                      }}
-                    >
-                      {folder.name}
-                    </button>
-                  )}
-                </React.Fragment>
-              );
-            })}
+            {openedFolderPath.length > 1 && openedFolderPath.slice(0, -1).map((folder) => (
+              <React.Fragment key={`breadcrumb-${folder.id}`}>
+                <span className="folder-breadcrumb-separator" aria-hidden="true">
+                  <ChevronRight size={14} />
+                </span>
+                <button
+                  type="button"
+                  className="folder-breadcrumb"
+                  onClick={() => {
+                    setSelectedDocuments(new Set());
+                    setSelectedFolders(new Set());
+                    setAutoOrganizeReport(null);
+                    setFolderSearchQuery('');
+                    setSortBy('lastOpened');
+                    setShowCreateContainer(false);
+                    setCreateContainerParentId(null);
+                    navigate(`/documents/${folder.id}`);
+                  }}
+                >
+                  {folder.name}
+                </button>
+              </React.Fragment>
+            ))}
           </div>
         )}
 
         <div className="folder-meta">
-          <button
-            type="button"
-            className="meta-pill meta-pill-action"
-            onClick={handleBackFromFolder}
-            aria-label="Back to folder overview"
-            title="Back to folder overview"
-          >
-            Back to folder overview
-          </button>
-          <div className="meta-pill">
+          <span className="meta-pill meta-pill-context" aria-label="Folder type">
             {isUserCreatedContainer(openedFolder.id) ? 'Personal folder' : 'Workspace folder'}
-          </div>
-          <div className="meta-pill">Items: {folderTableEntries.length}</div>
-          <div className="meta-pill">Access: Private</div>
+          </span>
         </div>
+
+        {successMessage && (
+          <div className="folder-success-toast" role="status" aria-live="polite">
+            {successMessage}
+          </div>
+        )}
+
+        {error && (
+          <div className="folder-error-toast" role="alert">
+            <span>{error}</span>
+            <button
+              type="button"
+              className="folder-toast-dismiss"
+              onClick={() => setError(null)}
+              aria-label="Dismiss error"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         {/* Folder Content */}
         <div className="folder-content">
@@ -2207,34 +2262,38 @@ const handleCreateContainer = async (e) => {
           <div className="folder-top-toolbar">
             <div className="folder-primary-actions">
               <button
+                type="button"
                 className="new-document-btn"
                 onClick={() => {
                   setSelectedWorkspace(Number(openedFolder.workspace_id || ''));
                   setShowUploadModal(true);
                 }}
+                title="Upload document"
+                aria-label="Upload document"
               >
-                <Plus size={18} />
-                New Document
+                <Upload size={20} />
               </button>
               <button
+                type="button"
                 className="new-document-btn subfolder-btn"
                 onClick={() => {
                   setCreateContainerParentId(Number(openedFolder?.id));
                   setShowCreateContainer((prev) => !prev);
                 }}
-                title="Create a subfolder inside this folder"
+                title="New subfolder"
+                aria-label="Create a subfolder inside this folder"
               >
-                <Plus size={18} />
-                New Subfolder
+                <FolderPlus size={20} />
               </button>
               <button
+                type="button"
                 className="new-document-btn auto-organize-btn"
                 onClick={handleAutoOrganizeWorkspace}
                 disabled={autoOrganizing || !openedFolder?.workspace_id}
-                title={openedFolder?.workspace_id ? 'Generate Ada organization suggestions' : 'Auto-organize suggestions are only available for workspace folders'}
+                title={openedFolder?.workspace_id ? 'Suggest organize' : 'Auto-organize is only available for workspace folders'}
+                aria-label={autoOrganizing ? 'Analyzing…' : 'Suggest organize'}
               >
-                <Folder size={18} />
-                {autoOrganizing ? 'Analyzing…' : 'Suggest organize'}
+                <Sparkles size={20} />
               </button>
             </div>
             <div className="search-box">
@@ -2246,53 +2305,78 @@ const handleCreateContainer = async (e) => {
                 onChange={(e) => setFolderSearchQuery(e.target.value)}
               />
             </div>
-            <div className="sort-dropdown-wrapper">
-              <button className="sort-button" onClick={() => setShowSortMenu(!showSortMenu)}>
-                Sort by
-                <ChevronDown size={16} />
+            <div className="folder-toolbar-right">
+              <div className="sort-dropdown-wrapper">
+                <button className="sort-button" onClick={() => { setShowSortMenu(!showSortMenu); setShowFolderOptionsMenu(false); }}>
+                  Sort by
+                  <ChevronDown size={16} />
+                </button>
+                {showSortMenu && (
+                  <div className="sort-menu">
+                    <button className={`sort-option ${sortBy === 'lastOpened' ? 'active' : ''}`} onClick={() => { setSortBy('lastOpened'); setShowSortMenu(false); }}>✓ Last opened</button>
+                    <button className={`sort-option ${sortBy === 'name' ? 'active' : ''}`} onClick={() => { setSortBy('name'); setShowSortMenu(false); }}>{sortBy === 'name' && '✓ '}Name</button>
+                    <button className={`sort-option ${sortBy === 'size' ? 'active' : ''}`} onClick={() => { setSortBy('size'); setShowSortMenu(false); }}>{sortBy === 'size' && '✓ '}Size</button>
+                    <button className={`sort-option ${sortBy === 'lastModified' ? 'active' : ''}`} onClick={() => { setSortBy('lastModified'); setShowSortMenu(false); }}>{sortBy === 'lastModified' && '✓ '}Date modified</button>
+                  </div>
+                )}
+              </div>
+              <div className="folder-options-menu-wrapper" ref={folderOptionsMenuRef}>
+              <button
+                type="button"
+                className="folder-options-trigger"
+                onClick={(e) => { e.stopPropagation(); setShowFolderOptionsMenu((v) => !v); setShowSortMenu(false); }}
+                aria-label="Folder and table options"
+                aria-expanded={showFolderOptionsMenu}
+              >
+                <MoreVertical size={20} />
               </button>
-
-              {showSortMenu && (
-                <div className="sort-menu">
-                  <button 
-                    className={`sort-option ${sortBy === 'lastOpened' ? 'active' : ''}`}
-                    onClick={() => { setSortBy('lastOpened'); setShowSortMenu(false); }}
-                  >
-                    ✓ Last opened
-                  </button>
-                  <button 
-                    className={`sort-option ${sortBy === 'name' ? 'active' : ''}`}
-                    onClick={() => { setSortBy('name'); setShowSortMenu(false); }}
-                  >
-                    {sortBy === 'name' && '✓ '}Name
-                  </button>
-                  <button 
-                    className={`sort-option ${sortBy === 'size' ? 'active' : ''}`}
-                    onClick={() => { setSortBy('size'); setShowSortMenu(false); }}
-                  >
-                    {sortBy === 'size' && '✓ '}Size
-                  </button>
-                  <button 
-                    className={`sort-option ${sortBy === 'lastModified' ? 'active' : ''}`}
-                    onClick={() => { setSortBy('lastModified'); setShowSortMenu(false); }}
-                  >
-                    {sortBy === 'lastModified' && '✓ '}Date modified
-                  </button>
-                  {isUserCreatedContainer(openedFolder.id) && (
-                    <button 
-                      className="sort-option delete-option"
-                      onClick={() => {
-                        if (window.confirm(`Delete ${openedFolder.name}?`)) {
-                          handleDeleteContainer(openedFolder.id);
-                          handleBackFromFolder();
-                        }
-                      }}
+              {showFolderOptionsMenu && (
+                <div className="folder-options-menu" role="menu">
+                  <div className="folder-options-menu-section folder-options-menu-section--label">Display columns</div>
+                  {[
+                    { key: 'name', label: 'Name' },
+                    { key: 'size', label: 'Size' },
+                    { key: 'status', label: 'Status' },
+                    { key: 'lastModified', label: 'Last modified' },
+                    { key: 'dateCreated', label: 'Date created' },
+                    { key: 'owner', label: 'Owner' },
+                  ].map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`folder-options-menu-item ${visibleColumns[key] ? 'is-checked' : ''}`}
+                      role="menuitemcheckbox"
+                      aria-checked={!!visibleColumns[key]}
+                      onClick={(e) => { e.stopPropagation(); toggleColumn(key); }}
                     >
-                      <Trash2 size={16} /> Delete Folder
+                      {visibleColumns[key] ? <Check size={16} /> : <span className="folder-options-menu-check-placeholder" />}
+                      <span>{label}</span>
                     </button>
+                  ))}
+                  {canDeleteContainer(openedFolder?.id) && (
+                    <>
+                      <div className="folder-options-menu-divider" />
+                      <button
+                        type="button"
+                        className="folder-options-menu-item folder-options-menu-item--danger"
+                        role="menuitem"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowFolderOptionsMenu(false);
+                          if (window.confirm(`Delete ${openedFolder?.name}?`)) {
+                            handleDeleteContainer(openedFolder.id);
+                            handleBackFromFolder();
+                          }
+                        }}
+                      >
+                        <Trash2 size={16} />
+                        <span>Delete folder</span>
+                      </button>
+                    </>
                   )}
                 </div>
               )}
+            </div>
             </div>
           </div>
 
@@ -2429,61 +2513,35 @@ const handleCreateContainer = async (e) => {
           {/* Folder Documents List */}
           <main className="folder-main">
             <div className="documents-table">
-              <div className="table-header">
-                <div className="col-icon"></div>
-                <div className="col-name">Name</div>
-                <div className="col-size">Size</div>
-                <div className="col-status">Status</div>
-                <div className="col-modified">Last Modified</div>
-                <div className="col-opened">Opened</div>
-                <div className="col-actions"></div>
+              <div className="table-header folder-table-header" style={folderTableGridStyle}>
+                {folderTableColumnConfig.map((c) => (
+                  <div key={c.key} className={`col-${c.key === 'icon' ? 'icon' : c.key === 'actions' ? 'actions' : c.key}`}>
+                    {c.label ?? ''}
+                  </div>
+                ))}
               </div>
                 {folderTableEntries.map((entry) => {
                 if (entry.kind === 'folder') {
                   const folder = entry.item;
-                  const canDeleteFolder = isUserCreatedContainer(folder.id);
+                  const canDeleteFolder = canDeleteContainer(folder.id);
                   return (
                     <div
                       key={`folder-${folder.id}`}
                       className={`table-row table-row-folder ${selectedFolders.has(folder.id) ? 'is-selected' : ''}`}
+                      style={folderTableGridStyle}
                       onClick={() => handleFolderDoubleClick(folder)}
                     >
-                      <div className="col-icon">
-                        <input
-                          type="checkbox"
-                          checked={selectedFolders.has(folder.id)}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={() => handleFolderCheckboxChange(folder.id)}
-                          title={`Select ${folder.name}`}
-                          aria-label={`Select ${folder.name}`}
-                        />
-                      </div>
-                      <div className="col-name">
-                        <div className="doc-name-main doc-name-main--folder">{folder.name}</div>
-                      </div>
-                      <div className="col-size">-</div>
-                      <div className="col-status">
-                        <span className="document-status document-status--tag folder">Folder</span>
-                      </div>
-                      <div className="col-modified">{folder.created_at ? new Date(folder.created_at).toLocaleDateString() : '-'}</div>
-                      <div className="col-opened">-</div>
-                      <div className="col-actions">
-                        {canDeleteFolder && (
-                          <button
-                            className="action-menu delete-btn"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (window.confirm(`Delete ${folder.name}?`)) {
-                                handleDeleteContainer(folder.id);
-                              }
-                            }}
-                            title="Delete subfolder"
-                            aria-label={`Delete ${folder.name}`}
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        )}
-                      </div>
+                      {folderTableColumnConfig.map((c) => {
+                        if (c.key === 'icon') return <div key={c.key} className="col-icon"><input type="checkbox" checked={selectedFolders.has(folder.id)} onClick={(e) => e.stopPropagation()} onChange={() => handleFolderCheckboxChange(folder.id)} title={`Select ${folder.name}`} aria-label={`Select ${folder.name}`} /></div>;
+                        if (c.key === 'name') return <div key={c.key} className="col-name"><div className="doc-name-main doc-name-main--folder">{folder.name}</div></div>;
+                        if (c.key === 'size') return <div key={c.key} className="col-size">-</div>;
+                        if (c.key === 'status') return <div key={c.key} className="col-status"><span className="document-status document-status--tag folder">Folder</span></div>;
+                        if (c.key === 'lastModified') return <div key={c.key} className="col-modified">{folder.created_at ? new Date(folder.created_at).toLocaleDateString() : '-'}</div>;
+                        if (c.key === 'dateCreated') return <div key={c.key} className="col-date-created">{folder.created_at ? new Date(folder.created_at).toLocaleDateString() : '-'}</div>;
+                        if (c.key === 'owner') return <div key={c.key} className="col-owner">—</div>;
+                        if (c.key === 'actions') return <div key={c.key} className="col-actions">{canDeleteFolder && <button type="button" className="action-menu delete-btn" onClick={(e) => { e.stopPropagation(); if (window.confirm(`Delete ${folder.name}?`)) handleDeleteContainer(folder.id); }} title="Delete subfolder" aria-label={`Delete ${folder.name}`}><Trash2 size={18} /></button>}</div>;
+                        return null;
+                      })}
                     </div>
                   );
                 }
@@ -2496,226 +2554,155 @@ const handleCreateContainer = async (e) => {
                   <div
                     key={doc.id}
                     className={`table-row ${selectedDocuments.has(doc.id) ? 'is-selected' : ''}`}
+                    style={folderTableGridStyle}
                     onClick={() => handleCheckboxChange(doc.id)}
                   >
-                    <div className="col-icon">
-                      <input 
-                        type="checkbox"
-                        checked={selectedDocuments.has(doc.id)}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={() => handleCheckboxChange(doc.id)}
-                        title="Select document"
-                        aria-label={`Select ${doc.filename}`}
-                      />
-                    </div>
+                    {folderTableColumnConfig.some((c) => c.key === 'icon') && (
+                      <div className="col-icon">
+                        <input type="checkbox" checked={selectedDocuments.has(doc.id)} onClick={(e) => e.stopPropagation()} onChange={() => handleCheckboxChange(doc.id)} title="Select document" aria-label={`Select ${doc.filename}`} />
+                      </div>
+                    )}
+                    {folderTableColumnConfig.some((c) => c.key === 'name') && (
                     <div className="col-name">
                       <div className="doc-name-main">{doc.filename}</div>
                       {suggestionsByDoc[doc.id] && (
                         <div className="doc-suggestion-line">
                           {suggestionsByDoc[doc.id].suggested_container_id ? (
                             <>
-                              <span>
-                                Ada suggests: {suggestionsByDoc[doc.id].suggested_container_name}
-                                {' '}({suggestionsByDoc[doc.id].confidence}
-                                {Number.isFinite(Number(suggestionsByDoc[doc.id].confidence_score))
-                                  ? ` ${Number(suggestionsByDoc[doc.id].confidence_score).toFixed(3)}`
-                                  : ''}
-                                {suggestionsByDoc[doc.id].boost_applied ? ' +boost' : ''})
-                              </span>
-                              {Number(suggestionsByDoc[doc.id].suggested_container_id) !== Number(openedFolder?.id) && (
-                                <button
-                                  type="button"
-                                  className="suggestion-apply-btn"
-                                  disabled={applyingSuggestionIds.has(doc.id)}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleApplySuggestion(doc, suggestionsByDoc[doc.id]);
-                                  }}
-                                >
-                                  {applyingSuggestionIds.has(doc.id) ? 'Applying…' : 'Apply'}
-                                </button>
-                              )}
-                              {openedFolderSubfolders.length > 0 && (
-                                <>
-                                  <label className="suggestion-move-label" htmlFor={`move-to-${doc.id}`}>
-                                    Move to:
-                                  </label>
-                                  <select
-                                    id={`move-to-${doc.id}`}
-                                    className="suggestion-move-select"
-                                    value=""
+                              <div className="doc-suggestion-row">
+                                <span>
+                                  Ada suggests: {suggestionsByDoc[doc.id].suggested_container_name}
+                                  {' '}({suggestionsByDoc[doc.id].confidence}
+                                  {Number.isFinite(Number(suggestionsByDoc[doc.id].confidence_score))
+                                    ? ` ${Number(suggestionsByDoc[doc.id].confidence_score).toFixed(3)}`
+                                    : ''}
+                                  {suggestionsByDoc[doc.id].boost_applied ? ' +boost' : ''})
+                                </span>
+                                {Number(suggestionsByDoc[doc.id].suggested_container_id) !== Number(openedFolder?.id) && (
+                                  <button
+                                    type="button"
+                                    className="suggestion-apply-btn"
                                     disabled={applyingSuggestionIds.has(doc.id)}
-                                    onChange={(event) => {
+                                    onClick={(event) => {
                                       event.stopPropagation();
-                                      const val = event.target.value;
-                                      if (val) {
-                                        handleCorrectSuggestion(doc, suggestionsByDoc[doc.id], val);
-                                        event.target.value = '';
-                                      }
+                                      handleApplySuggestion(doc, suggestionsByDoc[doc.id]);
                                     }}
-                                    onClick={(e) => e.stopPropagation()}
-                                    aria-label={`Move ${doc.filename} to another folder`}
                                   >
-                                    <option value="">Choose folder…</option>
-                                    {openedFolderSubfolders.map((folder) => (
-                                      <option key={folder.id} value={folder.id}>
-                                        {folder.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </>
-                              )}
-                              <button
-                                type="button"
-                                className="suggestion-dismiss-btn"
-                                disabled={applyingSuggestionIds.has(doc.id)}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleDismissSuggestion(doc.id);
-                                }}
-                                title="Dismiss suggestion"
-                                aria-label={`Dismiss suggestion for ${doc.filename}`}
-                              >
-                                Dismiss
-                              </button>
-                              {suggestionsByDoc[doc.id].suggested_new_container_name && openedFolder?.id && openedFolder?.workspace_id && (
+                                    {applyingSuggestionIds.has(doc.id) ? 'Applying…' : 'Apply'}
+                                  </button>
+                                )}
+                                {openedFolderSubfolders.length > 0 && (
+                                  <>
+                                    <label className="suggestion-move-label" htmlFor={`move-to-${doc.id}`}>
+                                      Move to:
+                                    </label>
+                                    <select
+                                      id={`move-to-${doc.id}`}
+                                      className="suggestion-move-select"
+                                      value=""
+                                      disabled={applyingSuggestionIds.has(doc.id)}
+                                      onChange={(event) => {
+                                        event.stopPropagation();
+                                        const val = event.target.value;
+                                        if (val) {
+                                          handleCorrectSuggestion(doc, suggestionsByDoc[doc.id], val);
+                                          event.target.value = '';
+                                        }
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      aria-label={`Move ${doc.filename} to another folder`}
+                                    >
+                                      <option value="">Choose folder…</option>
+                                      {openedFolderSubfolders.map((folder) => (
+                                        <option key={folder.id} value={folder.id}>
+                                          {folder.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </>
+                                )}
                                 <button
                                   type="button"
-                                  className="suggestion-apply-btn suggestion-create-new-btn"
+                                  className="suggestion-dismiss-btn"
                                   disabled={applyingSuggestionIds.has(doc.id)}
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    handleCreateSuggestedSubfolderAndMove(doc, suggestionsByDoc[doc.id]);
+                                    handleDismissSuggestion(doc.id);
                                   }}
-                                  title={`Create subfolder "${suggestionsByDoc[doc.id].suggested_new_container_name}" and move document`}
-                                  aria-label={`Create subfolder ${suggestionsByDoc[doc.id].suggested_new_container_name} and move ${doc.filename}`}
+                                  aria-label={`Dismiss suggestion for ${doc.filename}`}
                                 >
-                                  {applyingSuggestionIds.has(doc.id) ? 'Creating…' : `Create "${suggestionsByDoc[doc.id].suggested_new_container_name}" & move`}
+                                  Dismiss
                                 </button>
+                              </div>
+                              {suggestionsByDoc[doc.id].suggested_new_container_name && openedFolder?.id && openedFolder?.workspace_id && (
+                                <div className="doc-suggestion-create-row">
+                                  <button
+                                    type="button"
+                                    className="suggestion-apply-btn suggestion-create-new-btn"
+                                    disabled={applyingSuggestionIds.has(doc.id)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleCreateSuggestedSubfolderAndMove(doc, suggestionsByDoc[doc.id]);
+                                    }}
+                                    title={`Create subfolder "${suggestionsByDoc[doc.id].suggested_new_container_name}" and move document`}
+                                    aria-label={`Create subfolder ${suggestionsByDoc[doc.id].suggested_new_container_name} and move ${doc.filename}`}
+                                  >
+                                    {applyingSuggestionIds.has(doc.id) ? 'Creating…' : `Create "${suggestionsByDoc[doc.id].suggested_new_container_name}" & move`}
+                                  </button>
+                                </div>
                               )}
                             </>
                           ) : (
                             <>
-                              <span>{suggestionsByDoc[doc.id].reason}</span>
+                              <div className="doc-suggestion-row">
+                                <span>{suggestionsByDoc[doc.id].reason}</span>
+                              </div>
                               {suggestionsByDoc[doc.id].suggested_new_container_name && openedFolder?.id && openedFolder?.workspace_id && (
-                                <button
-                                  type="button"
-                                  className="suggestion-apply-btn suggestion-create-new-btn"
-                                  disabled={applyingSuggestionIds.has(doc.id)}
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    handleCreateSuggestedSubfolderAndMove(doc, suggestionsByDoc[doc.id]);
-                                  }}
-                                  title={`Create subfolder "${suggestionsByDoc[doc.id].suggested_new_container_name}" and move document`}
-                                >
-                                  {applyingSuggestionIds.has(doc.id) ? 'Creating…' : `Create "${suggestionsByDoc[doc.id].suggested_new_container_name}" & move`}
-                                </button>
+                                <div className="doc-suggestion-create-row">
+                                  <button
+                                    type="button"
+                                    className="suggestion-apply-btn suggestion-create-new-btn"
+                                    disabled={applyingSuggestionIds.has(doc.id)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleCreateSuggestedSubfolderAndMove(doc, suggestionsByDoc[doc.id]);
+                                    }}
+                                    title={`Create subfolder "${suggestionsByDoc[doc.id].suggested_new_container_name}" and move document`}
+                                  >
+                                    {applyingSuggestionIds.has(doc.id) ? 'Creating…' : `Create "${suggestionsByDoc[doc.id].suggested_new_container_name}" & move`}
+                                  </button>
+                                </div>
                               )}
                             </>
                           )}
                         </div>
                       )}
                     </div>
-                    <div className="col-size">{doc.size_bytes ? `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB` : doc.size || '-'}</div>
-                    <div className="col-status">
-                      <span
-                        className={`document-status document-status--tag ${statusDisplay.statusKey}`}
-                        title={statusDisplay.detail || undefined}
-                        aria-label={`Status: ${statusDisplay.label}${statusDisplay.detail ? `. ${statusDisplay.detail}` : ''}`}
-                      >
-                        {statusDisplay.label}
-                      </span>
-                    </div>
-                    <div className="col-modified">{new Date(doc.created_at).toLocaleDateString()}</div>
-                    <div className="col-opened">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>
-                                        <div className="col-actions">
-                                          {canRetryIndexing && (
-                                            <button
-                                              className="action-menu retry-btn"
-                                              onClick={(event) => handleRetryIndexing(doc, event)}
-                                              title={statusDisplay.statusKey === 'failed' ? 'Retry indexing' : 'Restart indexing (in queue or stuck)'}
-                                              aria-label={`${statusDisplay.statusKey === 'failed' ? 'Retry' : 'Restart'} indexing ${doc.filename}`}
-                                              disabled={isRetryingIndex}
-                                            >
-                                              <RotateCcw size={16} className={isRetryingIndex ? 'spin' : ''} />
-                                              <span>{isRetryingIndex ? 'Restarting…' : (statusDisplay.statusKey === 'failed' ? 'Retry' : 'Restart')}</span>
-                                            </button>
-                                          )}
-                                          <button
-                                            className="action-menu"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              handleSuggestContainer(doc);
-                                            }}
-                                            title="Suggest destination folder"
-                                            aria-label={`Suggest destination for ${doc.filename}`}
-                                            disabled={suggestingDocIds.has(doc.id)}
-                                          >
-                                            <Folder size={18} />
-                                          </button>
-                                          {openedFolder?.id && openedFolder?.workspace_id && (
-                                            <button
-                                              className="action-menu suggestion-create-new-btn"
-                                              onClick={(event) => {
-                                                event.stopPropagation();
-                                                handleCreateSubfolderForDocument(doc);
-                                              }}
-                                              title="Create new subfolder and move document here"
-                                              aria-label={`Create subfolder and move ${doc.filename}`}
-                                              disabled={suggestingDocIds.has(doc.id) || applyingSuggestionIds.has(doc.id)}
-                                            >
-                                              <FolderPlus size={18} />
-                                              <span>{applyingSuggestionIds.has(doc.id) ? 'Creating…' : 'Create subfolder'}</span>
-                                            </button>
-                                          )}
-                                      <button
-                        className="action-menu"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDocumentDoubleClick(doc);
-                        }}
-                        title="Preview document"
-                        aria-label={`Preview ${doc.filename}`}
-                      >
-                        <Eye size={18} />
-                      </button>
+                    )}
+                    {folderTableColumnConfig.some((c) => c.key === 'size') && <div className="col-size">{doc.size_bytes ? `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB` : doc.size || '-'}</div>}
+                    {folderTableColumnConfig.some((c) => c.key === 'status') && (
+                      <div className="col-status">
+                        <span className={`document-status document-status--tag ${statusDisplay.statusKey}`} title={statusDisplay.detail || undefined} aria-label={`Status: ${statusDisplay.label}${statusDisplay.detail ? `. ${statusDisplay.detail}` : ''}`}>
+                          {statusDisplay.label}
+                        </span>
+                      </div>
+                    )}
+                    {folderTableColumnConfig.some((c) => c.key === 'lastModified') && <div className="col-modified">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>}
+                    {folderTableColumnConfig.some((c) => c.key === 'dateCreated') && <div className="col-date-created">{doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '-'}</div>}
+                    {folderTableColumnConfig.some((c) => c.key === 'owner') && <div className="col-owner">{doc.uploaded_by === currentUserId ? 'You' : (doc.uploaded_by_username || '—')}</div>}
+                    {folderTableColumnConfig.some((c) => c.key === 'actions') && (
+                    <div className="col-actions" ref={openDocMenuId === doc.id ? docMenuRef : null}>
                       <button
-                        className="action-menu"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDownloadDocument(doc.id, doc.filename);
-                        }}
-                        title="Download document"
-                        aria-label={`Download ${doc.filename}`}
+                        type="button"
+                        className="action-menu doc-row-menu-trigger"
+                        onClick={(e) => { e.stopPropagation(); setOpenDocMenuId(openDocMenuId === doc.id ? null : doc.id); }}
+                        aria-label={`Actions for ${doc.filename}`}
+                        aria-expanded={openDocMenuId === doc.id}
                       >
-                        <Download size={18} />
+                        <MoreVertical size={18} />
                       </button>
-                      {doc.uploaded_by === currentUserId ? (
-                        <button 
-                          className="action-menu delete-btn"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleDeleteFolderDocument(doc.id);
-                          }}
-                          title="Delete document"
-                          aria-label={`Delete ${doc.filename}`}
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      ) : (
-                        <button 
-                          className="action-menu request-deletion-btn"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleRequestDeletion(doc.id, doc.filename);
-                          }}
-                          title="Request deletion from owner"
-                          aria-label={`Request deletion of ${doc.filename}`}
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      )}
                     </div>
+                    )}
                   </div>
                 );
               })}
@@ -2735,6 +2722,99 @@ const handleCreateContainer = async (e) => {
             </div>
           </main>
         </div>
+
+        {openDocMenuId && docMenuPosition && (() => {
+          const doc = folderTableEntries.find((e) => e.kind === 'document' && e.item.id === openDocMenuId)?.item;
+          if (!doc) return null;
+          const statusDisplay = getDocumentStatusDisplay(doc);
+          const isRetryingIndex = retryingDocIds.has(doc.id);
+          const canRetryIndexing = statusDisplay.statusKey === 'failed' || statusDisplay.statusKey === 'processing' || statusDisplay.statusKey === 'uploaded';
+          return createPortal(
+            <div
+              ref={docMenuPortalRef}
+              className="doc-row-context-menu doc-row-context-menu--portal"
+              style={{ position: 'fixed', top: docMenuPosition.top, right: docMenuPosition.right }}
+              role="menu"
+            >
+              {canRetryIndexing && (
+                <button
+                  type="button"
+                  className="doc-row-menu-item"
+                  role="menuitem"
+                  onClick={(e) => { e.stopPropagation(); setOpenDocMenuId(null); handleRetryIndexing(doc, e); }}
+                  disabled={isRetryingIndex}
+                >
+                  <RotateCcw size={16} className={isRetryingIndex ? 'spin' : ''} />
+                  <span>{isRetryingIndex ? 'Restarting…' : (statusDisplay.statusKey === 'failed' ? 'Retry indexing' : 'Restart indexing')}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="doc-row-menu-item"
+                role="menuitem"
+                onClick={(e) => { e.stopPropagation(); setOpenDocMenuId(null); handleDocumentDoubleClick(doc); }}
+              >
+                <Eye size={16} />
+                <span>Preview</span>
+              </button>
+              <button
+                type="button"
+                className="doc-row-menu-item"
+                role="menuitem"
+                onClick={(e) => { e.stopPropagation(); setOpenDocMenuId(null); handleDownloadDocument(doc.id, doc.filename); }}
+              >
+                <Download size={16} />
+                <span>Download</span>
+              </button>
+              <button
+                type="button"
+                className="doc-row-menu-item"
+                role="menuitem"
+                onClick={(e) => { e.stopPropagation(); setOpenDocMenuId(null); handleSuggestContainer(doc); }}
+                disabled={suggestingDocIds.has(doc.id)}
+              >
+                <Folder size={16} />
+                <span>Suggest destination folder</span>
+              </button>
+              {openedFolder?.id && openedFolder?.workspace_id && (
+                <button
+                  type="button"
+                  className="doc-row-menu-item"
+                  role="menuitem"
+                  onClick={(e) => { e.stopPropagation(); setOpenDocMenuId(null); handleCreateSubfolderForDocument(doc); }}
+                  disabled={suggestingDocIds.has(doc.id) || applyingSuggestionIds.has(doc.id)}
+                >
+                  <FolderPlus size={16} />
+                  <span>{applyingSuggestionIds.has(doc.id) ? 'Creating…' : 'Create subfolder & move'}</span>
+                </button>
+              )}
+              <div className="doc-row-menu-divider" />
+              {doc.uploaded_by === currentUserId ? (
+                <button
+                  type="button"
+                  className="doc-row-menu-item doc-row-menu-item--danger"
+                  role="menuitem"
+                  onClick={(e) => { e.stopPropagation(); setOpenDocMenuId(null); handleDeleteFolderDocument(doc.id); }}
+                >
+                  <Trash2 size={16} />
+                  <span>Delete</span>
+                </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="doc-row-menu-item doc-row-menu-item--danger"
+                              role="menuitem"
+                              onClick={(e) => { e.stopPropagation(); setOpenDocMenuId(null); handleRequestDeletion(doc.id, doc.filename); }}
+                              disabled={requestingDeletionId === doc.id}
+                            >
+                              <Trash2 size={16} />
+                              <span>{requestingDeletionId === doc.id ? 'Sending…' : 'Request deletion'}</span>
+                            </button>
+                          )}
+            </div>,
+            document.body
+          );
+        })()}
 
         {showUploadModal && (
           <div className="modal-overlay" onClick={() => setShowUploadModal(false)}>
@@ -2968,7 +3048,7 @@ const handleCreateContainer = async (e) => {
                     <option value="all">All Folders</option>
                     <option value="workspace">Workspace-Owned</option>
                     <option value="user">User-Created</option>
-                    <option value="ai">AI-Created</option>
+                    <option value="ai">Ada-Created</option>
                   </select>
                 </label>
               </div>
@@ -3276,29 +3356,35 @@ const handleCreateContainer = async (e) => {
       
             {/* Containers / Cards Grid (design) */}
       <div className={`container-grid container-grid-${viewMode}`}>
-              <div className="container-drag-hint">
-                Tip: drag a folder onto another folder to nest it. Drop on the top-level zone to unnest.
+              <div
+                className={`container-drag-hint ${draggedContainerId != null ? 'container-drag-hint-droppable' : ''} ${dropTargetContainerId === 'ROOT' ? 'is-drop-target' : ''}`}
+                onDragOver={(event) => {
+                  if (draggedContainerId == null) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.dataTransfer.dropEffect = 'move';
+                  setDropTargetContainerId('ROOT');
+                }}
+                onDragLeave={() => {
+                  if (dropTargetContainerId === 'ROOT') setDropTargetContainerId(null);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const movingId = Number(event.dataTransfer.getData('text/plain') || draggedContainerId);
+                  if (Number.isFinite(movingId)) {
+                    handleMoveContainer(movingId, null);
+                  }
+                  setDropTargetContainerId(null);
+                  setDraggedContainerId(null);
+                }}
+              >
+                {draggedContainerId != null ? (
+                  <>Drop here to move folder to top level</>
+                ) : (
+                  <>Tip: drag a folder onto another folder to nest it. Drop on this area to unnest.</>
+                )}
               </div>
-              {draggedContainerId != null && (
-                <div
-                  className={`container-root-drop-zone ${dropTargetContainerId === 'ROOT' ? 'is-active' : ''}`}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    setDropTargetContainerId('ROOT');
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const movingId = Number(event.dataTransfer.getData('text/plain') || draggedContainerId);
-                    if (Number.isFinite(movingId)) {
-                      handleMoveContainer(movingId, null);
-                    }
-                    setDropTargetContainerId(null);
-                    setDraggedContainerId(null);
-                  }}
-                >
-                  Drop here to move folder to top level
-                </div>
-              )}
               {rootTreeContainers.map((c) => renderContainerTreeNode(c, 0))}
         {filteredDisplayedContainers.length === 0 && (
           <p className="empty-state-text">{emptyStateMessage}</p>

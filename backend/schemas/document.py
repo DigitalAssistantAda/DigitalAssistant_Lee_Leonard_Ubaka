@@ -8,12 +8,12 @@ class DocumentResponse(BaseModel):
     workspace_id: Optional[int] = None
     container_id: Optional[int] = None
     uploaded_by: int
+    uploaded_by_username: Optional[str] = None
     filename: str
     mime_type: str
     size_bytes: int
     status: str
     created_at: datetime
-    # User-friendly status for UI (no internal/security-sensitive details)
     status_label: Optional[str] = None
     status_detail: Optional[str] = None
 

@@ -23,21 +23,14 @@ from utils.auth import get_current_user, create_audit_log
 from utils.authorization import require_workspace_access, check_workspace_access
 from errors import AppError
 from utils.audit import AuditActions
+from utils.workspace_members import active_workspace_member_ids
 from realtime import connection_manager
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
 
-def _active_workspace_member_ids(db: Session, workspace_id: int) -> list[int]:
-    rows = db.query(WorkspaceMember.user_id).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.status == MemberStatus.ACTIVE,
-    ).all()
-    return [int(row.user_id) for row in rows]
-
-
 async def _notify_workspace_changed(db: Session, workspace_id: int) -> None:
-    for user_id in _active_workspace_member_ids(db, workspace_id):
+    for user_id in active_workspace_member_ids(db, workspace_id):
         await connection_manager.send_to_user(
             user_id,
             {
@@ -361,7 +354,7 @@ async def delete_workspace(
         required_roles=[WorkspaceRole.OWNER],
     )
 
-    notify_user_ids = _active_workspace_member_ids(db, workspace_id)
+    notify_user_ids = active_workspace_member_ids(db, workspace_id)
     
     # Create audit log before deletion
     create_audit_log(db, current_user, "workspace.deleted", "workspace", workspace_id, workspace_id=workspace_id)

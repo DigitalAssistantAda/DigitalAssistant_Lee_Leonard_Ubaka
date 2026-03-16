@@ -10,22 +10,15 @@ from utils.auth import get_current_user, create_audit_log
 from utils.authorization import require_workspace_access
 from schemas.auth import SuccessResponse
 from errors import AppError
+from utils.workspace_members import active_workspace_member_ids
 from realtime import connection_manager
 
 router = APIRouter()
 
 
-def _active_workspace_member_ids(db: Session, workspace_id: int) -> list[int]:
-    rows = db.query(WorkspaceMember.user_id).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.status == MemberStatus.ACTIVE,
-    ).all()
-    return [int(row.user_id) for row in rows]
-
-
 async def _notify_containers_changed(db: Session, workspace_id: int | None, actor_user_id: int) -> None:
     if workspace_id is not None:
-        user_ids = _active_workspace_member_ids(db, workspace_id)
+        user_ids = active_workspace_member_ids(db, workspace_id)
     else:
         user_ids = [actor_user_id]
 

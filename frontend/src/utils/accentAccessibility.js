@@ -131,6 +131,141 @@ const pickTextColor = (hex) => {
   return contrastRatio(hex, white) >= contrastRatio(hex, nearBlack) ? white : nearBlack;
 };
 
+const adjustHex = (hex, amount) => {
+  const value = (hex || '').replace('#', '');
+  if (value.length !== 6) return hex;
+  const num = parseInt(value, 16);
+  const clamp = (channel) => Math.min(255, Math.max(0, channel));
+  const r = clamp((num >> 16) + amount);
+  const g = clamp(((num >> 8) & 0x00ff) + amount);
+  const b = clamp((num & 0x0000ff) + amount);
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+};
+
+const adjustSaturation = (hex, delta) => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const hsl = rgbToHsl(rgb);
+  const next = Math.min(1, Math.max(0, hsl.s + delta));
+  return rgbToHex(hslToRgb({ ...hsl, s: next }));
+};
+
+const ensureContrast = (hex, bgHex, minRatio) => {
+  const base = normalizeHexColor(hex);
+  const bg = normalizeHexColor(bgHex);
+  if (!base || !bg) return hex;
+  if (contrastRatio(base, bg) >= minRatio) return base;
+  const bgIsLight = relativeLuminance(bg) > 0.5;
+  const direction = bgIsLight ? -1 : 1;
+  let candidate = base;
+  for (let i = 0; i < 18; i += 1) {
+    candidate = adjustLightness(candidate, direction * 0.05);
+    if (contrastRatio(candidate, bg) >= minRatio) return candidate;
+  }
+  return candidate;
+};
+
+export const getDefaultAccent = () => {
+  if (typeof document === 'undefined') return '#F3B8CF';
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue('--accent-primary')
+    .trim();
+  return value || '#F3B8CF';
+};
+
+export const getThemeBackgrounds = () => {
+  if (typeof document === 'undefined') {
+    return {
+      light: { bgPrimary: '#F4F3F1', bgSecondary: '#EEEDEB' },
+      dark: { bgPrimary: '#2C2C2C', bgSecondary: '#1E1E1E' },
+    };
+  }
+  const styles = getComputedStyle(document.documentElement);
+  return {
+    light: {
+      bgPrimary: styles.getPropertyValue('--bg-primary-light').trim() || styles.getPropertyValue('--bg-primary').trim(),
+      bgSecondary: styles.getPropertyValue('--bg-secondary-light').trim() || styles.getPropertyValue('--bg-secondary').trim(),
+    },
+    dark: {
+      bgPrimary: styles.getPropertyValue('--bg-primary-dark').trim() || styles.getPropertyValue('--bg-primary').trim(),
+      bgSecondary: styles.getPropertyValue('--bg-secondary-dark').trim() || styles.getPropertyValue('--bg-secondary').trim(),
+    },
+  };
+};
+
+export const buildAccentSet = (hex, theme) => {
+  const bgPrimary = theme.bgPrimary;
+  const bgSecondary = theme.bgSecondary;
+  const lumPrimary = relativeLuminance(bgPrimary);
+  const lumSecondary = relativeLuminance(bgSecondary);
+  const targetBg = lumPrimary >= lumSecondary ? bgPrimary : bgSecondary;
+  const isLightTheme = lumPrimary > 0.5;
+
+  if (!isLightTheme) {
+    const minRatio = 4.5;
+    const accent = ensureContrast(hex, targetBg, minRatio);
+    const hover = adjustHex(accent, -18);
+    const secondary = adjustLightness(accent, -0.14);
+    const highlight = mixHex(accent, targetBg, 0.22);
+    const contrast = pickTextColor(accent);
+    return { accent, hover, secondary, highlight, contrast };
+  }
+
+  const minRatio = 2.8;
+  const contrastSafe = ensureContrast(hex, targetBg, minRatio);
+  const baseRgb = hexToRgb(contrastSafe);
+  const baseSaturation = baseRgb ? rgbToHsl(baseRgb).s : 0.4;
+  const isHighSaturation = baseSaturation > 0.55;
+
+  const toned = adjustSaturation(contrastSafe, isHighSaturation ? -0.30 : -0.08);
+  const softened = mixHex(toned, targetBg, isHighSaturation ? 0.62 : 0.82);
+  const accent = ensureContrast(softened, targetBg, minRatio);
+  const hover = adjustLightness(accent, isHighSaturation ? -0.04 : -0.03);
+  const secondary = mixHex(accent, targetBg, isHighSaturation ? 0.28 : 0.46);
+  const highlight = mixHex(accent, targetBg, isHighSaturation ? 0.14 : 0.22);
+  const contrast = pickTextColor(accent);
+  return { accent, hover, secondary, highlight, contrast };
+};
+
+export const applyAccentColor = (color) => {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const nextColor = normalizeHexColor(color || getDefaultAccent());
+  const customVars = [
+    '--accent-primary-custom',
+    '--accent-hover-custom',
+    '--accent-secondary-custom',
+    '--accent-highlight-custom',
+    '--accent-contrast-custom',
+    '--accent-primary-custom-dark',
+    '--accent-hover-custom-dark',
+    '--accent-secondary-custom-dark',
+    '--accent-highlight-custom-dark',
+    '--accent-contrast-custom-dark',
+  ];
+
+  if (!nextColor) {
+    customVars.forEach((key) => root.style.removeProperty(key));
+    return;
+  }
+
+  const themes = getThemeBackgrounds();
+  const lightSet = buildAccentSet(nextColor, themes.light);
+  const darkSet = buildAccentSet(nextColor, themes.dark);
+
+  root.style.setProperty('--accent-primary-custom', lightSet.accent);
+  root.style.setProperty('--accent-hover-custom', lightSet.hover);
+  root.style.setProperty('--accent-secondary-custom', lightSet.secondary);
+  root.style.setProperty('--accent-highlight-custom', lightSet.highlight);
+  root.style.setProperty('--accent-contrast-custom', lightSet.contrast);
+
+  root.style.setProperty('--accent-primary-custom-dark', darkSet.accent);
+  root.style.setProperty('--accent-hover-custom-dark', darkSet.hover);
+  root.style.setProperty('--accent-secondary-custom-dark', darkSet.secondary);
+  root.style.setProperty('--accent-highlight-custom-dark', darkSet.highlight);
+  root.style.setProperty('--accent-contrast-custom-dark', darkSet.contrast);
+};
+
 export const buildAccessibleAccentTokens = (accentHex, backgroundHex) => {
   const baseAccent = normalizeHexColor(accentHex);
   const bg = normalizeHexColor(backgroundHex) || '#F4F3F1';

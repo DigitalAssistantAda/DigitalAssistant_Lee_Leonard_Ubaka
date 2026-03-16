@@ -53,6 +53,16 @@ from config import settings
 from tasks.embeddings import process_document_embeddings
 from errors import AppError
 from realtime import connection_manager
+from utils.workspace_members import active_workspace_member_ids
+from utils.document_helpers import (
+    parse_storage_uri as _parse_storage_uri_impl,
+    confidence_label,
+    confidence_rank,
+    infer_auto_container_name,
+    ensure_workspace_container,
+    workspace_feedback_boosts,
+    delete_document_and_relations,
+)
 
 router = APIRouter(tags=["Documents"])
 
@@ -69,12 +79,14 @@ ALLOWED_MIME_TYPES = [
 ]
 
 
-def _active_workspace_member_ids(db: Session, workspace_id: int) -> list[int]:
-    rows = db.query(WorkspaceMember.user_id).filter(
-        WorkspaceMember.workspace_id == workspace_id,
-        WorkspaceMember.status == MemberStatus.ACTIVE,
-    ).all()
-    return [int(row.user_id) for row in rows]
+def _parse_storage_uri(storage_uri: str) -> tuple[str, str]:
+    try:
+        return _parse_storage_uri_impl(storage_uri)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid storage URI for document"
+        )
 
 
 async def _notify_documents_changed(
@@ -84,7 +96,7 @@ async def _notify_documents_changed(
     container_id: int | None,
 ) -> None:
     if workspace_id is not None:
-        user_ids = _active_workspace_member_ids(db, workspace_id)
+        user_ids = active_workspace_member_ids(db, workspace_id)
     else:
         user_ids = [actor_user_id]
 
@@ -120,19 +132,6 @@ def _sanitize_filename(filename: str) -> str:
     base = os.path.basename(filename or "upload")
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", base)
     return safe or "upload"
-
-
-def _parse_storage_uri(storage_uri: str) -> tuple[str, str]:
-    try:
-        scheme_split = storage_uri.split("://", 1)
-        path_part = scheme_split[1] if len(scheme_split) == 2 else scheme_split[0]
-        bucket, path = path_part.split("/", 1)
-        return bucket, path
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Invalid storage URI for document"
-        )
 
 
 def _post_n8n_embedding_trigger(payload: dict) -> None:
@@ -263,33 +262,6 @@ def _user_friendly_status(document: Document, job: EmbeddingJob | None) -> tuple
     return ("Processing", None)
 
 
-def _confidence_label(score: float) -> str:
-    if score >= 0.78:
-        return "high"
-    if score >= 0.62:
-        return "medium"
-    return "low"
-
-
-def _confidence_rank(label: str) -> int:
-    normalized = (label or "").lower().strip()
-    if normalized == "high":
-        return 3
-    if normalized == "medium":
-        return 2
-    return 1
-
-
-def _infer_auto_container_name(document: Document) -> str:
-    """Fallback folder name from filename only (no prefix)."""
-    stem = os.path.splitext(document.filename or "")[0]
-    tokens = [part for part in re.split(r"[^A-Za-z0-9]+", stem) if part]
-    if not tokens:
-        return "New folder"
-    topic = " ".join(tokens[:3]).title().strip()
-    return topic if topic else "New folder"
-
-
 def _suggest_container_name_from_content(document: Document, db: Session) -> str:
     """Suggest a folder name from document content using LLM. Never uses filename-only; returns generic name when content/LLM unavailable."""
     from utils.text_generation import summary_generation_service
@@ -310,83 +282,6 @@ def _suggest_container_name_from_content(document: Document, db: Session) -> str
     except Exception:
         logger.warning("LLM folder name suggestion failed for document %s, using generic name", document.id)
     return "New folder"
-
-
-def _ensure_workspace_container(
-    db: Session,
-    workspace_id: int,
-    name: str,
-    actor: User,
-) -> Container:
-    existing = db.query(Container).filter(
-        Container.workspace_id == workspace_id,
-        func.lower(Container.name) == func.lower(name),
-    ).first()
-    if existing:
-        return existing
-
-    created = Container(
-        workspace_id=workspace_id,
-        name=name,
-        color="#6f93ff",
-        created_by=actor.id,
-    )
-    db.add(created)
-    db.commit()
-    db.refresh(created)
-
-    create_audit_log(
-        db,
-        actor,
-        action="container.created_by_auto_organize",
-        object_type="container",
-        object_id=created.id,
-        metadata={
-            "workspace_id": workspace_id,
-            "name": created.name,
-            "trigger": "auto_organize",
-        },
-        workspace_id=workspace_id,
-    )
-    return created
-
-
-def _workspace_feedback_boosts(db: Session, workspace_id: int, limit: int = 400) -> dict[int, float]:
-    """Learn from accepted moves in this workspace and boost likely destination containers."""
-    rows = (
-        db.query(AuditLog)
-        .filter(
-            AuditLog.workspace_id == workspace_id,
-            AuditLog.action == AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
-        )
-        .order_by(AuditLog.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-
-    counts: dict[int, int] = {}
-    for row in rows:
-        metadata = row.metadata_json or {}
-        if isinstance(metadata, str):
-            try:
-                import json
-                metadata = json.loads(metadata)
-            except Exception:
-                metadata = {}
-        if not isinstance(metadata, dict):
-            continue
-        container_id = metadata.get("new_container_id")
-        if not isinstance(container_id, (int, float, str)):
-            continue
-        try:
-            normalized = int(container_id)
-        except (TypeError, ValueError):
-            continue
-        weight = 2 if metadata.get("corrected") else 1
-        counts[normalized] = counts.get(normalized, 0) + weight
-
-    # Diminishing returns keeps feedback as a guide, not a hard override.
-    return {cid: min(0.18, 0.035 * math.log1p(count)) for cid, count in counts.items()}
 
 
 def _sha256_digest(content: bytes) -> str:
@@ -928,7 +823,7 @@ async def suggest_document_container(
     best_container_id: int | None = None
     best_score = 0.0
     fallback_used = False
-    feedback_boosts = _workspace_feedback_boosts(db, document.workspace_id)
+    feedback_boosts = workspace_feedback_boosts(db, document.workspace_id)
 
     try:
         chunks = db.query(DocumentChunk).filter(
@@ -1016,7 +911,7 @@ async def suggest_document_container(
             "workspace_id": document.workspace_id,
             "suggested_container_id": best_container_id,
             "suggested_container_name": best_container.name,
-            "confidence": _confidence_label(best_score),
+            "confidence": confidence_label(best_score),
             "fallback_used": fallback_used,
         },
         workspace_id=document.workspace_id,
@@ -1028,7 +923,7 @@ async def suggest_document_container(
         suggested_container_id=best_container_id,
         suggested_container_name=best_container.name,
         suggested_new_container_name=suggested_new,
-        confidence=_confidence_label(best_score),
+        confidence=confidence_label(best_score),
         confidence_score=round(float(best_score), 3),
         boost_applied=boost_applied,
         reason=reason,
@@ -1048,7 +943,7 @@ async def auto_organize_workspace_documents(
     """Autonomously move ready workspace documents into suggested containers."""
     require_workspace_access(workspace_id=workspace_id, user=current_user, db=db)
 
-    target_rank = _confidence_rank(min_confidence)
+    target_rank = confidence_rank(min_confidence)
     docs = db.query(Document).filter(
         Document.workspace_id == workspace_id,
         Document.status == DocumentStatus.READY,
@@ -1076,12 +971,26 @@ async def auto_organize_workspace_documents(
             target_container_id = None
             target_container_name = inferred_name
             if not dry_run:
-                inferred_container = _ensure_workspace_container(
+                inferred_container, was_created = ensure_workspace_container(
                     db=db,
                     workspace_id=workspace_id,
                     name=inferred_name,
-                    actor=current_user,
+                    actor_user_id=current_user.id,
                 )
+                if was_created:
+                    create_audit_log(
+                        db,
+                        current_user,
+                        action="container.created_by_auto_organize",
+                        object_type="container",
+                        object_id=inferred_container.id,
+                        metadata={
+                            "workspace_id": workspace_id,
+                            "name": inferred_container.name,
+                            "trigger": "auto_organize",
+                        },
+                        workspace_id=workspace_id,
+                    )
                 target_container_id = inferred_container.id
                 target_container_name = inferred_container.name
 
@@ -1108,7 +1017,7 @@ async def auto_organize_workspace_documents(
                 moved += 1
             continue
 
-        if _confidence_rank(suggestion.confidence) < target_rank:
+        if confidence_rank(suggestion.confidence) < target_rank:
             skipped_low_confidence += 1
             continue
 
@@ -1540,64 +1449,21 @@ async def approve_deletion_request(
     deletion_request.status = DeletionRequestStatus.APPROVED
     deletion_request.responded_at = datetime.now(timezone.utc)
 
-    # Now delete the document
     requester = db.query(User).filter(User.id == deletion_request.requested_by).first()
-    workspace_id = document.workspace_id
-    filename = document.filename
-    container_id = document.container_id
-    bucket, path = _parse_storage_uri(document.storage_uri)
-    
     try:
-        # Delete all associated data (same as delete endpoint)
-        chunk_ids = [row[0] for row in db.query(DocumentChunk.id).filter(
-            DocumentChunk.document_id == document_id
-        ).all()]
-        
-        if chunk_ids:
-            db.query(ChunkEmbedding).filter(
-                ChunkEmbedding.chunk_id.in_(chunk_ids)
-            ).delete(synchronize_session=False)
-        
-        db.query(DocumentChunk).filter(
-            DocumentChunk.document_id == document_id
-        ).delete(synchronize_session=False)
-        
-        db.query(DocumentHint).filter(
-            DocumentHint.document_id == document_id
-        ).delete(synchronize_session=False)
-        
-        db.query(Job).filter(
-            Job.document_id == document_id
-        ).delete(synchronize_session=False)
-        
-        db.query(EmbeddingJob).filter(
-            EmbeddingJob.document_id == document_id
-        ).delete(synchronize_session=False)
-        
-        db.query(Summary).filter(
-            Summary.document_id == document_id
-        ).update({Summary.document_id: None}, synchronize_session=False)
-        
-        db.query(DocumentDuplicate).filter(
-            DocumentDuplicate.duplicate_of_id == document_id
-        ).update({DocumentDuplicate.duplicate_of_id: None}, synchronize_session=False)
-        
-        db.query(DocumentDuplicate).filter(
-            DocumentDuplicate.document_id == document_id
-        ).delete(synchronize_session=False)
-        
-        db.delete(document)
-        db.flush()
-        await storage.delete(bucket=bucket, path=path)
-        db.commit()
+        workspace_id, container_id, filename = await delete_document_and_relations(db, document)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid document storage"
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete document: {str(e)}"
         )
-    
-    # Log action
+
     create_audit_log(
         db,
         current_user,
@@ -1618,7 +1484,7 @@ async def approve_deletion_request(
         actor_user_id=current_user.id,
         container_id=container_id,
     )
-    
+
     return DocumentDeletionRequestResponse.model_validate(deletion_request)
 
 
@@ -1700,57 +1566,13 @@ async def delete_document(
             detail="Only the document owner can delete. Request approval from the owner."
         )
 
-    # Get document details for audit log before deletion
-    workspace_id = document.workspace_id
-    filename = document.filename
-    container_id = document.container_id
-
-    bucket, path = _parse_storage_uri(document.storage_uri)
-
     try:
-        chunk_ids = [row[0] for row in db.query(DocumentChunk.id).filter(
-            DocumentChunk.document_id == document_id
-        ).all()]
-
-        if chunk_ids:
-            db.query(ChunkEmbedding).filter(
-                ChunkEmbedding.chunk_id.in_(chunk_ids)
-            ).delete(synchronize_session=False)
-
-        db.query(DocumentChunk).filter(
-            DocumentChunk.document_id == document_id
-        ).delete(synchronize_session=False)
-
-        db.query(DocumentHint).filter(
-            DocumentHint.document_id == document_id
-        ).delete(synchronize_session=False)
-
-        db.query(Job).filter(
-            Job.document_id == document_id
-        ).delete(synchronize_session=False)
-
-        db.query(EmbeddingJob).filter(
-            EmbeddingJob.document_id == document_id
-        ).delete(synchronize_session=False)
-
-        db.query(Summary).filter(
-            Summary.document_id == document_id
-        ).update({Summary.document_id: None}, synchronize_session=False)
-
-        db.query(DocumentDuplicate).filter(
-            DocumentDuplicate.duplicate_of_id == document_id
-        ).update({DocumentDuplicate.duplicate_of_id: None}, synchronize_session=False)
-
-        db.query(DocumentDuplicate).filter(
-            DocumentDuplicate.document_id == document_id
-        ).delete(synchronize_session=False)
-
-        db.delete(document)
-        db.flush()
-
-        await storage.delete(bucket=bucket, path=path)
-
-        db.commit()
+        workspace_id, container_id, filename = await delete_document_and_relations(db, document)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid document storage"
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -1758,7 +1580,6 @@ async def delete_document(
             detail=f"Failed to permanently delete document: {str(e)}"
         )
 
-    # Log the deletion action with structured metadata
     create_audit_log(
         db,
         current_user,

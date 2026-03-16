@@ -3,9 +3,14 @@ import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, Folde
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import AccessState from '../components/AccessState';
 import ColorSwatchPicker from '../components/ColorSwatchPicker';
+import LoadingState from '../components/LoadingState';
+import TxtPreview from '../components/document-previews/TxtPreview';
+import DocxPreview from '../components/document-previews/DocxPreview';
+import PdfPreview from '../components/document-previews/PdfPreview';
 import { getApiErrorMessage, isWorkspaceAccessErrorMessage } from '../utils/apiError';
 import { CONTAINER_SWATCH_PRESETS } from '../utils/colorPresets';
-import LoadingState from '../components/LoadingState';
+import { normalizeItems } from '../utils/listUtils';
+import { apiFetch } from '../utils/apiClient';
 import './Documents.css';
 
 function Documents({ currentUser }) {
@@ -70,175 +75,6 @@ function Documents({ currentUser }) {
     return Number.isFinite(value) ? value : null;
   }, [currentUser]);
 
-// TXT Preview Component
-function TxtPreview({ docId }) {
-  const [content, setContent] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-  useEffect(() => {
-    const loadTxt = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setError('Authentication required');
-          setLoading(false);
-          return;
-        }
-
-        const response = await fetch(
-          `${API_URL}/api/v1/documents/${docId}/content`,
-          {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-          }
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.detail || `Failed to load file (${response.status})`);
-        }
-
-        const text = await response.text();
-        setContent(text);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadTxt();
-  }, [docId]);
-
-  if (loading) return <LoadingState className="preview-loading" message="Loading preview..." size={32} />;
-  if (error) return <div className="preview-error">{error}</div>;
-
-  return (
-    <pre className="txt-preview">
-      {content}
-    </pre>
-  );
-}
-
-// DOCX Preview Component
-function DocxPreview({ docId }) {
-  const [content, setContent] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-  useEffect(() => {
-    const loadDocx = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setError('Authentication required');
-          setLoading(false);
-          return;
-        }
-        
-        const response = await fetch(
-          `${API_URL}/api/v1/documents/${docId}/content`,
-          {
-            headers: { 
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-          }
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.detail || `Failed to load file (${response.status})`);
-        }
-
-        const text = await response.text();
-        setContent(text);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadDocx();
-  }, [docId]);
-
-  if (loading) return <LoadingState className="preview-loading" message="Loading preview..." size={32} />;
-  if (error) return <div className="preview-error">{error}</div>;
-
-  return (
-    <div className="docx-preview">
-      {content}
-    </div>
-  );
-}
-
-// PDF Preview Component
-// PDF Preview Component
-function PdfPreview({ docId }) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState(null);
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
-  useEffect(() => {
-    const loadPdf = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          setError('Authentication required');
-          setLoading(false);
-          return;
-        }
-
-        const response = await fetch(
-          `${API_URL}/api/v1/documents/${docId}/preview`,
-          {
-            headers: { 
-              'Authorization': `Bearer ${token}`,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`Failed to load PDF (${response.status})`);
-        }
-
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        setPdfUrl(url);
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadPdf();
-
-    return () => {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    };
-  }, [docId]);
-
-  if (loading) return <LoadingState className="preview-loading" message="Loading preview..." size={32} />;
-  if (error) return <div className="preview-error">{error}</div>;
-
-  return (
-    <iframe
-      src={pdfUrl}
-      className="preview-iframe"
-      title="PDF Preview"
-      style={{ width: '100%', height: '100%' }}
-    />
-  );
-}
-
   useEffect(() => {
     fetchWorkspaces();
     fetchContainers();
@@ -273,25 +109,18 @@ function PdfPreview({ docId }) {
 
   const fetchWorkspaces = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/workspaces`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-        setWorkspaces(items);
-        const queryWorkspaceExists = workspaceIdFromQuery && items.some((item) => Number(item.id) === Number(workspaceIdFromQuery));
-        if (!containerIdParam && workspaceIdFromQuery && !queryWorkspaceExists) {
-          setSelectedWorkspace('');
-          setError('Workspace not found or you do not have access.');
-          return;
-        }
-        if (!containerIdParam && queryWorkspaceExists) {
-          setSelectedWorkspace(workspaceIdFromQuery);
-          return;
-        }
+      const data = await apiFetch('/api/v1/workspaces');
+      const items = normalizeItems(data);
+      setWorkspaces(items);
+      const queryWorkspaceExists = workspaceIdFromQuery && items.some((item) => Number(item.id) === Number(workspaceIdFromQuery));
+      if (!containerIdParam && workspaceIdFromQuery && !queryWorkspaceExists) {
+        setSelectedWorkspace('');
+        setError('Workspace not found or you do not have access.');
+        return;
+      }
+      if (!containerIdParam && queryWorkspaceExists) {
+        setSelectedWorkspace(workspaceIdFromQuery);
+        return;
       }
     } catch (err) {
       console.error('Error fetching workspaces:', err);
@@ -309,25 +138,15 @@ function PdfPreview({ docId }) {
 
   const fetchContainers = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/containers`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        const message = await getApiErrorMessage(response, 'Failed to load containers');
-        throw new Error(message);
-      }
-
-      const data = await response.json();
-      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      const data = await apiFetch('/api/v1/containers');
+      const items = normalizeItems(data);
       const normalized = items.map((container) => ({
         ...container,
         type: container?.type || null,
       }));
       setDbContainers(normalized);
     } catch (err) {
-      setError(err.message || 'Failed to load containers');
+      setError(err?.message || 'Failed to load containers');
     }
   };
 
@@ -410,45 +229,15 @@ function PdfPreview({ docId }) {
   };
 
   const fetchDocumentsForWorkspace = async (workspaceId) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch(`${API_URL}/api/v1/workspaces/${workspaceId}/documents`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!response.ok) {
-      const message = await getApiErrorMessage(response, 'Failed to fetch documents');
-      throw new Error(message);
-    }
-
-    const data = await response.json();
-    return Array.isArray(data?.documents)
-      ? data.documents
-      : Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(data)
-      ? data
-      : [];
+    const data = await apiFetch(`/api/v1/workspaces/${workspaceId}/documents`);
+    const raw = data?.documents ?? data?.items ?? data;
+    return Array.isArray(raw) ? raw : [];
   };
 
   const fetchDocumentsForContainer = async (containerId) => {
-    const token = localStorage.getItem('token');
-    const response = await fetch(`${API_URL}/api/v1/containers/${containerId}/documents`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!response.ok) {
-      const message = await getApiErrorMessage(response, 'Failed to fetch container documents');
-      throw new Error(message);
-    }
-
-    const data = await response.json();
-    return Array.isArray(data?.documents)
-      ? data.documents
-      : Array.isArray(data?.items)
-      ? data.items
-      : Array.isArray(data)
-      ? data
-      : [];
+    const data = await apiFetch(`/api/v1/containers/${containerId}/documents`);
+    const raw = data?.documents ?? data?.items ?? data;
+    return Array.isArray(raw) ? raw : [];
   };
 
   useEffect(() => {
@@ -514,22 +303,12 @@ function PdfPreview({ docId }) {
   }, [openedFolder, selectedWorkspace, workspaceIdFromQuery, containerIdParam]);
 
   const checkDuplicateUploadInContainer = async (containerId, file) => {
-    const token = localStorage.getItem('token');
     const formData = new FormData();
     formData.append('file', file);
-
-    const response = await fetch(`${API_URL}/api/v1/containers/${containerId}/documents/duplicate-check`, {
+    return apiFetch(`/api/v1/containers/${containerId}/documents/duplicate-check`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
       body: formData,
     });
-
-    if (!response.ok) {
-      const message = await getApiErrorMessage(response, 'Could not verify duplicate status');
-      throw new Error(message);
-    }
-
-    return response.json();
   };
 
   const handleFileUpload = async (e) => {

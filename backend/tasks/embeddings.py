@@ -32,73 +32,13 @@ from utils.text_extraction import extract_text_from_storage
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from celery_app import celery_app
+from utils.document_helpers import (
+    infer_auto_container_name,
+    ensure_workspace_container,
+    workspace_feedback_boosts,
+)
 
 logger = get_task_logger(__name__)
-
-
-def _confidence_label(score: float) -> str:
-    if score >= 0.78:
-        return "high"
-    if score >= 0.62:
-        return "medium"
-    return "low"
-
-
-def _infer_auto_container_name(document: Document) -> str:
-    """Fallback folder name from filename (no prefix)."""
-    stem = os.path.splitext(document.filename or "")[0]
-    tokens = [part for part in re.split(r"[^A-Za-z0-9]+", stem) if part]
-    if not tokens:
-        return "New folder"
-    topic = " ".join(tokens[:3]).title().strip()
-    return topic if topic else "New folder"
-
-
-def _ensure_workspace_container(db: Session, workspace_id: int, name: str, actor_user_id: int) -> Container:
-    existing = db.query(Container).filter(
-        Container.workspace_id == workspace_id,
-        func.lower(Container.name) == func.lower(name),
-    ).first()
-    if existing:
-        return existing
-
-    created = Container(
-        workspace_id=workspace_id,
-        name=name,
-        color="#6f93ff",
-        created_by=actor_user_id,
-    )
-    db.add(created)
-    db.commit()
-    db.refresh(created)
-    return created
-
-
-def _workspace_feedback_boosts(db: Session, workspace_id: int, limit: int = 400) -> dict[int, float]:
-    rows = (
-        db.query(AuditLog)
-        .filter(
-            AuditLog.workspace_id == workspace_id,
-            AuditLog.action == AuditActions.DOCUMENT_CONTAINER_SUGGESTION_APPLIED,
-        )
-        .order_by(AuditLog.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-
-    counts: dict[int, int] = {}
-    for row in rows:
-        metadata = row.metadata_json or {}
-        if not isinstance(metadata, dict):
-            continue
-        container_id = metadata.get("new_container_id")
-        try:
-            normalized = int(container_id)
-        except (TypeError, ValueError):
-            continue
-        counts[normalized] = counts.get(normalized, 0) + 1
-
-    return {cid: min(0.18, 0.035 * math.log1p(count)) for cid, count in counts.items()}
 
 
 def _auto_organize_document_after_index(document: Document, db: Session, actor_user_id: int | None) -> bool:
@@ -112,10 +52,10 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
 
     containers = db.query(Container).filter(Container.workspace_id == document.workspace_id).all()
     if not containers:
-        inferred_container = _ensure_workspace_container(
+        inferred_container, _ = ensure_workspace_container(
             db=db,
             workspace_id=document.workspace_id,
-            name=_infer_auto_container_name(document),
+            name=infer_auto_container_name(document),
             actor_user_id=actor_user_id or document.uploaded_by,
         )
         if document.container_id == inferred_container.id:
@@ -170,7 +110,7 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
         return False
 
     max_similarity_by_container: dict[int, float] = {}
-    feedback_boosts = _workspace_feedback_boosts(db, document.workspace_id)
+    feedback_boosts = workspace_feedback_boosts(db, document.workspace_id)
     for _chunk_id, similar_doc_id, similarity in similar_rows:
         if similar_doc_id == document.id:
             continue
@@ -190,10 +130,10 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
         )
 
     if not max_similarity_by_container:
-        inferred_container = _ensure_workspace_container(
+        inferred_container, _ = ensure_workspace_container(
             db=db,
             workspace_id=document.workspace_id,
-            name=_infer_auto_container_name(document),
+            name=infer_auto_container_name(document),
             actor_user_id=actor_user_id or document.uploaded_by,
         )
         if document.container_id == inferred_container.id:

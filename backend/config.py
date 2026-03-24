@@ -79,10 +79,6 @@ class Settings(BaseSettings):
     summary_llm_temperature: float = float(os.getenv("SUMMARY_LLM_TEMPERATURE", "0.2"))
     summary_llm_max_output_tokens: int = int(os.getenv("SUMMARY_LLM_MAX_OUTPUT_TOKENS", "500"))
 
-    # n8n Integration
-    n8n_embeddings_trigger_url: str = os.getenv("N8N_EMBEDDINGS_TRIGGER_URL", "")
-    n8n_webhook_secret: str = os.getenv("N8N_WEBHOOK_SECRET", "")
-    
     class Config:
         env_file = ".env"
         case_sensitive = False

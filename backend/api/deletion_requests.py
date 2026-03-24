@@ -7,7 +7,6 @@ from models.chunk_embedding import ChunkEmbedding
 from models.document_hint import DocumentHint
 from models.document_duplicate import DocumentDuplicate
 from models.summary import Summary
-from models.job import Job
 from models.embedding_job import EmbeddingJob
 from models.user import User
 from models.workspace import Workspace
@@ -163,7 +162,6 @@ async def approve_deletion_request(
         db.query(DocumentHint).filter(
             DocumentHint.document_id == document_id
         ).delete(synchronize_session=False)
-        db.query(Job).filter(Job.document_id == document_id).delete(synchronize_session=False)
         db.query(EmbeddingJob).filter(
             EmbeddingJob.document_id == document_id
         ).delete(synchronize_session=False)

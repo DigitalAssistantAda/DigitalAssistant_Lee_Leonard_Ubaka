@@ -9,8 +9,6 @@ import os
 import re
 import uuid
 import logging
-import requests
-from starlette.concurrency import run_in_threadpool
 from database import get_db
 from models.user import User
 from models.document import Document, DocumentStatus
@@ -23,7 +21,6 @@ from schemas.document import DocumentDeletionRequestResponse, DocumentDeletionRe
 from models.document_hint import DocumentHint
 from models.document_duplicate import DocumentDuplicate
 from models.summary import Summary
-from models.job import Job
 from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
 from models.audit_log import AuditLog
 import math
@@ -132,20 +129,6 @@ def _sanitize_filename(filename: str) -> str:
     base = os.path.basename(filename or "upload")
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", base)
     return safe or "upload"
-
-
-def _post_n8n_embedding_trigger(payload: dict) -> None:
-    if not settings.n8n_embeddings_trigger_url:
-        return
-    response = requests.post(
-        settings.n8n_embeddings_trigger_url,
-        json=payload,
-        timeout=10
-    )
-    if response.status_code >= 400:
-        raise RuntimeError(
-            f"n8n trigger failed with status code {response.status_code}"
-        )
 
 
 def _validate_upload_content(content: bytes, mime_type: str) -> None:
@@ -487,29 +470,7 @@ async def upload_document(
         workspace_id=workspace_id
     )
 
-    # Trigger embedding workflow
-    # In development, prefer direct Celery dispatch to avoid external callback dependency.
-    if settings.environment.lower() == "development":
-        process_document_embeddings.delay(document.id, current_user.id)
-    elif settings.n8n_embeddings_trigger_url:
-        try:
-            await run_in_threadpool(
-                _post_n8n_embedding_trigger,
-                {
-                    "document_id": document.id,
-                    "workspace_id": workspace_id,
-                    "triggered_by": current_user.id,
-                },
-            )
-        except Exception:
-            logger.warning(
-                "n8n embedding trigger failed for document_id=%s workspace_id=%s; falling back to celery",
-                document.id,
-                workspace_id,
-            )
-            process_document_embeddings.delay(document.id, current_user.id)
-    else:
-        process_document_embeddings.delay(document.id, current_user.id)
+    process_document_embeddings.delay(document.id, current_user.id)
     
     return DocumentResponse.model_validate(document)
 
@@ -628,27 +589,7 @@ async def upload_document_to_container(
         workspace_id=container.workspace_id
     )
 
-    if settings.environment.lower() == "development":
-        process_document_embeddings.delay(document.id, current_user.id)
-    elif settings.n8n_embeddings_trigger_url and container.workspace_id is not None:
-        try:
-            await run_in_threadpool(
-                _post_n8n_embedding_trigger,
-                {
-                    "document_id": document.id,
-                    "workspace_id": container.workspace_id,
-                    "triggered_by": current_user.id,
-                },
-            )
-        except Exception:
-            logger.warning(
-                "n8n embedding trigger failed for document_id=%s container_id=%s; falling back to celery",
-                document.id,
-                container_id,
-            )
-            process_document_embeddings.delay(document.id, current_user.id)
-    else:
-        process_document_embeddings.delay(document.id, current_user.id)
+    process_document_embeddings.delay(document.id, current_user.id)
 
     await _notify_documents_changed(
         db=db,
@@ -1156,7 +1097,6 @@ async def retry_document_indexing(
         ).delete(synchronize_session=False)
     db.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete(synchronize_session=False)
     db.query(DocumentHint).filter(DocumentHint.document_id == document_id).delete(synchronize_session=False)
-    db.query(Job).filter(Job.document_id == document_id).delete(synchronize_session=False)
     db.query(EmbeddingJob).filter(EmbeddingJob.document_id == document_id).delete(synchronize_session=False)
     db.query(Summary).filter(
         Summary.document_id == document_id

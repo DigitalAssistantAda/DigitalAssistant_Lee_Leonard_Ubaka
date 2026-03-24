@@ -17,7 +17,6 @@ from models.chunk_embedding import ChunkEmbedding
 from models.document_hint import DocumentHint
 from models.document_duplicate import DocumentDuplicate
 from models.summary import Summary
-from models.job import Job
 from models.embedding_job import EmbeddingJob
 from models.audit_log import AuditLog
 
@@ -155,10 +154,6 @@ async def delete_document_and_relations(db: Session, document: Document) -> tupl
 
     db.query(DocumentHint).filter(
         DocumentHint.document_id == document.id
-    ).delete(synchronize_session=False)
-
-    db.query(Job).filter(
-        Job.document_id == document.id
     ).delete(synchronize_session=False)
 
     db.query(EmbeddingJob).filter(

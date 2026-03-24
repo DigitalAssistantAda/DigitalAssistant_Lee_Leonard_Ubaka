@@ -18,28 +18,18 @@ Steps
 	- Run: docker compose up --build
 3. Open the app:
 	- http://localhost:3000
-4. Open n8n:
-	- http://localhost:5678
-	- Default credentials: N8N_BASIC_AUTH_USER / N8N_BASIC_AUTH_PASSWORD (defaults: n8n / n8n)
 
 Notes
 - **Database:** The stack uses **Supabase** as the database. Set DATABASE_URL in backend/.env to your Supabase connection string. The local Postgres container (db) is not started by default. To use a local Postgres instead, run: docker compose --profile local-db up --build.
 - If storage is not configured in backend/.env, file upload will fail.
 - **Embeddings (Docker):** The stack uses the **local** embedding model (Sentence Transformers) by default. The backend image includes PyTorch (CPU). Fine-tuned models are stored in the `embedding_model_data` volume (shared by backend and Celery worker). To use Voyage AI instead, set `EMBEDDING_SERVICE=voyage` and `VOYAGE_API_KEY` in backend/.env (or in the shell before `docker compose up`).
 - **Scheduled embedding refresh:** To run a weekly re-embed of all documents, start Celery Beat with: `docker compose --profile schedule up --build`. Set `EMBEDDING_REFRESH_ENABLED=true` in backend/.env (or in the environment) so the schedule is active.
-- To trigger embeddings via n8n, set these in backend/.env:
-	- N8N_EMBEDDINGS_TRIGGER_URL=http://localhost:5678/webhook/<your-trigger-id>
-	- N8N_WEBHOOK_SECRET=<shared-secret-for-backend-webhook>
-- Configure your n8n workflow to call:
-	- POST http://backend:8000/api/v1/webhooks/embeddings/process
-	- Header: X-Webhook-Secret: <N8N_WEBHOOK_SECRET>
-	- Body: {"document_id": <id>, "workspace_id": <id>, "triggered_by": <user_id>}
 
 Documents stuck in the queue
 - Indexing runs in a **Celery worker**. If documents stay "In the queue" and never become "Ready to search", the worker may not be running or may be failing.
 - **With Docker:** Ensure the full stack is up, including the worker:
 	- Run: docker compose up --build
-	- You should see containers: backend, frontend, redis, celery-worker (and optionally n8n). If celery-worker is missing, start it: docker compose up -d celery-worker
+	- You should see containers: backend, frontend, redis, celery-worker. If celery-worker is missing, start it: docker compose up -d celery-worker
 	- Check worker logs: docker compose logs -f celery-worker
 	- If the worker exits on startup, check for errors (e.g. missing REDIS_URL, DATABASE_URL, or embedding model load failure).
 - **Without Docker:** Start the worker manually from the backend directory:

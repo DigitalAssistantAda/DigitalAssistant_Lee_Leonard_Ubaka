@@ -16,12 +16,10 @@ from api import (
     workspaces_router,
     containers_router,
     documents_router,
-    jobs_router,
     search_router,
     summaries_router,
     audit_logs_router,
     embeddings_router,
-    webhooks_router,
 )
 from api.dashboard import router as dashboard_router
 from api.messages import router as messages_router
@@ -89,7 +87,6 @@ app.include_router(users_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(containers_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
-app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(search_router, prefix="/api/v1")
 app.include_router(summaries_router, prefix="/api/v1")
 app.include_router(audit_logs_router, prefix="/api/v1")
@@ -98,6 +95,5 @@ app.include_router(messages_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
 app.include_router(embeddings_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
-app.include_router(webhooks_router)
 app.include_router(deletion_requests_router, prefix="/api/v1")
 app.include_router(ws_router, prefix="/api/v1")

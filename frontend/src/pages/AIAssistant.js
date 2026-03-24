@@ -14,8 +14,15 @@ import {
   Upload,
   MessageCircle,
   Trash2,
+  PanelLeftClose,
+  PanelRightClose,
+  PanelRight,
+  PanelLeft,
 } from 'lucide-react';
 import './AIAssistant.css';
+
+const HISTORY_SIDEBAR_KEY = 'ada:chat-history-collapsed';
+const CONTEXT_SIDEBAR_KEY = 'ada:chat-context-collapsed';
 
 function AIAssistant() {
   const navigate = useNavigate();
@@ -36,6 +43,12 @@ function AIAssistant() {
   const [contextSearch, setContextSearch] = useState('');
   const [error, setError] = useState(null);
   const [retryingDocId, setRetryingDocId] = useState(null);
+  const [historySidebarCollapsed, setHistorySidebarCollapsed] = useState(
+    () => localStorage.getItem(HISTORY_SIDEBAR_KEY) === '1'
+  );
+  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(
+    () => localStorage.getItem(CONTEXT_SIDEBAR_KEY) === '1'
+  );
   const chatAreaRef = useRef(null);
   const inputRef = useRef(null);
   const contextSearchRef = useRef(null);
@@ -81,6 +94,14 @@ function AIAssistant() {
     fetchWorkspaces();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(HISTORY_SIDEBAR_KEY, historySidebarCollapsed ? '1' : '0');
+  }, [historySidebarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem(CONTEXT_SIDEBAR_KEY, contextSidebarCollapsed ? '1' : '0');
+  }, [contextSidebarCollapsed]);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -537,6 +558,12 @@ function AIAssistant() {
 
   const activeContextDocuments = filteredDocuments.filter((document) => selectedDocuments.includes(document.id));
   const availableContextDocuments = filteredDocuments.filter((document) => !selectedDocuments.includes(document.id));
+  const allFilteredSelected =
+    filteredDocuments.length > 0 && availableContextDocuments.length === 0;
+
+  const handleSelectAllFilteredDocuments = () => {
+    setSelectedDocuments(filteredDocuments.map((d) => d.id));
+  };
   const readyDocumentCount = documents.filter((doc) => String(doc.status || '').toLowerCase() === 'ready').length;
   const hasSelectedContext = selectedDocumentRecords.length > 0;
   const selectedScopeLabel = hasSelectedContext
@@ -572,83 +599,130 @@ function AIAssistant() {
     shouldAutoScrollRef.current = distanceFromBottom < 80;
   };
 
+  const shellClass =
+    `ada-chat-shell${historySidebarCollapsed ? ' ada-chat-shell--collapse-left' : ''}${
+      contextSidebarCollapsed ? ' ada-chat-shell--collapse-right' : ''
+    }`;
+
   return (
     <div className="ada-chat-page">
-      <div className="ada-chat-shell">
-        <aside className="ada-left-rail" aria-label="Conversation navigation">
-          <button
-            type="button"
-            className="ada-new-chat-btn"
-            onClick={handleCreateConversation}
-            disabled={!activeWorkspaceId || loadingThread || creatingConversation}
-          >
-            <Plus size={16} />
-            New Investigation
-          </button>
-
-          <div className="ada-left-section">
-            <p className="ada-section-label">Knowledge Base</p>
-            <button type="button" className="ada-nav-item active">
-              <MessageCircle size={14} />
-              <span>Current Chat</span>
-            </button>
-            <button type="button" className="ada-nav-item" onClick={() => navigate('/documents')}>
-              <span>All Documents</span>
-            </button>
-            <button type="button" className="ada-nav-item" onClick={() => navigate('/search')}>
-              <span>Search Knowledge</span>
-            </button>
-          </div>
-
-          <div className="ada-left-section">
-            <p className="ada-section-label">Recent History</p>
-            <div className="ada-history-list">
-              {conversations.length === 0 ? (
-                <p className="ada-muted-line">No previous investigations</p>
-              ) : (
-                conversations.slice(0, 8).map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className={`ada-history-item ${activeConversation?.id === conversation.id ? 'active' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      className="ada-history-open-btn"
-                      onClick={() => handleConversationSelect(conversation)}
-                    >
-                      {conversation.title || 'Untitled conversation'}
-                    </button>
-                    <button
-                      type="button"
-                      className="ada-history-delete-btn"
-                      onClick={() => handleDeleteConversation(conversation)}
-                      disabled={deletingConversationId === conversation.id}
-                      aria-label={`Delete ${conversation.title || 'conversation'}`}
-                    >
-                      {deletingConversationId === conversation.id ? <Loader2 size={12} className="spin" /> : <Trash2 size={12} />}
-                    </button>
-                  </div>
-                ))
-              )}
+      <div className={shellClass}>
+        {!historySidebarCollapsed && (
+          <aside className="ada-left-rail" aria-label="Conversation navigation">
+            <div className="ada-new-chat-row">
+              <button
+                type="button"
+                className="ada-new-chat-btn"
+                onClick={handleCreateConversation}
+                disabled={!activeWorkspaceId || loadingThread || creatingConversation}
+              >
+                <Plus size={16} />
+                New Investigation
+              </button>
+              <button
+                type="button"
+                className="ada-rail-toggle"
+                onClick={() => setHistorySidebarCollapsed(true)}
+                aria-expanded
+                aria-label="Hide conversation history sidebar"
+                title="Hide history"
+              >
+                <PanelLeftClose size={18} aria-hidden />
+              </button>
             </div>
-          </div>
 
-          <div className="ada-left-footer">
-            <div className="ada-presence-row">
-              <span className="ada-avatar-chip small">{viewerName.charAt(0).toUpperCase()}</span>
-              <div>
-                <p className="ada-footer-name">{viewerName}</p>
+            <div className="ada-left-section">
+              <p className="ada-section-label">Knowledge Base</p>
+              <button type="button" className="ada-nav-item active">
+                <MessageCircle size={14} />
+                <span>Current Chat</span>
+              </button>
+              <button type="button" className="ada-nav-item" onClick={() => navigate('/documents')}>
+                <span>All Documents</span>
+              </button>
+              <button type="button" className="ada-nav-item" onClick={() => navigate('/search')}>
+                <span>Search Knowledge</span>
+              </button>
+            </div>
+
+            <div className="ada-left-section">
+              <p className="ada-section-label">Recent History</p>
+              <div className="ada-history-list">
+                {conversations.length === 0 ? (
+                  <p className="ada-muted-line">No previous investigations</p>
+                ) : (
+                  conversations.slice(0, 8).map((conversation) => (
+                    <div
+                      key={conversation.id}
+                      className={`ada-history-item ${activeConversation?.id === conversation.id ? 'active' : ''}`}
+                    >
+                      <button
+                        type="button"
+                        className="ada-history-open-btn"
+                        onClick={() => handleConversationSelect(conversation)}
+                      >
+                        {conversation.title || 'Untitled conversation'}
+                      </button>
+                      <button
+                        type="button"
+                        className="ada-history-delete-btn"
+                        onClick={() => handleDeleteConversation(conversation)}
+                        disabled={deletingConversationId === conversation.id}
+                        aria-label={`Delete ${conversation.title || 'conversation'}`}
+                      >
+                        {deletingConversationId === conversation.id ? <Loader2 size={12} className="spin" /> : <Trash2 size={12} />}
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
-          </div>
-        </aside>
+
+            <div className="ada-left-footer">
+              <div className="ada-presence-row">
+                <span className="ada-avatar-chip small">{viewerName.charAt(0).toUpperCase()}</span>
+                <div>
+                  <p className="ada-footer-name">{viewerName}</p>
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
 
         <main className="ada-main-stage">
           <header className="ada-stage-topbar">
-            <div className="ada-breadcrumbs" aria-label="Current scope">
-              <span>Work Brain</span>
-              <ChevronRight size={12} />
-              <strong>{selectedWorkspaceName}</strong>
+            <div className="ada-stage-topbar-inner">
+              <div className="ada-breadcrumbs" aria-label="Current scope">
+                <span>Work Brain</span>
+                <ChevronRight size={12} />
+                <strong>{selectedWorkspaceName}</strong>
+              </div>
+              <div className="ada-stage-rail-toggles" role="toolbar" aria-label="Sidebar visibility">
+                {historySidebarCollapsed && (
+                  <button
+                    type="button"
+                    className="ada-rail-toggle ada-rail-toggle--ghost"
+                    onClick={() => setHistorySidebarCollapsed(false)}
+                    aria-label="Show conversation history"
+                    title="Show history"
+                  >
+                    <PanelRight size={16} aria-hidden />
+                    <span>History</span>
+                  </button>
+                )}
+                {contextSidebarCollapsed && (
+                  <button
+                    type="button"
+                    className="ada-rail-toggle ada-rail-toggle--ghost"
+                    onClick={() => setContextSidebarCollapsed(false)}
+                    aria-label="Show context and documents"
+                    title="Show context"
+                  >
+                    <PanelLeft size={16} aria-hidden />
+                    <span>Context</span>
+                  </button>
+                )}
+              </div>
             </div>
           </header>
 
@@ -785,13 +859,14 @@ function AIAssistant() {
           </footer>
         </main>
 
-        <aside className="ada-right-context" aria-label="Document context panel">
+        {!contextSidebarCollapsed && (
+          <aside className="ada-right-context" aria-label="Document context panel">
           <div className="ada-context-header-row">
             <h3>Context</h3>
           </div>
 
           <div className="ada-context-search-row">
-            <Search size={14} />
+            <Search size={14} aria-hidden />
             <input
               ref={contextSearchRef}
               type="text"
@@ -800,102 +875,134 @@ function AIAssistant() {
               placeholder="Search knowledge..."
               aria-label="Search knowledge"
             />
+            <button
+              type="button"
+              className="ada-rail-toggle ada-rail-toggle--context-search"
+              onClick={() => setContextSidebarCollapsed(true)}
+              aria-expanded
+              aria-label="Hide document context sidebar"
+              title="Hide context"
+            >
+              <PanelRightClose size={18} aria-hidden />
+            </button>
           </div>
 
-          <div className="ada-right-section">
-            <div className="ada-right-section-header">
-              <p>Active in Chat ({activeContextDocuments.length})</p>
-              <button type="button" onClick={() => setSelectedDocuments([])}>Clear</button>
+          <div className="ada-context-middle">
+            <div className="ada-right-section ada-context-active-section">
+              <div className="ada-right-section-header">
+                <p>Active in Chat ({activeContextDocuments.length})</p>
+                <button type="button" onClick={() => setSelectedDocuments([])}>Clear</button>
+              </div>
+
+              <div className="ada-context-list ada-context-list--active">
+                {activeContextDocuments.length === 0 ? (
+                  <p className="ada-muted-line">No documents selected.</p>
+                ) : (
+                  activeContextDocuments.map((document) => (
+                    <div key={document.id} className="ada-context-item-wrap active">
+                      <button
+                        type="button"
+                        className="ada-context-item active"
+                        onClick={() => toggleDocumentSelection(document.id)}
+                      >
+                        <div>
+                          <strong>{document.filename || document.name}</strong>
+                          <small title={document.status_detail || undefined}>
+                            {document.status_label || String(document.status || 'uploaded').toLowerCase()} • {formatFileSize(document.file_size || document.size_bytes)}
+                          </small>
+                        </div>
+                        <Link2 size={14} />
+                      </button>
+                      {isDocumentFailed(document) && (
+                        <button
+                          type="button"
+                          className="ada-retry-index-btn"
+                          onClick={(e) => { e.stopPropagation(); handleRetryIndexing(document.id, e); }}
+                          disabled={retryingDocId === document.id}
+                          title={document.status_detail || 'Try indexing again'}
+                        >
+                          {retryingDocId === document.id ? (
+                            <Loader2 size={14} className="spin" />
+                          ) : (
+                            'Try again'
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
-            <div className="ada-context-list">
-              {activeContextDocuments.length === 0 ? (
-                <p className="ada-muted-line">No documents selected.</p>
-              ) : (
-                activeContextDocuments.map((document) => (
-                  <div key={document.id} className="ada-context-item-wrap active">
-                    <button
-                      type="button"
-                      className="ada-context-item active"
-                      onClick={() => toggleDocumentSelection(document.id)}
-                    >
+            <div className="ada-right-section ada-context-library-section">
+              <div className="ada-right-section-header ada-context-library-header">
+                <p>Available Library</p>
+                <div className="ada-context-library-actions">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllFilteredDocuments}
+                    disabled={filteredDocuments.length === 0 || allFilteredSelected}
+                    aria-label="Select all documents matching the current folder and search"
+                  >
+                    Select all
+                  </button>
+                  <button type="button" onClick={() => navigate('/documents')}>View all</button>
+                </div>
+              </div>
+
+              <div className="ada-context-list ada-context-list--library">
+                {availableContextDocuments.length === 0 ? (
+                  <p className="ada-muted-line">
+                    {filteredDocuments.length === 0
+                      ? 'No matching documents found.'
+                      : 'All matching documents are selected.'}
+                  </p>
+                ) : (
+                  availableContextDocuments.map((document) => (
+                    <label key={document.id} className="ada-context-item selectable">
+                      <input
+                        type="checkbox"
+                        checked={selectedDocuments.includes(document.id)}
+                        onChange={() => toggleDocumentSelection(document.id)}
+                      />
                       <div>
                         <strong>{document.filename || document.name}</strong>
                         <small title={document.status_detail || undefined}>
-                          {document.status_label || String(document.status || 'uploaded').toLowerCase()} • {formatFileSize(document.file_size || document.size_bytes)}
+                          {document.status_label || String(document.status || 'uploaded').toLowerCase()}
                         </small>
                       </div>
-                      <Link2 size={14} />
-                    </button>
-                    {isDocumentFailed(document) && (
-                      <button
-                        type="button"
-                        className="ada-retry-index-btn"
-                        onClick={(e) => { e.stopPropagation(); handleRetryIndexing(document.id, e); }}
-                        disabled={retryingDocId === document.id}
-                        title={document.status_detail || 'Try indexing again'}
-                      >
-                        {retryingDocId === document.id ? (
-                          <Loader2 size={14} className="spin" />
-                        ) : (
-                          'Try again'
-                        )}
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
+                      {isDocumentFailed(document) && (
+                        <button
+                          type="button"
+                          className="ada-retry-index-btn"
+                          onClick={(e) => handleRetryIndexing(document.id, e)}
+                          disabled={retryingDocId === document.id}
+                          title={document.status_detail || 'Try indexing again'}
+                        >
+                          {retryingDocId === document.id ? (
+                            <Loader2 size={14} className="spin" />
+                          ) : (
+                            'Try again'
+                          )}
+                        </button>
+                      )}
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="ada-right-section">
-            <div className="ada-right-section-header">
-              <p>Available Library</p>
-              <button type="button" onClick={() => navigate('/documents')}>View All</button>
-            </div>
-
-            <div className="ada-context-list">
-              {availableContextDocuments.length === 0 ? (
-                <p className="ada-muted-line">No matching documents found.</p>
-              ) : (
-                availableContextDocuments.slice(0, 8).map((document) => (
-                  <label key={document.id} className="ada-context-item selectable">
-                    <input
-                      type="checkbox"
-                      checked={selectedDocuments.includes(document.id)}
-                      onChange={() => toggleDocumentSelection(document.id)}
-                    />
-                    <div>
-                      <strong>{document.filename || document.name}</strong>
-                      <small title={document.status_detail || undefined}>
-                        {document.status_label || String(document.status || 'uploaded').toLowerCase()}
-                      </small>
-                    </div>
-                    {isDocumentFailed(document) && (
-                      <button
-                        type="button"
-                        className="ada-retry-index-btn"
-                        onClick={(e) => handleRetryIndexing(document.id, e)}
-                        disabled={retryingDocId === document.id}
-                        title={document.status_detail || 'Try indexing again'}
-                      >
-                        {retryingDocId === document.id ? (
-                          <Loader2 size={14} className="spin" />
-                        ) : (
-                          'Try again'
-                        )}
-                      </button>
-                    )}
-                  </label>
-                ))
-              )}
-            </div>
-          </div>
-
-          <button type="button" className="ada-upload-context-btn" onClick={() => navigate('/documents')}>
-            <Upload size={16} />
-            <span>Upload to Context</span>
-            <small>PDF, DOCX, TXT up to 50MB</small>
+          <button
+            type="button"
+            className="ada-upload-context-btn ada-upload-context-btn--compact"
+            onClick={() => navigate('/documents')}
+          >
+            <Upload size={14} aria-hidden />
+            <span className="ada-upload-context-text">
+              <span className="ada-upload-context-title">Add documents</span>
+              <small className="ada-upload-context-hint">Go to Documents · PDF, DOCX, TXT · max 50&nbsp;MB</small>
+            </span>
           </button>
 
           {pendingSelectedDocuments.length > 0 && (
@@ -953,7 +1060,8 @@ function AIAssistant() {
               </select>
             </div>
           </div>
-        </aside>
+          </aside>
+        )}
       </div>
     </div>
   );

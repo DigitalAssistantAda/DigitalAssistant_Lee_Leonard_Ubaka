@@ -16,10 +16,10 @@ done
 - search endpoint supports semantic retrieval with keyword fallback
 - conversations endpoint returns retrieval-based assistant replies
 - summaries endpoint exists (simple extractive summary)
+- chat retrieval is scoped to selected documents when the client sends `document_ids` (vector + keyword paths both respect scope)
 
 broken or partial
 - ai assistant page is retrieval mode, not full llm answer generation
-- selected documents in UI are not enforced in backend retrieval logic
 - legacy `jobs` table removed (use `embedding_jobs`); run `backend/scripts/drop_legacy_jobs_table.sql` on existing DBs if the table still exists
 
 next

@@ -114,6 +114,142 @@ def _format_name_preview(names: list[str], max_items: int = 3) -> str:
     return preview
 
 
+def _is_workspace_catalog_query(query_text: str) -> bool:
+    """True when the user is asking what exists in the library (files/recipes/docs), not content Q&A."""
+    t = (query_text or "").strip().lower()
+    if not t or len(t) > 260:
+        return False
+
+    workspace_scope = any(
+        p in t
+        for p in (
+            "workspace",
+            "uploaded",
+            "library",
+            "in this folder",
+            "my library",
+            "here ",
+            "do i have",
+            "what do i have",
+        )
+    )
+    inventory = any(
+        p in t
+        for p in (
+            "list ",
+            "list my",
+            "list all",
+            "list the",
+            "list documents",
+            "list files",
+            "what documents",
+            "what files",
+            "which documents",
+            "which files",
+            "what recipes",
+            "which recipes",
+            "how many document",
+            "how many file",
+            "everything in",
+            "all my document",
+            "all my file",
+            "show all document",
+            "show all file",
+            "anything in ",
+        )
+    )
+    if not inventory:
+        if ("what " in t or "which " in t) and "available" in t and workspace_scope:
+            return True
+        return False
+
+    mentions_files_or_docs = bool(
+        workspace_scope
+        or "recipe" in t
+        or "document" in t
+        or re.search(r"\bfiles?\b", t)
+    )
+    if mentions_files_or_docs:
+        return True
+    return False
+
+
+def _answer_workspace_catalog(
+    workspace_id: int,
+    db: Session,
+    current_user_id: int | None,
+    limit_to_document_ids: list[int] | None,
+) -> tuple[str, list[int], list[int], bool]:
+    """List workspace file names (same scope as the chat sidebar's workspace library). skip_llm=True."""
+    # Match UI "Available Library" for this workspace — exclude personal uploads without workspace_id
+    # so the list never mentions files the sidebar does not show.
+    q = db.query(Document).filter(
+        Document.status != DocumentStatus.DELETED,
+        Document.workspace_id == workspace_id,
+    )
+    if limit_to_document_ids is not None:
+        q = q.filter(Document.id.in_(limit_to_document_ids))
+
+    docs = q.order_by(Document.filename.asc()).all()
+    _ = current_user_id  # API symmetry; personal-only docs are intentionally omitted here
+
+    if not docs:
+        msg = (
+            "There are no documents in this workspace yet. Upload files from Documents to add them here."
+            if not limit_to_document_ids
+            else "No selected workspace documents are available to list."
+        )
+        return (msg, [], [], True)
+
+    lines: list[str] = []
+    doc_ids: list[int] = []
+    for doc in docs:
+        doc_ids.append(doc.id)
+        name = doc.filename or f"Document {doc.id}"
+        if doc.status == DocumentStatus.READY:
+            lines.append(f"- {name} (ready to search)")
+        else:
+            lines.append(f"- {name} (status: {doc.status.value})")
+
+    if limit_to_document_ids is not None:
+        header = "Here are the workspace documents you currently have selected for context:"
+    else:
+        header = "Here are the documents in this workspace (same set as your Context sidebar lists):"
+
+    body = "\n".join(lines)
+    content = (
+        f"{header}\n\n{body}\n\n"
+        "Ask a follow-up about a specific file if you want details from inside it."
+    )
+    return (content, doc_ids, [], True)
+
+
+def _recent_turns_for_retrieval(conversation_id: int | None, db: Session, limit: int = 6) -> str:
+    """Compact transcript tail so short follow-ups (e.g. \"two regions?\") still retrieve relevant chunks."""
+    if not conversation_id:
+        return ""
+    rows = (
+        db.query(AIMessage)
+        .filter(AIMessage.conversation_id == conversation_id)
+        .order_by(AIMessage.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    if not rows:
+        return ""
+    rows = list(reversed(rows))
+    parts: list[str] = []
+    for m in rows:
+        text = (m.content or "").strip()
+        if not text:
+            continue
+        label = "User" if m.role == MessageRole.USER else "Assistant"
+        if len(text) > 4000:
+            text = text[:3997] + "..."
+        parts.append(f"{label}:\n{text}")
+    return "\n\n".join(parts)
+
+
 def _format_summary_block(filename: str, summary_text: str, detailed: bool) -> str:
     if not detailed:
         return f"{filename}: {summary_text}"
@@ -153,17 +289,22 @@ def _build_assistant_message_content(
     requested_document_ids: list[int] | None = None,
     conversation_id: int | None = None,
     current_user_id: int | None = None,
-) -> tuple[str, list[int], list[int]]:
-    """Build an assistant response grounded in workspace and user's personal documents."""
+) -> tuple[str, list[int], list[int], bool]:
+    """Build an assistant response grounded in workspace and user's personal documents.
+
+    Fourth value is skip_llm_refinement: when True, the message should be shown verbatim
+    (e.g. a complete file list from the database).
+    """
     query_text = (user_query or "").strip()
     if not query_text:
-        return ("Please provide a question so I can search your documents.", [], [])
+        return ("Please provide a question so I can search your documents.", [], [], False)
 
     if _is_simple_greeting_or_small_talk(query_text):
         return (
             "Hi! I'm Ada. Ask me anything about your documents—I can search, summarize, or answer questions using what you've uploaded here.",
             [],
             [],
+            False,
         )
 
     requested_scope = bool(requested_document_ids)
@@ -196,24 +337,51 @@ def _build_assistant_message_content(
                     f"I can see your selected file(s) ({_format_name_preview(pending_selected_names)}), but they are still processing and not searchable yet. Please wait until their status is ready, then try again.{unavailable_suffix}",
                     [],
                     [],
+                    False,
                 )
             return (
                 "I couldn't use the selected documents for this chat. Re-select documents from the current workspace or your personal folders, then try again.",
                 [],
                 [],
+                False,
             )
+
+    if _is_workspace_catalog_query(query_text):
+        limit_ids = scoped_document_ids if requested_scope else None
+        return _answer_workspace_catalog(
+            workspace_id,
+            db,
+            current_user_id,
+            limit_ids,
+        )
 
     followup_summary_request = _is_affirmative_followup(query_text) and _is_summary_followup(conversation_id, db)
     is_summary_request = _is_summary_request(query_text) or followup_summary_request
     detailed_summary_request = _is_detailed_summary_request(query_text) or followup_summary_request
 
+    history_for_embedding = _recent_turns_for_retrieval(conversation_id, db, limit=6)
+    embedding_text = query_text
+    if history_for_embedding:
+        embedding_text = f"{query_text}\n\n---\nRecent conversation:\n{history_for_embedding}"[:12000]
+
+    # Unscoped: fetch many embedding hits, then take the first hit per document (global score order).
+    # That is each document's best cosine match — avoids one file filling a small LIMIT and hiding others.
+    if not requested_scope:
+        vec_limit = 72
+        vec_threshold = 0.17
+        max_docs_from_vector = 8
+    else:
+        vec_limit = 20
+        vec_threshold = 0.2
+        max_docs_from_vector = 6
+
     try:
-        query_embedding = embeddings_service.generate_embedding(query_text)
+        query_embedding = embeddings_service.generate_embedding(embedding_text)
         similar_docs = embeddings_service.find_similar_embeddings(
             query_embedding,
             workspace_id,
-            limit=12,
-            threshold=0.2,
+            limit=vec_limit,
+            threshold=vec_threshold,
             db=db,
             user_id=current_user_id,
         )
@@ -227,7 +395,7 @@ def _build_assistant_message_content(
         db.rollback()
         similar_docs = []
 
-    # Map doc_id → best matched chunk_id from vector search
+    # Map doc_id → best matched chunk_id (first row per doc = highest similarity for that doc)
     vector_chunk_for_doc: dict[int, int] = {}
     for chunk_id, doc_id, _score in similar_docs:
         if doc_id not in vector_chunk_for_doc:
@@ -240,7 +408,7 @@ def _build_assistant_message_content(
         for _chunk_id, doc_id, _score in similar_docs:
             if doc_id not in document_ids:
                 document_ids.append(doc_id)
-            if len(document_ids) == 6:
+            if len(document_ids) >= max_docs_from_vector:
                 break
 
         if not document_ids:
@@ -272,12 +440,46 @@ def _build_assistant_message_content(
                     if len(document_ids) == 3:
                         break
 
+    # Transcript-only embedding: helps short follow-ups after a catalog or long assistant reply.
+    if (
+        not document_ids
+        and history_for_embedding
+        and len(history_for_embedding) > 80
+        and not is_summary_request
+    ):
+        try:
+            fallback_embedding = embeddings_service.generate_embedding(history_for_embedding[:10000])
+            similar_fb = embeddings_service.find_similar_embeddings(
+                fallback_embedding,
+                workspace_id,
+                limit=56,
+                threshold=0.14,
+                db=db,
+                user_id=current_user_id,
+            )
+            if scoped_document_ids:
+                similar_fb = [
+                    (chunk_id, doc_id, score)
+                    for chunk_id, doc_id, score in similar_fb
+                    if doc_id in scoped_document_ids
+                ]
+            for chunk_id, doc_id, _score in similar_fb:
+                if doc_id not in vector_chunk_for_doc:
+                    vector_chunk_for_doc[doc_id] = chunk_id
+                if doc_id not in document_ids:
+                    document_ids.append(doc_id)
+                if len(document_ids) >= max_docs_from_vector:
+                    break
+        except Exception:
+            db.rollback()
+
     if not document_ids:
         selected_scope_note = " in the selected documents" if requested_scope else " in this workspace or your personal folders"
         return (
             f"I couldn't find grounded context{selected_scope_note} yet. Try a more specific question, select different documents, or wait for indexing to finish.",
             [],
             [],
+            False,
         )
 
     docs = db.query(Document).filter(Document.id.in_(document_ids)).all()
@@ -371,6 +573,7 @@ def _build_assistant_message_content(
             "I found related documents but couldn't extract a usable excerpt yet. Try a narrower question or re-select the documents you want me to use.",
             document_ids,
             chunk_ids,
+            False,
         )
 
     pending_scope_note = ""
@@ -402,7 +605,7 @@ def _build_assistant_message_content(
             + "\n\nIf you want, ask a follow-up and I can narrow this down further."
             + pending_scope_note
         )
-    return (content, document_ids, chunk_ids)
+    return (content, document_ids, chunk_ids, False)
 
 
 @router.post("/{workspace_id}", response_model=ConversationResponse)
@@ -568,7 +771,7 @@ async def send_message(
     db.refresh(user_message)
     
     # Generate assistant response grounded in workspace and user's personal documents
-    assistant_content, assistant_doc_ids, assistant_chunk_ids = _build_assistant_message_content(
+    assistant_content, assistant_doc_ids, assistant_chunk_ids, skip_llm_refinement = _build_assistant_message_content(
         request.content,
         workspace_id,
         db,
@@ -577,11 +780,17 @@ async def send_message(
         current_user_id=current_user.id,
     )
 
-    assistant_source = "retrieval"
+    assistant_source = "catalog" if skip_llm_refinement else "retrieval"
     has_selected_scope = bool(request.document_ids)
     has_grounded_context = bool(assistant_doc_ids or assistant_chunk_ids)
     is_greeting_reply = _is_simple_greeting_or_small_talk(request.content) and not assistant_doc_ids
-    if not has_selected_scope and has_grounded_context and not is_greeting_reply and summary_generation_service.is_available():
+    if (
+        not has_selected_scope
+        and has_grounded_context
+        and not is_greeting_reply
+        and not skip_llm_refinement
+        and summary_generation_service.is_available()
+    ):
         try:
             assistant_content = summary_generation_service.generate_grounded_response(
                 user_query=request.content,

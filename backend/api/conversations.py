@@ -784,12 +784,11 @@ async def send_message(
     )
 
     assistant_source = "catalog" if skip_llm_refinement else "retrieval"
-    has_selected_scope = bool(request.document_ids)
     has_grounded_context = bool(assistant_doc_ids or assistant_chunk_ids)
+    # With documents selected, still run the LLM so answers target the question — not raw chunk dumps.
     is_greeting_reply = _is_simple_greeting_or_small_talk(request.content) and not assistant_doc_ids
     if (
-        not has_selected_scope
-        and has_grounded_context
+        has_grounded_context
         and not is_greeting_reply
         and not skip_llm_refinement
         and summary_generation_service.is_available()

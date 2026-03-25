@@ -31,6 +31,20 @@ router = APIRouter(prefix="/conversations", tags=["Conversations"])
 logger = logging.getLogger(__name__)
 
 
+def _owned_workspace_conversation(
+    db: Session,
+    workspace_id: int,
+    conversation_id: int,
+    owner_user_id: int,
+) -> Conversation | None:
+    """Conversation in this workspace started by owner_user_id, or None."""
+    return db.query(Conversation).filter(
+        Conversation.id == conversation_id,
+        Conversation.workspace_id == workspace_id,
+        Conversation.created_by == owner_user_id,
+    ).first()
+
+
 def _is_summary_request(query_text: str) -> bool:
     text = (query_text or "").lower()
     summary_terms = ["summarize", "summary", "tldr", "tl;dr", "overview", "recap"]
@@ -364,34 +378,29 @@ def _build_assistant_message_content(
     if history_for_embedding:
         embedding_text = f"{query_text}\n\n---\nRecent conversation:\n{history_for_embedding}"[:12000]
 
-    # Unscoped: fetch many embedding hits, then take the first hit per document (global score order).
-    # That is each document's best cosine match — avoids one file filling a small LIMIT and hiding others.
+    # One best chunk per document (cosine), then rank documents — no global threshold that drops
+    # whole files whose top match is weaker than a single dominant document.
     if not requested_scope:
-        vec_limit = 72
-        vec_threshold = 0.17
-        max_docs_from_vector = 8
+        max_docs_from_vector = 14
     else:
-        vec_limit = 20
-        vec_threshold = 0.2
         max_docs_from_vector = 6
 
     try:
-        query_embedding = embeddings_service.generate_embedding(embedding_text)
-        similar_docs = embeddings_service.find_similar_embeddings(
-            query_embedding,
-            workspace_id,
-            limit=vec_limit,
-            threshold=vec_threshold,
-            db=db,
-            user_id=current_user_id,
-        )
-        if scoped_document_ids:
-            similar_docs = [
-                (chunk_id, doc_id, score)
-                for chunk_id, doc_id, score in similar_docs
-                if doc_id in scoped_document_ids
-            ]
-    except Exception:
+        query_embedding = embeddings_service.generate_embedding(embedding_text, input_type="query")
+        if is_summary_request and scoped_document_ids:
+            similar_docs = []
+        else:
+            similar_docs = embeddings_service.find_top_chunk_per_document(
+                query_embedding,
+                workspace_id,
+                db=db,
+                user_id=current_user_id,
+                document_ids_filter=scoped_document_ids if requested_scope else None,
+                max_documents=max_docs_from_vector,
+                min_similarity=0.0,
+            )
+    except Exception as exc:
+        logger.warning("Vector search failed for workspace_id=%s: %s: %s", workspace_id, type(exc).__name__, exc)
         db.rollback()
         similar_docs = []
 
@@ -412,33 +421,38 @@ def _build_assistant_message_content(
                 break
 
         if not document_ids:
-            pattern = f"%{query_text}%"
+            keywords = [w for w in re.split(r"\W+", query_text.lower()) if len(w) >= 3]
             doc_scope = (
                 (Document.workspace_id == workspace_id)
                 | ((Document.workspace_id.is_(None)) & (Document.uploaded_by == current_user_id))
             ) if current_user_id else (Document.workspace_id == workspace_id)
-            chunk_query = db.query(DocumentChunk, Document).join(
-                Document, Document.id == DocumentChunk.document_id
-            ).filter(
-                doc_scope,
-                Document.status != DocumentStatus.DELETED,
-                or_(
-                    DocumentChunk.text.ilike(pattern),
-                    Document.filename.ilike(pattern),
-                ),
-            )
 
-            if scoped_document_ids:
-                chunk_query = chunk_query.filter(Document.id.in_(scoped_document_ids))
+            keyword_conditions = []
+            for kw in keywords[:6]:
+                pat = f"%{kw}%"
+                keyword_conditions.append(DocumentChunk.text.ilike(pat))
+                keyword_conditions.append(Document.filename.ilike(pat))
 
-            keyword_rows = chunk_query.order_by(DocumentChunk.id.desc()).limit(6).all()
+            if keyword_conditions:
+                chunk_query = db.query(DocumentChunk, Document).join(
+                    Document, Document.id == DocumentChunk.document_id
+                ).filter(
+                    doc_scope,
+                    Document.status != DocumentStatus.DELETED,
+                    or_(*keyword_conditions),
+                )
 
-            if keyword_rows:
-                for chunk, doc in keyword_rows:
-                    if doc.id not in document_ids:
-                        document_ids.append(doc.id)
-                    if len(document_ids) == 3:
-                        break
+                if scoped_document_ids:
+                    chunk_query = chunk_query.filter(Document.id.in_(scoped_document_ids))
+
+                keyword_rows = chunk_query.order_by(DocumentChunk.id.desc()).limit(12).all()
+
+                if keyword_rows:
+                    for chunk, doc in keyword_rows:
+                        if doc.id not in document_ids:
+                            document_ids.append(doc.id)
+                        if len(document_ids) == 6:
+                            break
 
     # Transcript-only embedding: helps short follow-ups after a catalog or long assistant reply.
     if (
@@ -448,21 +462,16 @@ def _build_assistant_message_content(
         and not is_summary_request
     ):
         try:
-            fallback_embedding = embeddings_service.generate_embedding(history_for_embedding[:10000])
-            similar_fb = embeddings_service.find_similar_embeddings(
+            fallback_embedding = embeddings_service.generate_embedding(history_for_embedding[:10000], input_type="query")
+            similar_fb = embeddings_service.find_top_chunk_per_document(
                 fallback_embedding,
                 workspace_id,
-                limit=56,
-                threshold=0.14,
                 db=db,
                 user_id=current_user_id,
+                document_ids_filter=scoped_document_ids if requested_scope else None,
+                max_documents=max_docs_from_vector,
+                min_similarity=0.0,
             )
-            if scoped_document_ids:
-                similar_fb = [
-                    (chunk_id, doc_id, score)
-                    for chunk_id, doc_id, score in similar_fb
-                    if doc_id in scoped_document_ids
-                ]
             for chunk_id, doc_id, _score in similar_fb:
                 if doc_id not in vector_chunk_for_doc:
                     vector_chunk_for_doc[doc_id] = chunk_id
@@ -470,7 +479,8 @@ def _build_assistant_message_content(
                     document_ids.append(doc_id)
                 if len(document_ids) >= max_docs_from_vector:
                     break
-        except Exception:
+        except Exception as exc:
+            logger.warning("Transcript fallback search failed for workspace_id=%s: %s: %s", workspace_id, type(exc).__name__, exc)
             db.rollback()
 
     if not document_ids:
@@ -645,7 +655,7 @@ async def list_conversations(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """List all conversations in a workspace"""
+    """List conversations in a workspace for the current user (private per member)."""
     
     # Verify workspace access
     require_workspace_access(
@@ -656,7 +666,8 @@ async def list_conversations(
     )
     
     conversations = db.query(Conversation).filter(
-        Conversation.workspace_id == workspace_id
+        Conversation.workspace_id == workspace_id,
+        Conversation.created_by == current_user.id,
     ).order_by(desc(Conversation.last_message_at)).all()
     
     return ConversationListResponse(
@@ -681,12 +692,9 @@ async def get_conversation(
         check_workspace_exists=False,
     )
     
-    # Get conversation
-    conversation = db.query(Conversation).filter(
-        Conversation.id == conversation_id,
-        Conversation.workspace_id == workspace_id
-    ).first()
-    
+    conversation = _owned_workspace_conversation(
+        db, workspace_id, conversation_id, current_user.id
+    )
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     
@@ -717,11 +725,9 @@ async def delete_conversation(
         check_workspace_exists=False,
     )
 
-    conversation = db.query(Conversation).filter(
-        Conversation.id == conversation_id,
-        Conversation.workspace_id == workspace_id,
-    ).first()
-
+    conversation = _owned_workspace_conversation(
+        db, workspace_id, conversation_id, current_user.id
+    )
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
@@ -750,12 +756,9 @@ async def send_message(
         check_workspace_exists=False,
     )
     
-    # Verify conversation exists and belongs to workspace
-    conversation = db.query(Conversation).filter(
-        Conversation.id == conversation_id,
-        Conversation.workspace_id == workspace_id
-    ).first()
-    
+    conversation = _owned_workspace_conversation(
+        db, workspace_id, conversation_id, current_user.id
+    )
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     

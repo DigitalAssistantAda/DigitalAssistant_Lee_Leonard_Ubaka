@@ -101,7 +101,7 @@ function Login({ onLogin }) {
       const endpoint = isRegister ? '/api/v1/auth/register' : '/api/v1/auth/login';
       const payload = isRegister 
         ? formData 
-        : { email_or_username: formData.username, password: formData.password };
+        : { email_or_username: formData.username, password: formData.password, remember_me: rememberMe };
 
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
@@ -125,6 +125,17 @@ function Login({ onLogin }) {
       const data = await response.json();
       localStorage.setItem('token', data.access_token);
       localStorage.setItem('user', JSON.stringify(data.user));
+      if (data.refresh_token) {
+        localStorage.setItem('refresh_token', data.refresh_token);
+      }
+
+      if (!isRegister && rememberMe) {
+        localStorage.setItem('persist_session', 'true');
+      } else {
+        localStorage.removeItem('persist_session');
+        sessionStorage.setItem('session_active', 'true');
+      }
+
       onLogin(data);
     } catch (err) {
       setErrorMessages([err.message || 'Authentication failed']);

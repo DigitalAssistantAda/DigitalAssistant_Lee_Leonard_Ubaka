@@ -194,6 +194,7 @@
   width: 28px;
   height: 28px;
   border: none;
+  box-shadow: none;
   background: transparent;
   border-radius: var(--dash-radius-sm);
   color: var(--dash-gray-500);
@@ -208,13 +209,16 @@
   color: var(--dash-rose-500);
   background: transparent;
   border: none;
+  box-shadow: none;
 }
 
 .cal-nav-btn:focus-visible {
   color: var(--dash-rose-500);
   background: transparent;
   border: none;
-  outline: none;
+  box-shadow: none;
+  outline: 2px solid color-mix(in srgb, var(--dash-rose-500) 45%, transparent);
+  outline-offset: 2px;
 }
 
 .cal-month {

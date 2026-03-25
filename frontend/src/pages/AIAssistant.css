@@ -261,7 +261,8 @@
 }
 
 .ada-history-delete-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--status-danger) 12%, transparent);
+  background: transparent;
+  box-shadow: none;
   color: var(--status-danger);
 }
 
@@ -694,7 +695,8 @@
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  border: 1px solid var(--border-color);
+  border: none;
+  box-shadow: none;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -707,14 +709,14 @@
 .ada-icon-btn:hover {
   color: var(--accent-primary);
   background: transparent;
-  border-color: transparent;
+  box-shadow: none;
 }
 
 .ada-icon-btn:focus-visible {
   color: var(--accent-primary);
   background: transparent;
-  border-color: transparent;
-  outline: none;
+  outline: 2px solid color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  outline-offset: 2px;
 }
 
 .ada-context-search-row {
@@ -1174,4 +1176,19 @@
     font-size: 16px;
     line-height: 24px;
   }
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────── */
+.dark .ada-thread-skeleton {
+  opacity: 0.85;
+}
+
+.dark .typing-indicator span {
+  background: var(--text-muted);
+}
+
+.dark .ada-message.assistant .ada-message-avatar {
+  background: color-mix(in srgb, #c89530 18%, var(--bg-tertiary));
+  border-color: color-mix(in srgb, #c89530 28%, var(--border-color));
+  color: #daa84c;
 }

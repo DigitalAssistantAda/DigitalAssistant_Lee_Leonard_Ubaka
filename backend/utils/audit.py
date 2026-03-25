@@ -200,3 +200,8 @@ class AuditActions:
     MESSAGE_MENTIONED = "message.mentioned"
     MESSAGE_EDITED = "message.edited"
     MESSAGE_DELETED = "message.deleted"
+
+    # Task / issue notifications (recipient in metadata_json.notified_user_id)
+    TASK_ASSIGNED = "task.assigned"
+    TASK_UPDATED = "task.updated"
+    TASK_DELETED = "task.deleted"

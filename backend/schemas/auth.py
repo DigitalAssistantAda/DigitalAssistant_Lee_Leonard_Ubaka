@@ -48,6 +48,7 @@ class ChangePasswordRequest(BaseModel):
 class LoginRequest(BaseModel):
     email_or_username: str
     password: str
+    remember_me: bool = False
 
 
 class TokenResponse(BaseModel):

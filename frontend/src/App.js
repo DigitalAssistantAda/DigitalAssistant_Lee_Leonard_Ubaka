@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
 
@@ -25,7 +25,27 @@ function App() {
   const [loading, setLoading] = useState(true);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
+  useLayoutEffect(() => {
+    if (localStorage.getItem('darkMode') === 'true') {
+      document.documentElement.classList.add('dark');
+    }
+  }, []);
+
   useEffect(() => {
+    // "Remember Me" gate: if the user did not check "remember me" and this
+    // is a fresh browser session (sessionStorage is empty), clear the stored
+    // auth so they are required to log in again.
+    const shouldPersist =
+      localStorage.getItem('persist_session') === 'true' ||
+      sessionStorage.getItem('session_active') === 'true';
+
+    if (!shouldPersist && localStorage.getItem('token')) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('persist_session');
+    }
+
     const fetchCurrentUser = async () => {
       const token = localStorage.getItem('token');
 
@@ -184,9 +204,11 @@ function App() {
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
-      // Clear local storage regardless of API call success
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('persist_session');
+      sessionStorage.removeItem('session_active');
       setUser(null);
     }
   };

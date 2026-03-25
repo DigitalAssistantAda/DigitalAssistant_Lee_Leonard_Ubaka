@@ -12,12 +12,14 @@ from schemas.auth import (
     SuccessResponse,
     UserResponse,
 )
+from datetime import timedelta
 from utils.auth import (
     verify_password,
     get_password_hash,
     create_access_token,
     create_refresh_token,
     get_current_user,
+    REMEMBER_ME_REFRESH_TOKEN_EXPIRE_DAYS,
 )
 from utils.audit import create_audit_log, AuditActions
 from utils.security import (
@@ -139,9 +141,14 @@ async def login(request: LoginRequest, request_context: Request, db: Session = D
         metadata={"email": user.email}
     )
     
-    # Create tokens
+    # Create tokens — extend refresh token lifetime when "remember me" is selected
     access_token = create_access_token(data={"sub": user.id})
-    refresh_token = create_refresh_token(data={"sub": user.id})
+    refresh_expires = (
+        timedelta(days=REMEMBER_ME_REFRESH_TOKEN_EXPIRE_DAYS)
+        if request.remember_me
+        else None
+    )
+    refresh_token = create_refresh_token(data={"sub": user.id}, expires_delta=refresh_expires)
     
     return LoginResponse(
         access_token=access_token,

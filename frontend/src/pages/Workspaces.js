@@ -276,13 +276,41 @@ function Workspaces() {
           <div className="sidebar-card sidebar-actions">
             <button
               className="btn btn-primary"
-              onClick={() => setShowCreateForm(true)}
+              onClick={() => setShowCreateForm((v) => !v)}
               title="Create new workspace"
               aria-label="Create new workspace"
             >
-              <Plus size={18} />
+              <Plus size={14} />
               New Workspace
             </button>
+
+            {showCreateForm && (
+              <div className="create-workspace-panel" role="region" aria-label="Create workspace panel">
+                <div className="panel-header">
+                  <strong>Create Workspace</strong>
+                  <button className="panel-close" onClick={() => setShowCreateForm(false)} aria-label="Close">
+                    <X size={14} />
+                  </button>
+                </div>
+                <form onSubmit={handleCreateWorkspace}>
+                  <label className="panel-label" htmlFor="workspace-name">Name...</label>
+                  <input
+                    id="workspace-name"
+                    type="text"
+                    placeholder="Workspace name"
+                    value={newWorkspace.name}
+                    onChange={(e) => setNewWorkspace({ name: e.target.value })}
+                    required
+                    autoFocus
+                  />
+                  <div className="panel-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowCreateForm(false)}>Cancel</button>
+                    <button type="submit" className="btn btn-primary">Create</button>
+                  </div>
+                </form>
+              </div>
+            )}
+
             <button
               className="btn btn-secondary"
               onClick={() => fetchWorkspaces()}
@@ -315,44 +343,6 @@ function Workspaces() {
         </div>
       )}
 
-      {showCreateForm && (
-        <div className="modal-overlay" onClick={() => setShowCreateForm(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Create Workspace</h2>
-              <button 
-                className="modal-close" 
-                onClick={() => setShowCreateForm(false)}
-                aria-label="Close dialog"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleCreateWorkspace}>
-              <div className="form-group">
-                <label htmlFor="workspace-name">Workspace Name</label>
-                <input
-                  id="workspace-name"
-                  type="text"
-                  placeholder="Workspace name"
-                  value={newWorkspace.name}
-                  onChange={(e) => setNewWorkspace({ name: e.target.value })}
-                  required
-                  autoFocus
-                />
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowCreateForm(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  Create
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
           {selectedWorkspaces.size > 0 && (
             <div className="bulk-actions-bar">

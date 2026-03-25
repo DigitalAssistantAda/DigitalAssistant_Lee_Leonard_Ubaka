@@ -574,7 +574,6 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
 
   return (
     <div className="issues-container">
-      {/* Breadcrumb: left = ← Workspace / Issues, right = Back to Dashboard only */}
       <div className="issues-breadcrumb-row">
         <nav className="issues-breadcrumb" aria-label="Breadcrumb">
           <button
@@ -587,13 +586,6 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
           <span className="issues-breadcrumb-sep">/</span>
           <span className="issues-breadcrumb-current">Issues</span>
         </nav>
-        <button
-          type="button"
-          className="issues-back-link"
-          onClick={() => navigate('/dashboard')}
-        >
-          Back to Dashboard
-        </button>
       </div>
 
       {/* Page header: title left, New Issue right (reference layout) */}
@@ -887,16 +879,18 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                 </div>
                 <div className="issue-detail-actions">
                   <button
+                    type="button"
                     onClick={() => handleEditIssue(selectedIssue)}
-                    className="btn-edit-issue"
+                    className="app-icon-action"
                     title="Edit issue"
                     aria-label="Edit issue"
                   >
                     <Pencil size={16} />
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleDeleteIssue(selectedIssue.id)}
-                    className="btn-delete-issue"
+                    className="app-icon-action app-icon-action--danger"
                     title="Delete issue"
                     aria-label="Delete issue"
                   >
@@ -920,11 +914,6 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                   <option value="closed">Closed</option>
                 </select>
                 <span className="issue-detail-chip">
-                  Assigned to {(selectedIssue.assignees && selectedIssue.assignees.length)
-                    ? `${selectedIssue.assignees.length} people`
-                    : (selectedIssue.assigned_to ? '1 person' : 'Unassigned')}
-                </span>
-                <span className="issue-detail-chip">
                   Due {formatDate(selectedIssue.due_date)}
                 </span>
                 {selectedIssue.priority && (
@@ -942,7 +931,13 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
 
               <div className="issue-detail-controls">
                 <div className="issue-detail-control">
-                  <label>Assignees</label>
+                  <label className="issue-detail-assignees-heading">
+                    assigned (
+                    {(selectedIssue.assignees && selectedIssue.assignees.length)
+                      ? selectedIssue.assignees.length
+                      : (selectedIssue.assigned_to ? 1 : 0)}
+                    )
+                  </label>
                   <div className="assignee-list">
                     {(!selectedIssue.assignees || selectedIssue.assignees.length === 0)
                       && <span className="assignee-pill">Unassigned</span>}

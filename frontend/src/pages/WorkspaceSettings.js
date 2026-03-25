@@ -574,8 +574,9 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
                               <option value="owner">Owner</option>
                             </select>
                             <button
+                              type="button"
                               onClick={() => handleRemoveMember(member.user_id)}
-                              className="btn-remove"
+                              className="app-icon-action app-icon-action--danger"
                               title="Remove member"
                               aria-label="Remove member"
                             >

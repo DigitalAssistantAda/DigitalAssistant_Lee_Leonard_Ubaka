@@ -193,3 +193,48 @@ code {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+.dark .skeleton {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-primary) 6%, var(--bg-tertiary)) 0%,
+    color-mix(in srgb, var(--accent-primary) 14%, var(--bg-tertiary)) 40%,
+    color-mix(in srgb, var(--accent-primary) 6%, var(--bg-tertiary)) 80%
+  );
+  background-size: 200% 100%;
+}
+
+/* Icon-only controls: no border, fill, or shadow — feedback via color only */
+button.app-icon-action {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0.35rem;
+  margin: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-base);
+  transition: color var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out);
+}
+
+button.app-icon-action:hover {
+  color: var(--text-primary);
+  background: transparent;
+  box-shadow: none;
+}
+
+button.app-icon-action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  outline-offset: 2px;
+}
+
+button.app-icon-action--danger {
+  color: var(--status-danger);
+}
+
+button.app-icon-action--danger:hover {
+  color: var(--status-danger);
+}

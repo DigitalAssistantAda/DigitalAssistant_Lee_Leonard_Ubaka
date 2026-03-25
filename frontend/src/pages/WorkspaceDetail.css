@@ -772,7 +772,7 @@
 }
 
 .error {
-  color: #991b1b;
+  color: var(--status-danger, #991b1b);
 }
 
 /* Responsive */

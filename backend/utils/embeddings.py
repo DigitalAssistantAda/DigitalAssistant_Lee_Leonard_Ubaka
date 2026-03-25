@@ -2,7 +2,7 @@
 Embeddings utility module - vector generation and similarity search.
 Supports local models (Sentence Transformers) for fine-tuning and Voyage AI as optional API.
 """
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Sequence
 import logging
 from config import settings
 from database import SessionLocal
@@ -27,10 +27,10 @@ class BaseEmbeddingsService:
     def embedding_dimension(self) -> int:
         raise NotImplementedError
 
-    def generate_embedding(self, text: str) -> List[float]:
+    def generate_embedding(self, text: str, *, input_type: str = "document") -> List[float]:
         raise NotImplementedError
 
-    def generate_batch_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def generate_batch_embeddings(self, texts: List[str], *, input_type: str = "document") -> List[List[float]]:
         raise NotImplementedError
 
     def find_similar_embeddings(
@@ -89,6 +89,97 @@ class BaseEmbeddingsService:
             stmt = text(stmt_str).bindparams(**params)
             results = db.execute(stmt)
             return results.fetchall()
+        finally:
+            if owns_session and db:
+                db.close()
+
+    def find_top_chunk_per_document(
+        self,
+        query_embedding: List[float],
+        workspace_id: int,
+        db: Session = None,
+        user_id: Optional[int] = None,
+        document_ids_filter: Optional[Sequence[int]] = None,
+        max_documents: int = 10,
+        min_similarity: float = 0.0,
+    ) -> List[Tuple[int, int, float]]:
+        """For each document, take the single most similar chunk (cosine), then rank documents.
+
+        Unlike ``find_similar_embeddings`` with a global LIMIT/threshold, every document that has
+        embeddings can contribute its best-matching chunk — so one very similar file cannot
+        crowd out all others below an absolute cutoff.
+        """
+        if document_ids_filter is not None and len(document_ids_filter) == 0:
+            return []
+
+        owns_session = db is None
+        if db is None:
+            db = SessionLocal()
+
+        vector_param = "[" + ",".join(str(value) for value in query_embedding) + "]"
+
+        if user_id is not None:
+            where_clause = (
+                "(d.workspace_id = :workspace_id OR (d.workspace_id IS NULL AND d.uploaded_by = :user_id))"
+            )
+            params: dict = {
+                "query_embedding": vector_param,
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "model_name": self.model_name,
+                "doc_limit": max_documents,
+                "min_sim": min_similarity,
+            }
+        else:
+            where_clause = "d.workspace_id = :workspace_id"
+            params = {
+                "query_embedding": vector_param,
+                "workspace_id": workspace_id,
+                "model_name": self.model_name,
+                "doc_limit": max_documents,
+                "min_sim": min_similarity,
+            }
+
+        try:
+            doc_filter_sql = ""
+            if document_ids_filter is not None:
+                safe_ids = sorted({int(i) for i in document_ids_filter})
+                doc_filter_sql = " AND d.id IN (" + ",".join(str(i) for i in safe_ids) + ")"
+
+            stmt_str = f"""
+                WITH scored AS (
+                    SELECT
+                        dc.id AS chunk_id,
+                        dc.document_id,
+                        1 - (CAST(ce.embedding AS vector) <=> CAST(:query_embedding AS vector)) AS similarity
+                    FROM chunk_embeddings ce
+                    INNER JOIN document_chunks dc ON ce.chunk_id = dc.id
+                    INNER JOIN documents d ON dc.document_id = d.id
+                    WHERE {where_clause}
+                        {doc_filter_sql}
+                        AND d.status != 'deleted'
+                        AND ce.model_name = :model_name
+                ),
+                ranked AS (
+                    SELECT
+                        chunk_id,
+                        document_id,
+                        similarity,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY document_id ORDER BY similarity DESC
+                        ) AS rn
+                    FROM scored
+                )
+                SELECT chunk_id, document_id, similarity
+                FROM ranked
+                WHERE rn = 1 AND similarity >= :min_sim
+                ORDER BY similarity DESC
+                LIMIT :doc_limit
+            """
+            stmt = text(stmt_str).bindparams(**params)
+            results = db.execute(stmt)
+            rows = results.fetchall()
+            return [(int(r[0]), int(r[1]), float(r[2])) for r in rows]
         finally:
             if owns_session and db:
                 db.close()
@@ -158,7 +249,7 @@ class LocalEmbeddingsService(BaseEmbeddingsService):
     def embedding_dimension(self) -> int:
         return self._embedding_dimension
 
-    def generate_embedding(self, text: str) -> List[float]:
+    def generate_embedding(self, text: str, *, input_type: str = "document") -> List[float]:
         if not text or not text.strip():
             raise ValueError("Cannot embed empty text")
         if len(text) > MAX_TEXT_LENGTH:
@@ -166,7 +257,7 @@ class LocalEmbeddingsService(BaseEmbeddingsService):
         vec = self._model.encode(text, normalize_embeddings=True)
         return vec.tolist()
 
-    def generate_batch_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def generate_batch_embeddings(self, texts: List[str], *, input_type: str = "document") -> List[List[float]]:
         if not texts:
             return []
         for t in texts:
@@ -202,7 +293,7 @@ class VoyageEmbeddingsService(BaseEmbeddingsService):
     def embedding_dimension(self) -> int:
         return self._embedding_dimension
 
-    def generate_embedding(self, text: str) -> List[float]:
+    def generate_embedding(self, text: str, *, input_type: str = "document") -> List[float]:
         if not text or not text.strip():
             raise ValueError("Cannot embed empty text")
         if len(text) > MAX_TEXT_LENGTH:
@@ -217,7 +308,7 @@ class VoyageEmbeddingsService(BaseEmbeddingsService):
                 json={
                     "model": self._model_name,
                     "input": text,
-                    "input_type": "document",
+                    "input_type": input_type,
                 },
                 timeout=30,
             )
@@ -233,7 +324,7 @@ class VoyageEmbeddingsService(BaseEmbeddingsService):
         except Exception as e:
             raise RuntimeError(f"Failed to generate Voyage AI embedding: {str(e)}")
 
-    def generate_batch_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def generate_batch_embeddings(self, texts: List[str], *, input_type: str = "document") -> List[List[float]]:
         if not texts:
             return []
         for t in texts:
@@ -251,7 +342,7 @@ class VoyageEmbeddingsService(BaseEmbeddingsService):
                 json={
                     "model": self._model_name,
                     "input": texts,
-                    "input_type": "document",
+                    "input_type": input_type,
                 },
                 timeout=60,
             )

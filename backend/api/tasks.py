@@ -6,9 +6,12 @@ from datetime import datetime, timezone
 from database import get_db
 from models.task import Task, TaskType, TaskStatus, TaskPriority
 from models.task_assignee import TaskAssignee
+from models.user import User
 from models.workspace import WorkspaceMember, MemberStatus
 from schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskListResponse
 from utils.auth import get_current_user
+from utils.audit import create_audit_log, AuditActions
+from realtime import connection_manager
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -43,6 +46,157 @@ def fetch_task_assignees(db: Session, task_ids: list[int]) -> dict[int, list[int
     return grouped
 
 
+def _assignee_set_for_task(db: Session, task: Task) -> set[int]:
+    m = fetch_task_assignees(db, [task.id])
+    ids = list(m.get(task.id) or [])
+    s = set(ids)
+    if task.assigned_to is not None:
+        s.add(task.assigned_to)
+    return s
+
+
+def _status_str(st) -> str:
+    return st.value if hasattr(st, "value") else str(st)
+
+
+def _priority_str(pr) -> str | None:
+    if pr is None:
+        return None
+    return pr.value if hasattr(pr, "value") else str(pr)
+
+
+async def _ping_notification_users(user_ids: set[int]) -> None:
+    msg = {"type": "notifications.changed", "payload": {}}
+    for uid in user_ids:
+        await connection_manager.send_to_user(uid, msg)
+
+
+async def _notify_task_deleted(
+    db: Session,
+    actor: User,
+    workspace_id: int,
+    task_id: int,
+    task_title: str,
+    recipient_ids: set[int],
+) -> None:
+    targets: set[int] = set()
+    for uid in recipient_ids:
+        if uid == actor.id:
+            continue
+        create_audit_log(
+            db,
+            actor,
+            action=AuditActions.TASK_DELETED,
+            object_type="task",
+            object_id=task_id,
+            metadata={
+                "notified_user_id": uid,
+                "task_id": task_id,
+                "workspace_id": workspace_id,
+                "task_title": task_title,
+            },
+            workspace_id=workspace_id,
+        )
+        targets.add(uid)
+    await _ping_notification_users(targets)
+
+
+async def _notify_new_task_assignees(
+    db: Session,
+    actor: User,
+    workspace_id: int,
+    task: Task,
+    assignee_ids: list[int],
+) -> None:
+    targets: set[int] = set()
+    for uid in assignee_ids:
+        if uid == actor.id:
+            continue
+        create_audit_log(
+            db,
+            actor,
+            action=AuditActions.TASK_ASSIGNED,
+            object_type="task",
+            object_id=task.id,
+            metadata={
+                "notified_user_id": uid,
+                "task_id": task.id,
+                "workspace_id": workspace_id,
+                "task_title": task.title,
+            },
+            workspace_id=workspace_id,
+        )
+        targets.add(uid)
+    await _ping_notification_users(targets)
+
+
+async def _notify_task_updates(
+    db: Session,
+    actor: User,
+    workspace_id: int,
+    task: Task,
+    old_assignees: set[int],
+    new_assignees: set[int],
+    old_title: str,
+    old_description: str | None,
+    old_status: str,
+    old_priority: str | None,
+    old_due,
+) -> None:
+    newly_added = new_assignees - old_assignees
+    removed = old_assignees - new_assignees
+    field_changed = (
+        task.title != old_title
+        or (task.description or "") != (old_description or "")
+        or _status_str(task.status) != old_status
+        or _priority_str(task.priority) != old_priority
+        or task.due_date != old_due
+    )
+
+    ping: set[int] = set()
+
+    for uid in newly_added:
+        if uid == actor.id:
+            continue
+        create_audit_log(
+            db,
+            actor,
+            action=AuditActions.TASK_ASSIGNED,
+            object_type="task",
+            object_id=task.id,
+            metadata={
+                "notified_user_id": uid,
+                "task_id": task.id,
+                "workspace_id": workspace_id,
+                "task_title": task.title,
+            },
+            workspace_id=workspace_id,
+        )
+        ping.add(uid)
+
+    if field_changed or removed:
+        for uid in new_assignees:
+            if uid == actor.id or uid in newly_added:
+                continue
+            create_audit_log(
+                db,
+                actor,
+                action=AuditActions.TASK_UPDATED,
+                object_type="task",
+                object_id=task.id,
+                metadata={
+                    "notified_user_id": uid,
+                    "task_id": task.id,
+                    "workspace_id": workspace_id,
+                    "task_title": task.title,
+                },
+                workspace_id=workspace_id,
+            )
+            ping.add(uid)
+
+    await _ping_notification_users(ping)
+
+
 def build_task_response(task: Task, assignees: list[int]) -> TaskResponse:
     return TaskResponse(
         id=task.id,
@@ -62,11 +216,11 @@ def build_task_response(task: Task, assignees: list[int]) -> TaskResponse:
 
 
 @router.post("/{workspace_id}", response_model=TaskResponse)
-def create_task(
+async def create_task(
     workspace_id: int,
     task_data: TaskCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Create a new task (issue or deadline) in a workspace."""
     require_workspace_member(workspace_id, current_user.id, db)
@@ -91,7 +245,7 @@ def create_task(
     assignees = normalize_assignees(task_data.assignees, task_data.assigned_to)
     for assignee_id in assignees:
         require_workspace_member(workspace_id, assignee_id, db)
-    
+
     task = Task(
         workspace_id=workspace_id,
         title=task_data.title,
@@ -111,6 +265,7 @@ def create_task(
 
     db.commit()
     db.refresh(task)
+    await _notify_new_task_assignees(db, current_user, workspace_id, task, assignees)
     return build_task_response(task, assignees)
 
 
@@ -127,9 +282,9 @@ def list_tasks(
 ):
     """List tasks in a workspace with optional filtering."""
     require_workspace_member(workspace_id, current_user.id, db)
-    
+
     query = db.query(Task).filter(Task.workspace_id == workspace_id)
-    
+
     if task_type:
         try:
             query = query.filter(Task.type == TaskType(task_type))
@@ -164,7 +319,7 @@ def list_tasks(
                 or_(TaskAssignee.user_id == assignee_id, Task.assigned_to == assignee_id)
             )
         query = query.distinct()
-    
+
     total = query.count()
     tasks = query.order_by(Task.created_at.desc()).offset(skip).limit(limit).all()
 
@@ -195,21 +350,26 @@ def get_task(
 
 
 @router.put("/{workspace_id}/{task_id}", response_model=TaskResponse)
-def update_task(
+async def update_task(
     workspace_id: int,
     task_id: int,
     task_data: TaskUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Update a task."""
     require_workspace_member(workspace_id, current_user.id, db)
     task = db.query(Task).filter(Task.workspace_id == workspace_id, Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    # TODO: Verify user has permission to update (owner or admin)
-    
+
+    old_assignees = _assignee_set_for_task(db, task)
+    old_title = task.title
+    old_description = task.description
+    old_status = _status_str(task.status)
+    old_priority = _priority_str(task.priority)
+    old_due = task.due_date
+
     update_data = task_data.dict(exclude_unset=True)
 
     if "status" in update_data:
@@ -243,30 +403,69 @@ def update_task(
         db.query(TaskAssignee).filter(TaskAssignee.task_id == task.id).delete()
         for assignee_id in normalize_assignees(assignees, None):
             db.add(TaskAssignee(task_id=task.id, user_id=assignee_id))
-    
+
     task.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(task)
     assignees_map = fetch_task_assignees(db, [task.id])
     assignees = assignees_map.get(task.id) or ([task.assigned_to] if task.assigned_to else [])
+    new_assignees = _assignee_set_for_task(db, task)
+
+    notify = (
+        new_assignees != old_assignees
+        or task.title != old_title
+        or (task.description or "") != (old_description or "")
+        or _status_str(task.status) != old_status
+        or _priority_str(task.priority) != old_priority
+        or task.due_date != old_due
+    )
+    if notify:
+        await _notify_task_updates(
+            db,
+            current_user,
+            workspace_id,
+            task,
+            old_assignees,
+            new_assignees,
+            old_title,
+            old_description,
+            old_status,
+            old_priority,
+            old_due,
+        )
+
     return build_task_response(task, assignees)
 
 
 @router.delete("/{workspace_id}/{task_id}")
-def delete_task(
+async def delete_task(
     workspace_id: int,
     task_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Delete a task."""
     require_workspace_member(workspace_id, current_user.id, db)
     task = db.query(Task).filter(Task.workspace_id == workspace_id, Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    # TODO: Verify user has permission to delete
-    
+
+    assignee_ids = _assignee_set_for_task(db, task)
+    notify_ids = set(assignee_ids)
+    if task.created_by is not None:
+        notify_ids.add(task.created_by)
+    title_snapshot = task.title
+    id_snapshot = task.id
+
     db.delete(task)
     db.commit()
+
+    await _notify_task_deleted(
+        db,
+        current_user,
+        workspace_id,
+        id_snapshot,
+        title_snapshot,
+        notify_ids,
+    )
     return {"message": "Task deleted"}

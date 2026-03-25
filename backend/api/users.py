@@ -79,7 +79,11 @@ async def get_preferences(current_user: User = Depends(get_current_user), db: Se
 
     data = UserPreferencesResponse.model_validate(preferences).model_dump()
     if data.get("dismissed_notification_ids") is None:
-        data["dismissed_notification_ids"] = {"deletion_request_ids": [], "mention_ids": []}
+        data["dismissed_notification_ids"] = {
+            "deletion_request_ids": [],
+            "mention_ids": [],
+            "task_notification_ids": [],
+        }
     return UserPreferencesResponse(**data)
 
 
@@ -104,7 +108,11 @@ async def update_preferences(
 
     data = UserPreferencesResponse.model_validate(preferences).model_dump()
     if data.get("dismissed_notification_ids") is None:
-        data["dismissed_notification_ids"] = {"deletion_request_ids": [], "mention_ids": []}
+        data["dismissed_notification_ids"] = {
+            "deletion_request_ids": [],
+            "mention_ids": [],
+            "task_notification_ids": [],
+        }
     return UserPreferencesResponse(**data)
 
 
@@ -122,12 +130,24 @@ async def dismiss_notifications(
         db.add(preferences)
         db.flush()
 
-    current = preferences.dismissed_notification_ids or {
-        "deletion_request_ids": [],
-        "mention_ids": [],
-    }
-    dr_ids = list(current.get("deletion_request_ids") or [])
-    m_ids = list(current.get("mention_ids") or [])
+    base = dict(preferences.dismissed_notification_ids or {})
+    list_keys = (
+        "deletion_request_ids",
+        "mention_ids",
+        "permanently_deleted_deletion_request_ids",
+        "permanently_deleted_mention_ids",
+        "task_notification_ids",
+        "permanently_deleted_task_notification_ids",
+    )
+    for key in list_keys:
+        if key not in base or not isinstance(base.get(key), list):
+            base[key] = []
+    dr_ids = base["deletion_request_ids"]
+    m_ids = base["mention_ids"]
+    perm_dr_ids = base["permanently_deleted_deletion_request_ids"]
+    perm_m_ids = base["permanently_deleted_mention_ids"]
+    task_ids = base["task_notification_ids"]
+    perm_task_ids = base["permanently_deleted_task_notification_ids"]
 
     for rid in request.deletion_request_ids or []:
         if isinstance(rid, int) and rid not in dr_ids:
@@ -135,15 +155,36 @@ async def dismiss_notifications(
     for mid in request.mention_ids or []:
         if isinstance(mid, str) and mid and mid not in m_ids:
             m_ids.append(mid)
+    for rid in request.permanently_deleted_deletion_request_ids or []:
+        if isinstance(rid, int) and rid not in perm_dr_ids:
+            perm_dr_ids.append(rid)
+    for mid in request.permanently_deleted_mention_ids or []:
+        if isinstance(mid, str) and mid and mid not in perm_m_ids:
+            perm_m_ids.append(mid)
+    for tid in request.task_notification_ids or []:
+        if isinstance(tid, str) and tid and tid not in task_ids:
+            task_ids.append(tid)
+    for tid in request.permanently_deleted_task_notification_ids or []:
+        if isinstance(tid, str) and tid and tid not in perm_task_ids:
+            perm_task_ids.append(tid)
 
     preferences.dismissed_notification_ids = {
+        **base,
         "deletion_request_ids": dr_ids,
         "mention_ids": m_ids,
+        "permanently_deleted_deletion_request_ids": perm_dr_ids,
+        "permanently_deleted_mention_ids": perm_m_ids,
+        "task_notification_ids": task_ids,
+        "permanently_deleted_task_notification_ids": perm_task_ids,
     }
     db.commit()
     db.refresh(preferences)
 
     data = UserPreferencesResponse.model_validate(preferences).model_dump()
     if data.get("dismissed_notification_ids") is None:
-        data["dismissed_notification_ids"] = {"deletion_request_ids": [], "mention_ids": []}
+        data["dismissed_notification_ids"] = {
+            "deletion_request_ids": [],
+            "mention_ids": [],
+            "task_notification_ids": [],
+        }
     return UserPreferencesResponse(**data)

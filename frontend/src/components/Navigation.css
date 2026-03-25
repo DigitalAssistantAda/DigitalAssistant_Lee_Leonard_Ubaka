@@ -55,16 +55,34 @@
 
 /* ── Nav links ── */
 
-.nav-links,
-.nav-actions {
+.nav-links {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
 .nav-actions {
+  display: flex;
+  align-items: center;
   margin-left: auto;
-  gap: 4px;
+  gap: 0;
+  min-height: 40px;
+}
+
+.nav-actions-tools,
+.nav-actions-account {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.nav-actions-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 10px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--border-color) 70%, transparent);
+  border-radius: 1px;
 }
 
 .nav-link {
@@ -101,10 +119,12 @@
   background: transparent;
   border: none;
   border-bottom: 1px solid var(--border-color);
-  height: 32px;
+  min-height: 40px;
+  height: 40px;
   padding: 0 4px;
   min-width: 180px;
   transition: border-color 0.2s ease;
+  box-sizing: border-box;
 }
 
 .nav-search:focus-within {
@@ -154,39 +174,46 @@
 .nav-icon {
   background: transparent;
   border: none;
+  box-shadow: none;
   color: var(--text-secondary);
   cursor: pointer;
-  height: 36px;
-  width: 36px;
+  height: 40px;
+  width: 40px;
+  min-height: 40px;
+  min-width: 40px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  transition: color 0.15s ease;
+  flex-shrink: 0;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
 .nav-icon:hover {
   color: var(--accent-primary);
-  background: transparent;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
   border: none;
+  box-shadow: none;
 }
 
 .nav-icon:focus-visible {
   color: var(--accent-primary);
   background: transparent;
   border: none;
-  outline: none;
+  box-shadow: none;
+  outline: 2px solid color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  outline-offset: 2px;
 }
 
 .nav-notification-badge {
   position: absolute;
-  top: 3px;
-  right: 2px;
+  top: 5px;
+  right: 5px;
   min-width: 18px;
   height: 18px;
-  padding: 0 4px;
+  padding: 0 5px;
   border-radius: 999px;
   background: var(--accent-primary);
   color: var(--accent-contrast);
@@ -194,33 +221,37 @@
   font-weight: 600;
   line-height: 18px;
   text-align: center;
-  border: 1px solid var(--bg-primary);
+  border: 2px solid var(--bg-primary);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 25%, transparent);
+  pointer-events: none;
 }
 
 /* ── Avatar ── */
 
 .nav-avatar {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   color: var(--accent-primary);
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 2px solid transparent;
   cursor: pointer;
-  margin-left: 4px;
   flex-shrink: 0;
-  transition: border-color 0.15s ease;
+  padding: 0;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .nav-avatar:hover {
   border-color: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
 }
 
 /* ═══ Responsive ═══ */
@@ -252,7 +283,13 @@
 
   .nav-actions {
     margin-left: auto;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 4px;
+  }
+
+  .nav-actions-divider {
+    margin: 0 6px;
   }
 
   .nav-search {

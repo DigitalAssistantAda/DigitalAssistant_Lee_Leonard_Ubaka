@@ -38,3 +38,16 @@
   color: var(--text-muted, #999);
   letter-spacing: 0.08em;
 }
+
+/* ── Dark mode ─────────────────────────────────────────────────── */
+.dark .petal-spinner-page {
+  background: var(--bg-primary);
+}
+
+.dark .petal-spinner-page .petal-spinner-label {
+  color: var(--text-muted);
+}
+
+.dark .petal-spinner img {
+  filter: brightness(1.1) drop-shadow(0 0 6px color-mix(in srgb, var(--accent-primary) 35%, transparent));
+}

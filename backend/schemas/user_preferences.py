@@ -24,3 +24,7 @@ class UpdateUserPreferencesRequest(BaseModel):
 class DismissNotificationsRequest(BaseModel):
     deletion_request_ids: Optional[List[int]] = None
     mention_ids: Optional[List[str]] = None
+    permanently_deleted_deletion_request_ids: Optional[List[int]] = None
+    permanently_deleted_mention_ids: Optional[List[str]] = None
+    task_notification_ids: Optional[List[str]] = None
+    permanently_deleted_task_notification_ids: Optional[List[str]] = None

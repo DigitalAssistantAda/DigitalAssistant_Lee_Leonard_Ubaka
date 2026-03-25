@@ -41,8 +41,13 @@ function Navigation({ user, onLogout }) {
           return;
         }
 
-        const [mentionsResponse, invitationsResponse, deletionRequestsResponse, prefsResponse] = await Promise.all([
+        const [mentionsResponse, tasksAuditResponse, invitationsResponse, deletionRequestsResponse, prefsResponse] = await Promise.all([
           fetch(`${API_URL}/api/v1/audit-logs?action=message.mentioned&limit=200`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }),
+          fetch(`${API_URL}/api/v1/audit-logs?action=task.&limit=200`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -64,10 +69,12 @@ function Navigation({ user, onLogout }) {
           }),
         ]);
 
-        const dismissedMentionIds = new Set(
-          prefsResponse.ok
-            ? (await prefsResponse.json())?.dismissed_notification_ids?.mention_ids ?? []
-            : []
+        const prefsData = prefsResponse.ok ? await prefsResponse.json() : {};
+        const dn = prefsData?.dismissed_notification_ids;
+        const dismissedMentionIds = new Set(Array.isArray(dn?.mention_ids) ? dn.mention_ids : []);
+        const dismissedTaskIds = new Set(Array.isArray(dn?.task_notification_ids) ? dn.task_notification_ids : []);
+        const permanentlyDeletedTaskIds = new Set(
+          Array.isArray(dn?.permanently_deleted_task_notification_ids) ? dn.permanently_deleted_task_notification_ids : []
         );
 
         let mentionCount = 0;
@@ -92,6 +99,28 @@ function Navigation({ user, onLogout }) {
           }, 0);
         }
 
+        let taskNotifyCount = 0;
+        if (tasksAuditResponse.ok) {
+          const tasksData = await tasksAuditResponse.json();
+          const tlogs = Array.isArray(tasksData?.logs) ? tasksData.logs : [];
+          taskNotifyCount = tlogs.reduce((total, log) => {
+            const tid = `task-${log.id}`;
+            if (dismissedTaskIds.has(tid) || permanentlyDeletedTaskIds.has(tid)) return total;
+            let metadata = {};
+            if (typeof log?.metadata_json === 'string') {
+              try {
+                metadata = JSON.parse(log.metadata_json);
+              } catch {
+                metadata = {};
+              }
+            } else if (log?.metadata_json && typeof log.metadata_json === 'object') {
+              metadata = log.metadata_json;
+            }
+            const notifiedUserId = Number(metadata?.notified_user_id);
+            return notifiedUserId === currentUserId ? total + 1 : total;
+          }, 0);
+        }
+
         let invitationsCount = 0;
         if (invitationsResponse.ok) {
           const invitationsData = await invitationsResponse.json();
@@ -107,7 +136,7 @@ function Navigation({ user, onLogout }) {
         }
 
         if (!cancelled) {
-          setNotificationCount(mentionCount + invitationsCount + deletionRequestsCount);
+          setNotificationCount(mentionCount + taskNotifyCount + invitationsCount + deletionRequestsCount);
         }
       } catch (error) {
         if (!cancelled) {
@@ -192,92 +221,107 @@ function Navigation({ user, onLogout }) {
         </div>
 
         <div className="nav-actions">
-          {searchOpen ? (
-            <form className="nav-search" onSubmit={handleNavSearch}>
-              <Search size={15} className="nav-search-icon" />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="nav-search-input"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setSearchOpen(false);
-                  }
-                }}
-                aria-label="Search"
-                autoFocus
-              />
+          <div className="nav-actions-tools">
+            {searchOpen ? (
+              <form className="nav-search" onSubmit={handleNavSearch}>
+                <Search size={16} strokeWidth={2} className="nav-search-icon" aria-hidden />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  className="nav-search-input"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setSearchOpen(false);
+                    }
+                  }}
+                  aria-label="Search"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="nav-search-close"
+                  onClick={() => setSearchOpen(false)}
+                  aria-label="Close search"
+                >
+                  <X size={16} strokeWidth={2} aria-hidden />
+                </button>
+              </form>
+            ) : (
               <button
+                className="nav-icon"
                 type="button"
-                className="nav-search-close"
-                onClick={() => setSearchOpen(false)}
-                aria-label="Close search"
+                title="Search"
+                aria-label="Search"
+                onClick={() => setSearchOpen(true)}
               >
-                <X size={14} />
+                <Search size={18} strokeWidth={2} aria-hidden />
               </button>
-            </form>
-          ) : (
-            <button
-              className="nav-icon"
-              title="Search"
-              aria-label="Search"
-              onClick={() => setSearchOpen(true)}
-            >
-              <Search size={18} />
-            </button>
-          )}
-
-          <button
-            className="nav-icon"
-            title="Notifications"
-            aria-label="Notifications"
-            onClick={() => navigate('/notifications')}
-          >
-            <Bell size={18} />
-            {notificationCount > 0 && (
-              <span className="nav-notification-badge" aria-label={`${notificationCount} notifications`}>
-                {notificationCount > 99 ? '99+' : notificationCount}
-              </span>
             )}
-          </button>
 
-          <button
-            className="nav-icon"
-            title="Settings"
-            aria-label="Settings"
-            onClick={() => navigate('/settings')}
-          >
-            <Settings size={18} />
-          </button>
+            <button
+              type="button"
+              className="nav-icon"
+              title="Notifications"
+              aria-label={
+                notificationCount > 0
+                  ? `Notifications, ${notificationCount} unread`
+                  : 'Notifications'
+              }
+              onClick={() => navigate('/notifications')}
+            >
+              <Bell size={18} strokeWidth={2} aria-hidden />
+              {notificationCount > 0 && (
+                <span className="nav-notification-badge">
+                  {notificationCount > 99 ? '99+' : notificationCount}
+                </span>
+              )}
+            </button>
 
-          <button
-            className="nav-icon"
-            title={darkMode ? 'Light Mode' : 'Dark Mode'}
-            onClick={toggleDarkMode}
-            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+            <button
+              type="button"
+              className="nav-icon"
+              title="Settings"
+              aria-label="Settings"
+              onClick={() => navigate('/settings')}
+            >
+              <Settings size={18} strokeWidth={2} aria-hidden />
+            </button>
 
-          <button
-            className="nav-icon"
-            title="Logout"
-            onClick={onLogout}
-            aria-label="Logout"
-          >
-            <LogOut size={18} />
-          </button>
+            <button
+              type="button"
+              className="nav-icon"
+              title={darkMode ? 'Light Mode' : 'Dark Mode'}
+              onClick={toggleDarkMode}
+              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {darkMode ? <Sun size={18} strokeWidth={2} aria-hidden /> : <Moon size={18} strokeWidth={2} aria-hidden />}
+            </button>
+          </div>
 
-          <button
-            className="nav-avatar"
-            title={user.username || 'Profile'}
-            onClick={() => navigate('/dashboard')}
-            aria-label="User profile"
-          >
-            {profileInitial}
-          </button>
+          <span className="nav-actions-divider" aria-hidden="true" />
+
+          <div className="nav-actions-account">
+            <button
+              type="button"
+              className="nav-avatar"
+              title={user.username || 'Profile'}
+              onClick={() => navigate('/dashboard')}
+              aria-label="User profile"
+            >
+              {profileInitial}
+            </button>
+            <button
+              type="button"
+              className="nav-icon"
+              title="Logout"
+              onClick={onLogout}
+              aria-label="Logout"
+            >
+              <LogOut size={18} strokeWidth={2} aria-hidden />
+            </button>
+          </div>
         </div>
       </div>
     </nav>

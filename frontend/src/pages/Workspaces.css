@@ -68,6 +68,117 @@
   justify-content: center;
 }
 
+/* Inline create workspace panel (collapses under the button) */
+.create-workspace-panel {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border-color, #e0e6ed);
+}
+
+.create-workspace-panel .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.create-workspace-panel .panel-header strong {
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.create-workspace-panel .panel-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.create-workspace-panel .panel-close:hover {
+  color: var(--text-primary);
+}
+
+.create-workspace-panel .panel-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  margin-bottom: 0.35rem;
+}
+
+.create-workspace-panel input {
+  width: 100%;
+  padding: 0.6rem 0;
+  border: none;
+  border-bottom: 1px solid var(--border-color, #e0e6ed);
+  border-radius: 0;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: transparent;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  transition: border-color 0.2s ease;
+}
+
+.create-workspace-panel input:focus {
+  outline: none;
+  border-bottom-color: var(--text-primary);
+}
+
+.create-workspace-panel input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.create-workspace-panel .panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+  justify-content: flex-start;
+}
+
+.create-workspace-panel .panel-actions .btn {
+  width: auto;
+  min-width: 0;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.85rem;
+  border-radius: var(--radius-base);
+}
+
+.create-workspace-panel .panel-actions .btn-secondary {
+  background: none;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.create-workspace-panel .panel-actions .btn-secondary:hover {
+  color: var(--text-primary);
+  background: none;
+}
+
+.create-workspace-panel .panel-actions .btn-primary {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.create-workspace-panel .panel-actions .btn-primary:hover {
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+}
+
 .workspaces-hero {
   padding: 0 0 1.5rem;
   border-bottom: 1px solid var(--border-color, #e0e6ed);
@@ -144,7 +255,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(60, 47, 51, 0.5);
+  background: rgba(60, 47, 51, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -153,11 +264,11 @@
 
 .modal {
   background: var(--bg-primary, #ffffff);
-  border-radius: var(--radius-base);
-  padding: 2rem;
-  max-width: 400px;
+  border-radius: var(--radius-lg);
+  padding: 1.75rem;
+  max-width: 380px;
   width: 90%;
-  box-shadow: none;
+  box-shadow: var(--shadow-lg);
   border: 1px solid var(--border-color, #e0e6ed);
 }
 
@@ -166,63 +277,104 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.5rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--border-color, #e0e6ed);
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .modal-header h2 {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: 1.25rem;
+  font-weight: 400;
 }
 
 .modal-close {
   background: none;
   border: none;
-  color: var(--text-secondary, #6c757d);
+  color: var(--text-muted);
   cursor: pointer;
-  padding: 0.5rem;
-  border-radius: var(--radius-base);
+  padding: 0.25rem;
+  border-radius: 999px;
   display: flex;
   align-items: center;
-  transition: all 0.2s;
+  transition: color 0.2s ease;
 }
 
 .modal-close:hover {
-  color: var(--accent-primary);
+  color: var(--text-primary);
 }
 
 .form-group {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0;
 }
 
 .form-group label {
   display: block;
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   font-weight: 400;
-  color: var(--text-primary);
-  margin-bottom: 0.5rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .modal input {
   width: 100%;
-  padding: 0.75rem;
-  border: 1px solid var(--border-color, #e0e6ed);
-  border-radius: var(--radius-base);
-  font-size: 1rem;
+  padding: 0.6rem 0;
+  border: none;
+  border-bottom: 1px solid var(--border-color, #e0e6ed);
+  border-radius: 0;
+  font-size: 0.95rem;
   font-family: inherit;
-  background: var(--bg-primary, #ffffff);
+  background: transparent;
   color: var(--text-primary, #1a1f35);
   box-sizing: border-box;
+  transition: border-color 0.2s ease;
+}
+
+.modal input:focus {
+  outline: none;
+  border-bottom-color: var(--text-primary);
+}
+
+.modal input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
 }
 
 .modal-actions {
   display: flex;
   gap: 0.75rem;
-  margin-top: 1.5rem;
+  margin-top: 1.75rem;
+  justify-content: flex-end;
 }
 
 .modal-actions .btn {
-  flex: 1;
+  flex: none;
+}
+
+.modal-actions .btn-secondary {
+  background: none;
+  border-color: transparent;
+  color: var(--text-secondary);
+  padding: 0.5rem 0.85rem;
+}
+
+.modal-actions .btn-secondary:hover {
+  color: var(--text-primary);
+  background: none;
+}
+
+.modal-actions .btn-primary {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius-base);
+}
+
+.modal-actions .btn-primary:hover {
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
 }
 
 /* Error Alert */
@@ -557,6 +709,7 @@
   background: transparent;
   color: var(--text-primary);
   border: none;
+  box-shadow: none;
   padding: 0.4rem 0.6rem;
   border-radius: 10px;
   opacity: 0;
@@ -574,6 +727,7 @@
   background: transparent;
   color: var(--accent-primary);
   border: none;
+  box-shadow: none;
 }
 
 @media (hover: none) {
@@ -589,7 +743,8 @@
   background: transparent;
   color: var(--accent-primary);
   border: none;
-  outline: none;
+  outline: 2px solid color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  outline-offset: 2px;
   box-shadow: none;
 }
 

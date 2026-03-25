@@ -13,6 +13,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Pinyon+Script&family=La+Belle+Aurore&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Sen:wght@400;500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
     <title>Ada — Digital Assistant</title>
+    <script>
+      // Apply dark mode before first paint to prevent white flash on loading screens
+      (function(){try{if(localStorage.getItem('darkMode')==='true'){document.documentElement.classList.add('dark');document.querySelector('meta[name="theme-color"]').setAttribute('content','#1b1b1e')}}catch(e){}})();
+    </script>
   </head>
   <body>
     <noscript>Hey. You need to enable JavaScript to run this app.</noscript>

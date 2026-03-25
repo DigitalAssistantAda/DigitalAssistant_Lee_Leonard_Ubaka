@@ -430,24 +430,6 @@
   font-weight: 600;
 }
 
-.btn-remove {
-  background: transparent;
-  border: 1px solid var(--border-color);
-  color: var(--status-danger);
-  cursor: pointer;
-  padding: 0.45rem;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s ease;
-}
-
-.btn-remove:hover {
-  border-color: var(--status-danger);
-  background: color-mix(in srgb, var(--status-danger) 10%, transparent);
-}
-
 .empty-state {
   text-align: center;
   padding: 2rem;
@@ -481,4 +463,13 @@
   .invite-inline-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────── */
+.dark .settings-modal-overlay {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.dark .settings-modal-content {
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
 }

@@ -231,6 +231,9 @@ function UserSettings() {
 
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('persist_session');
+      sessionStorage.removeItem('session_active');
       navigate('/login');
     } catch (err) {
       setProfileError('Failed to delete account');

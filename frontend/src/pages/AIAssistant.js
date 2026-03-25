@@ -296,7 +296,13 @@ function AIAssistant() {
       const data = await response.json();
       const items = Array.isArray(data?.items) ? data.items : Array.isArray(data?.documents) ? data.documents : [];
       setDocuments(items);
-      setSelectedDocuments([]);
+      // Keep context when the list refreshes (indexing, uploads). Clearing here sent [] to the API,
+      // which makes the backend search the entire workspace instead of the selected doc(s).
+      setSelectedDocuments((prev) => {
+        if (!prev.length) return prev;
+        const validIds = new Set(items.map((d) => d.id));
+        return prev.filter((id) => validIds.has(id));
+      });
     } catch (err) {
       setError(getFriendlyErrorMessage(err, 'Failed to load documents'));
     }
@@ -538,12 +544,17 @@ function AIAssistant() {
   };
 
   const toggleDocumentSelection = (docId) => {
-    setSelectedDocuments((prev) =>
-      prev.includes(docId) ? prev.filter((id) => id !== docId) : [...prev, docId]
-    );
+    const id = Number(docId);
+    setSelectedDocuments((prev) => {
+      const normalized = prev.map((x) => Number(x));
+      return normalized.includes(id)
+        ? normalized.filter((x) => x !== id)
+        : [...normalized, id];
+    });
   };
 
-  const selectedDocumentRecords = documents.filter((doc) => selectedDocuments.includes(doc.id));
+  const selectedIdSet = new Set(selectedDocuments.map((id) => Number(id)));
+  const selectedDocumentRecords = documents.filter((doc) => selectedIdSet.has(Number(doc.id)));
   const pendingSelectedDocuments = selectedDocumentRecords.filter(
     (doc) => String(doc.status || '').toLowerCase() !== 'ready'
   );
@@ -556,13 +567,13 @@ function AIAssistant() {
     return haystack.includes(contextSearch.trim().toLowerCase());
   });
 
-  const activeContextDocuments = filteredDocuments.filter((document) => selectedDocuments.includes(document.id));
-  const availableContextDocuments = filteredDocuments.filter((document) => !selectedDocuments.includes(document.id));
+  const activeContextDocuments = filteredDocuments.filter((document) => selectedIdSet.has(Number(document.id)));
+  const availableContextDocuments = filteredDocuments.filter((document) => !selectedIdSet.has(Number(document.id)));
   const allFilteredSelected =
     filteredDocuments.length > 0 && availableContextDocuments.length === 0;
 
   const handleSelectAllFilteredDocuments = () => {
-    setSelectedDocuments(filteredDocuments.map((d) => d.id));
+    setSelectedDocuments(filteredDocuments.map((d) => Number(d.id)));
   };
   const readyDocumentCount = documents.filter((doc) => String(doc.status || '').toLowerCase() === 'ready').length;
   const hasSelectedContext = selectedDocumentRecords.length > 0;
@@ -962,7 +973,7 @@ function AIAssistant() {
                     <label key={document.id} className="ada-context-item selectable">
                       <input
                         type="checkbox"
-                        checked={selectedDocuments.includes(document.id)}
+                        checked={selectedIdSet.has(Number(document.id))}
                         onChange={() => toggleDocumentSelection(document.id)}
                       />
                       <div>

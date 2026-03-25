@@ -1918,94 +1918,113 @@ const handleCreateContainer = async (e) => {
     return 'No folders available yet.';
   }, [filteredDisplayedContainers, searchQuery, ownerFilter]);
 
-  const renderContainerTreeNode = (container, depth = 0) => {
+  const getContainerParentName = (container) => {
+    if (!container.parent_id) return null;
+    const parent = filteredDisplayedContainers.find((c) => String(c.id) === String(container.parent_id));
+    return parent?.name || null;
+  };
+
+  const renderContainerCard = (container, { depth = 0, showToggle = true } = {}) => {
     const childContainers = containerTreeChildren.get(String(container.id)) || [];
     const hasChildren = childContainers.length > 0;
     const isCollapsed = collapsedContainerIds.has(container.id);
     const isDropTarget = dropTargetContainerId === String(container.id);
     const canDelete = canDeleteContainer(container.id);
-    const isUserCreated = canDelete; // alias: user-created or Ada-created (owned by current user)
+    const isUserCreated = canDelete;
+    const parentName = viewMode === 'grid' && container.parent_id ? getContainerParentName(container) : null;
 
     return (
-      <div key={container.id} className="container-tree-node" style={{ marginLeft: `${depth * 18}px` }}>
-        <div
-          className={`container-card ${depth > 0 ? 'container-card-child' : ''} ${isUserCreated ? 'user-created' : 'default-workspace'} ${isDropTarget ? 'is-drop-target' : ''}`}
-          onClick={() => handleFolderDoubleClick(container)}
-          draggable={Number.isFinite(Number(container.id))}
-          onDragStart={(event) => {
-            setDraggedContainerId(Number(container.id));
-            event.dataTransfer.setData('text/plain', String(container.id));
-            event.dataTransfer.effectAllowed = 'move';
-          }}
-          onDragEnd={() => {
-            setDropTargetContainerId(null);
-            setDraggedContainerId(null);
-          }}
-          onDragOver={(event) => {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'move';
-            if (Number(container.id) !== Number(draggedContainerId)) {
-              setDropTargetContainerId(String(container.id));
-            }
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            const movingId = Number(event.dataTransfer.getData('text/plain') || draggedContainerId);
-            if (Number.isFinite(movingId)) {
-              handleMoveContainer(movingId, Number(container.id));
-            }
-            setDropTargetContainerId(null);
-            setDraggedContainerId(null);
-          }}
-          style={{
-            background: `linear-gradient(90deg, ${hexToRgba(container.color, depth > 0 ? 0.05 : 0.06)}, ${hexToRgba(container.color, depth > 0 ? 0.02 : 0.03)})`,
-            borderColor: hexToRgba(container.color, 0.12),
-            cursor: 'pointer'
-          }}
-        >
-          <div className="container-left">
-            <span className="container-drag-handle" title="Drag to move folder" aria-hidden="true">
-              <GripVertical size={14} />
-            </span>
-            {hasChildren ? (
-              <button
-                type="button"
-                className="container-tree-toggle"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleToggleContainerCollapse(container.id);
-                }}
-                title={isCollapsed ? 'Expand subfolders' : 'Collapse subfolders'}
-                aria-label={isCollapsed ? 'Expand subfolders' : 'Collapse subfolders'}
-              >
-                {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-              </button>
-            ) : (
-              <span className="container-tree-toggle-spacer" aria-hidden="true" />
-            )}
-            <div className="container-icon" style={{ background: hexToRgba(container.color, 0.18), borderColor: hexToRgba(container.color, 0.28) }}>
-              <Folder size={18} />
-            </div>
-            <div className="container-wrapper">
-              <div className="container-name">{container.name}</div>
-              <span className="container-origin">{getContainerCreatorLabel(container)}</span>
-            </div>
-          </div>
-          {isUserCreated && (
+      <div
+        className={`container-card ${depth > 0 ? 'container-card-child' : ''} ${isUserCreated ? 'user-created' : 'default-workspace'} ${isDropTarget ? 'is-drop-target' : ''}`}
+        onClick={() => handleFolderDoubleClick(container)}
+        draggable={Number.isFinite(Number(container.id))}
+        onDragStart={(event) => {
+          setDraggedContainerId(Number(container.id));
+          event.dataTransfer.setData('text/plain', String(container.id));
+          event.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragEnd={() => {
+          setDropTargetContainerId(null);
+          setDraggedContainerId(null);
+        }}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          if (Number(container.id) !== Number(draggedContainerId)) {
+            setDropTargetContainerId(String(container.id));
+          }
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          const movingId = Number(event.dataTransfer.getData('text/plain') || draggedContainerId);
+          if (Number.isFinite(movingId)) {
+            handleMoveContainer(movingId, Number(container.id));
+          }
+          setDropTargetContainerId(null);
+          setDraggedContainerId(null);
+        }}
+        style={{
+          background: `linear-gradient(90deg, ${hexToRgba(container.color, depth > 0 ? 0.05 : 0.06)}, ${hexToRgba(container.color, depth > 0 ? 0.02 : 0.03)})`,
+          borderColor: hexToRgba(container.color, 0.12),
+          cursor: 'pointer'
+        }}
+      >
+        <div className="container-left">
+          <span className="container-drag-handle" title="Drag to move folder" aria-hidden="true">
+            <GripVertical size={14} />
+          </span>
+          {showToggle && hasChildren ? (
             <button
               type="button"
-              className="container-delete-btn"
+              className="container-tree-toggle"
               onClick={(event) => {
                 event.stopPropagation();
-                handleDeleteContainer(container.id);
+                handleToggleContainerCollapse(container.id);
               }}
-              aria-label={`Delete ${container.name}`}
-              title="Delete folder"
+              title={isCollapsed ? 'Expand subfolders' : 'Collapse subfolders'}
+              aria-label={isCollapsed ? 'Expand subfolders' : 'Collapse subfolders'}
             >
-              <Trash2 size={14} />
+              {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
             </button>
-          )}
+          ) : showToggle ? (
+            <span className="container-tree-toggle-spacer" aria-hidden="true" />
+          ) : null}
+          <div className="container-icon" style={{ background: hexToRgba(container.color, 0.18), borderColor: hexToRgba(container.color, 0.28) }}>
+            <Folder size={18} />
+          </div>
+          <div className="container-wrapper">
+            <div className="container-name">{container.name}</div>
+            <span className="container-origin">
+              {parentName ? `in ${parentName}` : getContainerCreatorLabel(container)}
+            </span>
+          </div>
         </div>
+        {isUserCreated && (
+          <button
+            type="button"
+            className="container-delete-btn"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleDeleteContainer(container.id);
+            }}
+            aria-label={`Delete ${container.name}`}
+            title="Delete folder"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const renderContainerTreeNode = (container, depth = 0) => {
+    const childContainers = containerTreeChildren.get(String(container.id)) || [];
+    const hasChildren = childContainers.length > 0;
+    const isCollapsed = collapsedContainerIds.has(container.id);
+
+    return (
+      <div key={container.id} className="container-tree-node" style={{ paddingLeft: depth > 0 ? `${depth * 18}px` : undefined }}>
+        {renderContainerCard(container, { depth, showToggle: true })}
         {!isCollapsed && hasChildren && (
           <div className="container-tree-children">
             {childContainers.map((child) => renderContainerTreeNode(child, depth + 1))}
@@ -2013,6 +2032,19 @@ const handleCreateContainer = async (e) => {
         )}
       </div>
     );
+  };
+
+  const flattenContainerTree = (containers) => {
+    const result = [];
+    const walk = (list, depth) => {
+      for (const container of list) {
+        result.push({ container, depth });
+        const children = containerTreeChildren.get(String(container.id)) || [];
+        if (children.length > 0) walk(children, depth + 1);
+      }
+    };
+    walk(containers, 0);
+    return result;
   };
 
   useEffect(() => {
@@ -2108,14 +2140,6 @@ const handleCreateContainer = async (e) => {
         {/* Folder Header */}
         <div className="folder-header">
           <div className="folder-header-left">
-            <button
-              className="folder-back"
-              onClick={handleBackFromFolder}
-              aria-label={parentFolder ? `Back to ${parentFolder.name}` : 'Back to documents'}
-              title={parentFolder ? `Back to ${parentFolder.name}` : 'Back to documents'}
-            >
-              {parentFolder ? 'Up one level' : 'Back'}
-            </button>
             <div
               className="folder-header-icon folder-color-trigger"
               style={{ background: openedFolder.color }}
@@ -2145,56 +2169,66 @@ const handleCreateContainer = async (e) => {
           </div>
         </div>
 
-        {openedFolderPath.length > 0 && (
-          <div className="folder-breadcrumbs" aria-label="Folder path">
-            <button
-              type="button"
-              className="folder-breadcrumb"
-              onClick={() => {
-                setOpenedFolder(null);
-                setFolderDocuments([]);
-                setAutoOrganizeReport(null);
-                setFolderSearchQuery('');
-                setSelectedDocuments(new Set());
-                setSelectedFolders(new Set());
-                setSortBy('lastOpened');
-                setShowCreateContainer(false);
-                setCreateContainerParentId(null);
-                navigate('/documents');
-              }}
-            >
-              All folders
-            </button>
-            {openedFolderPath.length > 1 && openedFolderPath.slice(0, -1).map((folder) => (
-              <React.Fragment key={`breadcrumb-${folder.id}`}>
-                <span className="folder-breadcrumb-separator" aria-hidden="true">
-                  <ChevronRight size={14} />
-                </span>
+        <div className="folder-breadcrumbs" aria-label="Folder path">
+          <button
+            type="button"
+            className="folder-breadcrumb"
+            onClick={() => {
+              setOpenedFolder(null);
+              setFolderDocuments([]);
+              setAutoOrganizeReport(null);
+              setFolderSearchQuery('');
+              setSelectedDocuments(new Set());
+              setSelectedFolders(new Set());
+              setSortBy('lastOpened');
+              setShowCreateContainer(false);
+              setCreateContainerParentId(null);
+              navigate('/documents');
+            }}
+          >
+            All folders
+          </button>
+          {openedFolderPath.length > 1 && openedFolderPath.slice(0, -1).map((folder) => (
+            <React.Fragment key={`breadcrumb-${folder.id}`}>
+              <span className="folder-breadcrumb-separator" aria-hidden="true">
+                <ChevronRight size={14} />
+              </span>
+              <button
+                type="button"
+                className="folder-breadcrumb"
+                onClick={() => {
+                  setSelectedDocuments(new Set());
+                  setSelectedFolders(new Set());
+                  setAutoOrganizeReport(null);
+                  setFolderSearchQuery('');
+                  setSortBy('lastOpened');
+                  setShowCreateContainer(false);
+                  setCreateContainerParentId(null);
+                  navigate(`/documents/${folder.id}`);
+                }}
+              >
+                {folder.name}
+              </button>
+            </React.Fragment>
+          ))}
+          {(() => {
+            const wsId = openedFolder?.workspace_id;
+            const ws = wsId ? workspaces.find((w) => Number(w.id) === Number(wsId)) : null;
+            if (!ws) return null;
+            return (
+              <>
+                <span className="folder-breadcrumb-dot" aria-hidden="true">&middot;</span>
                 <button
                   type="button"
-                  className="folder-breadcrumb"
-                  onClick={() => {
-                    setSelectedDocuments(new Set());
-                    setSelectedFolders(new Set());
-                    setAutoOrganizeReport(null);
-                    setFolderSearchQuery('');
-                    setSortBy('lastOpened');
-                    setShowCreateContainer(false);
-                    setCreateContainerParentId(null);
-                    navigate(`/documents/${folder.id}`);
-                  }}
+                  className="folder-breadcrumb folder-breadcrumb-workspace"
+                  onClick={() => navigate(`/workspace/${ws.id}`)}
+                  title={`Go to ${ws.name}`}
                 >
-                  {folder.name}
+                  {ws.name}
                 </button>
-              </React.Fragment>
-            ))}
-          </div>
-        )}
-
-        <div className="folder-meta">
-          <span className="meta-pill meta-pill-context" aria-label="Folder type">
-            {isUserCreatedContainer(openedFolder.id) ? 'Personal folder' : 'Workspace folder'}
-          </span>
+              </>
+            );
+          })()}
         </div>
 
         {successMessage && (
@@ -3385,7 +3419,14 @@ const handleCreateContainer = async (e) => {
                   <>Tip: drag a folder onto another folder to nest it. Drop on this area to unnest.</>
                 )}
               </div>
-              {rootTreeContainers.map((c) => renderContainerTreeNode(c, 0))}
+              {viewMode === 'grid'
+                ? flattenContainerTree(rootTreeContainers).map((c) => (
+                    <div key={c.id} className="container-tree-node">
+                      {renderContainerCard(c, { depth: 0, showToggle: false })}
+                    </div>
+                  ))
+                : rootTreeContainers.map((c) => renderContainerTreeNode(c, 0))
+              }
         {filteredDisplayedContainers.length === 0 && (
           <p className="empty-state-text">{emptyStateMessage}</p>
         )}

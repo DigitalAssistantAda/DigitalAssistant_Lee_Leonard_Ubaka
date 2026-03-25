@@ -910,6 +910,7 @@
 
 .container-tree-node {
   width: 100%;
+  min-width: 0;
 }
 
 .container-tree-children {
@@ -968,8 +969,9 @@
 .container-delete-btn {
   opacity: 0;
   pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--border-color, #e0e6ed) 90%, transparent);
-  background: var(--bg-primary);
+  border: none;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-secondary, #6c757d);
   width: 28px;
   height: 28px;
@@ -977,7 +979,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease;
 }
 
 .container-card:hover .container-delete-btn,
@@ -988,8 +990,9 @@
 
 .container-delete-btn:hover {
   color: #ef4444;
-  border-color: color-mix(in srgb, #ef4444 45%, var(--border-color, #e0e6ed));
-  background: color-mix(in srgb, #ef4444 8%, var(--bg-primary));
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 .container-grid-grid .container-card {
   height: 96px;
@@ -1122,8 +1125,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 2rem;
-  border-bottom: 1px solid var(--border-color, #e0e6ed);
+  padding: 2rem 2rem 0.5rem;
   background: var(--bg-primary, #ffffff);
   gap: 1.5rem;
 }
@@ -1238,7 +1240,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 0.35rem;
-  padding: 0 2rem 0.75rem;
+  padding: 0.25rem 2rem 0.75rem;
   margin-bottom: 0;
   color: var(--text-secondary, #6c757d);
 }
@@ -1269,6 +1271,26 @@
   align-items: center;
   color: var(--text-secondary, #6c757d);
   opacity: 0.7;
+}
+
+.folder-breadcrumb-dot {
+  margin: 0 0.25rem;
+  font-size: 0.9rem;
+  opacity: 0.45;
+}
+
+.folder-breadcrumb-workspace {
+  color: var(--accent-primary);
+  font-weight: 400;
+  padding: 0.3rem 0.65rem;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+}
+
+.folder-breadcrumb-workspace:hover {
+  color: var(--accent-hover, var(--accent-primary));
+  background: transparent;
 }
 
 /* Top toolbar - New Document button, search, and sort */
@@ -2118,6 +2140,7 @@
 .action-menu {
   background: none;
   border: none;
+  box-shadow: none;
   border-radius: 8px;
   color: var(--text-secondary, #6c757d);
   cursor: pointer;
@@ -2127,12 +2150,13 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s ease, background 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .action-menu:hover {
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary, #f8f9fa));
+  background: transparent;
+  box-shadow: none;
 }
 
 .action-menu:focus-visible {
@@ -2168,7 +2192,8 @@
 
 .action-menu.delete-btn:hover {
   color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
+  background: transparent;
+  box-shadow: none;
 }
 
 @keyframes documentsActionSpin {

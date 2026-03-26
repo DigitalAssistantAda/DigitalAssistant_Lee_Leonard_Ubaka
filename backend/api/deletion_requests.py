@@ -35,14 +35,7 @@ def _parse_storage_uri(storage_uri: str) -> tuple[str, str]:
 
 
 def _serialize_deletion_request(request: DocumentDeletionRequest, db: Session):
-    """
-    Enriched deletion-request payload for Notifications UI.
-
-    Includes:
-      - sender username
-      - document filename
-      - location (workspace name + container name if available)
-    """
+   
     sender = db.query(User).filter(User.id == request.requested_by).first()
     document = db.query(Document).filter(Document.id == request.document_id).first()
 
@@ -63,6 +56,11 @@ def _serialize_deletion_request(request: DocumentDeletionRequest, db: Session):
         "document_id": request.document_id,
         "document": document,
         "requested_by": request.requested_by,
+        "requested_by_user": {
+            "id": sender.id,
+            "username": sender.username,
+            "email": sender.email,
+        } if sender else None,
         "requested_by_username": sender.username if sender else None,
         "reason": request.reason,
         "status": request.status,

@@ -276,7 +276,11 @@ function NotificationsPage() {
   const handleOpenMentionDiscussion = (mention) => {
     const wsId = mention?.workspace_id;
     if (!wsId) return;
-    navigate(`/workspace/${wsId}?tab=discussion`);
+    const params = new URLSearchParams({ tab: 'discussion' });
+    if (mention?.message_id != null) {
+      params.set('messageId', String(mention.message_id));
+    }
+    navigate(`/workspace/${wsId}?${params.toString()}`);
   };
 
   const handleOpenWorkspaceIssues = (row) => {
@@ -321,7 +325,7 @@ function NotificationsPage() {
   const pendingDeletionNotifications = notifications.filter(n => n.status === 'pending');
   const pendingCount = pendingDeletionNotifications.length + workspaceInvitations.length;
 
-  // Non-pending, not permanently deleted
+  // Non pending, not permanently deleted
   const respondedNotDismissed = notifications.filter(
     (n) => n.status !== 'pending' && !drDismissed.includes(n.id) && !permDrDeleted.includes(n.id)
   );

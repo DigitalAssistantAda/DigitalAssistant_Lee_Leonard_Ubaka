@@ -125,6 +125,64 @@ function Documents({ currentUser }) {
     return Number.isFinite(value) ? value : null;
   }, [currentUser]);
 
+  const normalizeHexColor = (value, fallback = '#93c5fd') => {
+    if (typeof value !== 'string') return fallback;
+    const trimmed = value.trim();
+    if (!trimmed) return fallback;
+
+    const raw = trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
+    if (/^[0-9a-fA-F]{3}$/.test(raw)) {
+      const expanded = raw.split('').map((ch) => `${ch}${ch}`).join('');
+      return `#${expanded.toLowerCase()}`;
+    }
+
+    if (/^[0-9a-fA-F]{6}$/.test(raw)) {
+      return `#${raw.toLowerCase()}`;
+    }
+
+    return fallback;
+  };
+
+  const getDocumentSizeBytes = (doc) => {
+    const fromBytes = Number(doc?.size_bytes);
+    if (Number.isFinite(fromBytes) && fromBytes >= 0) {
+      return fromBytes;
+    }
+
+    const rawSize = String(doc?.size || '').trim();
+    if (!rawSize) return null;
+
+    const plainNumber = Number(rawSize);
+    if (Number.isFinite(plainNumber) && plainNumber >= 0) {
+      return plainNumber;
+    }
+
+    const match = rawSize.match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)?$/i);
+    if (!match) return null;
+
+    const value = Number(match[1]);
+    const unit = String(match[2] || 'B').toUpperCase();
+    if (!Number.isFinite(value) || value < 0) return null;
+
+    const multipliers = {
+      B: 1,
+      KB: 1024,
+      MB: 1024 * 1024,
+      GB: 1024 * 1024 * 1024,
+    };
+
+    return Math.round(value * (multipliers[unit] || 1));
+  };
+
+  const formatBytes = (bytes) => {
+    const value = Number(bytes);
+    if (!Number.isFinite(value) || value < 0) return '-';
+    if (value < 1024) return `${Math.round(value)} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(2)} MB`;
+    return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
   useEffect(() => {
     fetchWorkspaces();
     fetchContainers();
@@ -591,7 +649,13 @@ const handleCreateContainer = async (e) => {
   }
 
   const scopedWorkspaceId = openedFolder?.workspace_id || null;
-  const isNestedCreation = Number.isFinite(Number(createContainerParentId));
+  const numericParentId = Number(createContainerParentId);
+  const hasValidParentId =
+    createContainerParentId !== null &&
+    createContainerParentId !== '' &&
+    Number.isFinite(numericParentId) &&
+    numericParentId > 0;
+  const isNestedCreation = hasValidParentId;
   const createUrl = scopedWorkspaceId
     ? `${API_URL}/api/v1/workspaces/${Number(scopedWorkspaceId)}/containers`
     : `${API_URL}/api/v1/containers`;
@@ -608,9 +672,7 @@ const handleCreateContainer = async (e) => {
         name: trimmedName,
         color: containerColor,
         workspace_id: scopedWorkspaceId ? Number(scopedWorkspaceId) : null,
-        parent_container_id: Number.isFinite(Number(createContainerParentId))
-          ? Number(createContainerParentId)
-          : null,
+        parent_container_id: hasValidParentId ? numericParentId : null,
       }),
     });
 
@@ -635,7 +697,7 @@ const handleCreateContainer = async (e) => {
       name: created.name || trimmedName,
       color: created.color || containerColor,
       workspace_id: created.workspace_id ?? (scopedWorkspaceId ? Number(scopedWorkspaceId) : null),
-      parent_container_id: created.parent_container_id ?? (Number.isFinite(Number(createContainerParentId)) ? Number(createContainerParentId) : null),
+      parent_container_id: created.parent_container_id ?? (hasValidParentId ? numericParentId : null),
       created_by: created.created_by,
       created_at: created.created_at,
       type: normalizedType,
@@ -1699,13 +1761,13 @@ const handleCreateContainer = async (e) => {
 
     return (Array.isArray(dbContainers) ? dbContainers : []).map((container, idx) => ({
       ...container,
-      color: container.color || palette[idx % palette.length],
+      color: normalizeHexColor(container?.color, palette[idx % palette.length]),
       type: container.type || (container.workspace_id ? 'workspace' : 'user'),
     }));
   }, [dbContainers]);
 
   const hexToRgba = (hex, alpha) => {
-    const h = hex.replace('#','');
+    const h = normalizeHexColor(hex).replace('#','');
     const bigint = parseInt(h, 16);
     const r = (bigint >> 16) & 255;
     const g = (bigint >> 8) & 255;
@@ -1715,7 +1777,10 @@ const handleCreateContainer = async (e) => {
 
   const displayedContainers = useMemo(() => {
     const localOnly = createdContainers.filter((container) => typeof container.id === 'string' && container.id.startsWith('local-'));
-    return [...containers, ...localOnly];
+    return [...containers, ...localOnly].map((container) => ({
+      ...container,
+      color: normalizeHexColor(container?.color),
+    }));
   }, [containers, createdContainers]);
 
   const openedFolderSubfolders = useMemo(() => {
@@ -1769,8 +1834,8 @@ const handleCreateContainer = async (e) => {
         break;
       case 'size':
         sortedDocuments.sort((a, b) => {
-          const sizeA = parseInt(a.size);
-          const sizeB = parseInt(b.size);
+          const sizeA = getDocumentSizeBytes(a) ?? 0;
+          const sizeB = getDocumentSizeBytes(b) ?? 0;
           return sizeB - sizeA;
         });
         break;
@@ -2713,7 +2778,7 @@ const handleCreateContainer = async (e) => {
                       )}
                     </div>
                     )}
-                    {folderTableColumnConfig.some((c) => c.key === 'size') && <div className="col-size">{doc.size_bytes ? `${(doc.size_bytes / 1024 / 1024).toFixed(2)} MB` : doc.size || '-'}</div>}
+                    {folderTableColumnConfig.some((c) => c.key === 'size') && <div className="col-size">{formatBytes(getDocumentSizeBytes(doc))}</div>}
                     {folderTableColumnConfig.some((c) => c.key === 'status') && (
                       <div className="col-status">
                         <span className={`document-status document-status--tag ${statusDisplay.statusKey}`} title={statusDisplay.detail || undefined} aria-label={`Status: ${statusDisplay.label}${statusDisplay.detail ? `. ${statusDisplay.detail}` : ''}`}>
@@ -2946,7 +3011,7 @@ const handleCreateContainer = async (e) => {
                       <ul>
                         {uploadFiles.map((file, idx) => (
                           <li key={idx} className="file-item">
-                            <span>{file.name}</span>
+                            <span className="file-name" title={file.name}>{file.name}</span>
                             <span className="file-size">
                               {(file.size / 1024 / 1024).toFixed(2)} MB
                             </span>
@@ -2993,7 +3058,7 @@ const handleCreateContainer = async (e) => {
                     className="btn btn-primary"
                     disabled={uploadFiles.length === 0 || !((openedFolder?.id && !openedFolder?.workspace_id) || (openedFolder?.workspace_id || selectedWorkspace)) || uploading}
                   >
-                    {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/5)`}
+                    {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/50)`}
                   </button>
                 </div>
               </form>
@@ -3328,7 +3393,7 @@ const handleCreateContainer = async (e) => {
                       <ul>
                         {uploadFiles.map((file, idx) => (
                           <li key={idx} className="file-item">
-                            <span>{file.name}</span>
+                            <span className="file-name" title={file.name}>{file.name}</span>
                             <span className="file-size">
                               {(file.size / 1024 / 1024).toFixed(2)} MB
                             </span>
@@ -3377,7 +3442,7 @@ const handleCreateContainer = async (e) => {
                   className="btn btn-primary"
                   disabled={uploadFiles.length === 0 || !((openedFolder?.id && !openedFolder?.workspace_id) || (openedFolder?.workspace_id || selectedWorkspace)) || uploading}
                 >
-                  {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/5)`}
+                  {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/50)`}
                 </button>
               </div>
             </form>
@@ -3420,9 +3485,9 @@ const handleCreateContainer = async (e) => {
                 )}
               </div>
               {viewMode === 'grid'
-                ? flattenContainerTree(rootTreeContainers).map((c) => (
-                    <div key={c.id} className="container-tree-node">
-                      {renderContainerCard(c, { depth: 0, showToggle: false })}
+                ? flattenContainerTree(rootTreeContainers).map((node) => (
+                    <div key={node.container.id} className="container-tree-node">
+                      {renderContainerCard(node.container, { depth: 0, showToggle: false })}
                     </div>
                   ))
                 : rootTreeContainers.map((c) => renderContainerTreeNode(c, 0))

@@ -457,12 +457,41 @@ function Documents({ currentUser }) {
     });
   };
 
+  const resolveWorkspaceUploadContainerId = (workspaceId) => {
+    const numericWorkspaceId = Number(workspaceId);
+    if (!Number.isFinite(numericWorkspaceId) || numericWorkspaceId <= 0) return null;
+
+    const workspaceContainers = (Array.isArray(dbContainers) ? dbContainers : []).filter(
+      (container) => Number(container?.workspace_id) === numericWorkspaceId
+    );
+    if (!workspaceContainers.length) return null;
+
+    const defaultContainer = workspaceContainers.find((container) => Boolean(container?.is_workspace_default));
+    if (defaultContainer?.id != null) {
+      const id = Number(defaultContainer.id);
+      if (Number.isFinite(id) && id > 0) return id;
+    }
+
+    const topLevelContainer = workspaceContainers.find((container) => container?.parent_container_id == null);
+    if (topLevelContainer?.id != null) {
+      const id = Number(topLevelContainer.id);
+      if (Number.isFinite(id) && id > 0) return id;
+    }
+
+    return null;
+  };
+
   const handleFileUpload = async (e) => {
     e.preventDefault();
     const targetWorkspaceId = openedFolder?.workspace_id || selectedWorkspace;
     const uploadToPersonalContainer = Boolean(openedFolder?.id && !openedFolder?.workspace_id);
     const targetContainerId = Number(openedFolder?.id || NaN);
     const hasTargetContainer = Number.isFinite(targetContainerId) && targetContainerId > 0;
+    const workspaceUploadContainerId = uploadToPersonalContainer
+      ? null
+      : (openedFolder?.workspace_id && hasTargetContainer
+        ? targetContainerId
+        : resolveWorkspaceUploadContainerId(targetWorkspaceId));
 
     if (uploadFiles.length === 0) {
       setError('Please select at least one file to upload.');
@@ -471,6 +500,11 @@ function Documents({ currentUser }) {
 
     if (!uploadToPersonalContainer && !targetWorkspaceId) {
       setError('Please select a workspace before uploading.');
+      return;
+    }
+
+    if (!uploadToPersonalContainer && !workspaceUploadContainerId) {
+      setError('Could not find a destination folder for this workspace. Refresh and try again.');
       return;
     }
 
@@ -483,8 +517,8 @@ function Documents({ currentUser }) {
         uploadFiles.map(async (file) => {
           try {
             let allowDuplicate = false;
-            if (hasTargetContainer) {
-              const duplicateCheck = await checkDuplicateUploadInContainer(targetContainerId, file);
+            if (workspaceUploadContainerId) {
+              const duplicateCheck = await checkDuplicateUploadInContainer(workspaceUploadContainerId, file);
               if (duplicateCheck?.is_duplicate) {
                 const existingLabel = duplicateCheck.duplicate_filename || `Document #${duplicateCheck.duplicate_document_id}`;
                 const shouldUploadDuplicate = window.confirm(
@@ -499,8 +533,8 @@ function Documents({ currentUser }) {
 
             const formData = new FormData();
             formData.append('file', file);
-            if (openedFolder?.id && !uploadToPersonalContainer) {
-              formData.append('container_id', String(openedFolder.id));
+            if (!uploadToPersonalContainer && workspaceUploadContainerId) {
+              formData.append('container_id', String(workspaceUploadContainerId));
             }
             if (allowDuplicate) {
               formData.append('allow_duplicate', 'true');

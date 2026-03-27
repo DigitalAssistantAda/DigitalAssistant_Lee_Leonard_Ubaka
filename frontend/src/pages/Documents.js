@@ -1984,8 +1984,8 @@ const handleCreateContainer = async (e) => {
   }, [filteredDisplayedContainers, searchQuery, ownerFilter]);
 
   const getContainerParentName = (container) => {
-    if (!container.parent_id) return null;
-    const parent = filteredDisplayedContainers.find((c) => String(c.id) === String(container.parent_id));
+    if (!container.parent_container_id) return null;
+    const parent = filteredDisplayedContainers.find((c) => String(c.id) === String(container.parent_container_id));
     return parent?.name || null;
   };
 
@@ -1996,7 +1996,7 @@ const handleCreateContainer = async (e) => {
     const isDropTarget = dropTargetContainerId === String(container.id);
     const canDelete = canDeleteContainer(container.id);
     const isUserCreated = canDelete;
-    const parentName = viewMode === 'grid' && container.parent_id ? getContainerParentName(container) : null;
+    const parentName = viewMode === 'grid' && container.parent_container_id ? getContainerParentName(container) : null;
 
     return (
       <div
@@ -2059,8 +2059,8 @@ const handleCreateContainer = async (e) => {
           </div>
           <div className="container-wrapper">
             <div className="container-name">{container.name}</div>
-            <span className="container-origin">
-              {parentName ? `in ${parentName}` : getContainerCreatorLabel(container)}
+            <span className={`container-origin ${parentName ? 'container-origin-subfolder' : ''}`}>
+              {parentName ? `Subfolder of ${parentName}` : getContainerCreatorLabel(container)}
             </span>
           </div>
         </div>
@@ -3487,7 +3487,7 @@ const handleCreateContainer = async (e) => {
               {viewMode === 'grid'
                 ? flattenContainerTree(rootTreeContainers).map((node) => (
                     <div key={node.container.id} className="container-tree-node">
-                      {renderContainerCard(node.container, { depth: 0, showToggle: false })}
+                      {renderContainerCard(node.container, { depth: node.depth, showToggle: false })}
                     </div>
                   ))
                 : rootTreeContainers.map((c) => renderContainerTreeNode(c, 0))

@@ -264,6 +264,57 @@ def _recent_turns_for_retrieval(conversation_id: int | None, db: Session, limit:
     return "\n\n".join(parts)
 
 
+def _conversation_memory_window(
+    conversation_id: int | None,
+    db: Session,
+    limit: int,
+    max_chars: int,
+    exclude_message_ids: set[int] | None = None,
+) -> str:
+    """Last N turns for response continuity, clipped for prompt budget."""
+    if not conversation_id or limit <= 0 or max_chars <= 0:
+        return ""
+
+    excluded = exclude_message_ids or set()
+    fetch_limit = max(limit * 3, limit + len(excluded) + 4)
+    rows = (
+        db.query(AIMessage)
+        .filter(AIMessage.conversation_id == conversation_id)
+        .order_by(AIMessage.created_at.desc())
+        .limit(fetch_limit)
+        .all()
+    )
+    if not rows:
+        return ""
+
+    selected: list[AIMessage] = []
+    for msg in rows:
+        if msg.id in excluded:
+            continue
+        if not (msg.content or "").strip():
+            continue
+        selected.append(msg)
+        if len(selected) >= limit:
+            break
+
+    if not selected:
+        return ""
+
+    selected = list(reversed(selected))
+    parts: list[str] = []
+    for msg in selected:
+        label = "User" if msg.role == MessageRole.USER else "Assistant"
+        content = " ".join((msg.content or "").split())
+        if len(content) > 1200:
+            content = content[:1197] + "..."
+        parts.append(f"{label}: {content}")
+
+    while parts and len("\n".join(parts)) > max_chars:
+        parts.pop(0)
+
+    return "\n".join(parts)
+
+
 def _format_summary_block(filename: str, summary_text: str, detailed: bool) -> str:
     if not detailed:
         return f"{filename}: {summary_text}"
@@ -294,6 +345,291 @@ def _is_simple_greeting_or_small_talk(text: str) -> bool:
         "how are you", "whats up", "sup", "yo",
     }
     return normalized in greetings or normalized.startswith(("hi ", "hey ", "hello "))
+
+
+def _is_memory_recall_query(query_text: str) -> bool:
+    text = " ".join((query_text or "").strip().lower().split())
+    if not text:
+        return False
+
+    patterns = [
+        r"\bwhat did i (say|ask|tell|mention)\b",
+        r"\bwhat did i ask you(?: to)? remember\b",
+        r"\b(last|previous)\s+(thing|task|request)\s+i\s+asked\b",
+        r"\bremind me\b",
+        r"\brecall\b",
+        r"\bwhat was that again\b",
+        r"\bwhat (?:were|are) the\b.*\b(region|regions|things? i said|things? i asked|items? i asked)\b",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _is_memory_store_instruction(query_text: str) -> bool:
+    text = " ".join((query_text or "").strip().lower().split())
+    if not text:
+        return False
+    patterns = [
+        r"\bremember (this|that)\b",
+        r"\bplease remember\b",
+        r"\bkeep in mind\b",
+        r"\bmake a note\b",
+        r"\bnote that\b",
+        r"\bthis (file|document|project)\b.*\bbelongs to\b",
+        r"\bthis (file|document|project)\b.*\bhas\b",
+        r"\bthis (file|document|project)\b.*\bis\b",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _is_conversation_summary_query(query_text: str) -> bool:
+    text = " ".join((query_text or "").strip().lower().split())
+    if not text:
+        return False
+    patterns = [
+        r"\bsummar(?:y|ize)\b.*\b(we|our|conversation|chat|discussed)\b",
+        r"\brecap\b.*\b(conversation|chat|what we discussed)\b",
+        r"\bwhat (did|have) we discuss(?:ed)?\b",
+        r"\bsummary of (our|this) (conversation|chat)\b",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _is_non_question_assertion_or_directive(query_text: str) -> bool:
+    text = " ".join((query_text or "").strip().lower().split())
+    if not text or "?" in text:
+        return False
+
+    # Interrogative phrasing without a trailing question mark should still be treated as a question.
+    interrogative_starts = (
+        "what ",
+        "which ",
+        "who ",
+        "where ",
+        "when ",
+        "why ",
+        "how ",
+        "can ",
+        "could ",
+        "would ",
+        "should ",
+        "do ",
+        "does ",
+        "did ",
+        "is ",
+        "are ",
+        "was ",
+        "were ",
+    )
+    if text.startswith(interrogative_starts):
+        return False
+
+    # Let explicit document summary/list/search flows continue to document QA/catalog.
+    if _is_summary_request(text) or _is_workspace_catalog_query(text):
+        return False
+
+    directive_starts = (
+        "set ",
+        "mark ",
+        "label ",
+        "treat ",
+        "use ",
+        "remember ",
+        "store ",
+        "note ",
+        "keep ",
+        "this file ",
+        "this document ",
+        "this project ",
+    )
+    if text.startswith(directive_starts):
+        return True
+
+    if re.search(r"\b(this|that)\s+(file|document|project)\b", text):
+        return True
+
+    # General fallback: treat declarative statements as memory updates.
+    # Excludes explicit question/summary/catalog flows above.
+    return True
+
+
+def _detect_conversation_intent(query_text: str, requested_document_ids: list[int] | None = None) -> str:
+    if _is_simple_greeting_or_small_talk(query_text):
+        return "small_talk"
+    if _is_memory_store_instruction(query_text):
+        return "memory_store"
+    if _is_conversation_summary_query(query_text):
+        return "conversation_summary"
+    if _is_memory_recall_query(query_text):
+        return "memory_recall"
+    if _is_workspace_catalog_query(query_text):
+        return "workspace_catalog"
+    if _is_non_question_assertion_or_directive(query_text):
+        return "memory_store"
+    if requested_document_ids:
+        return "document_qa"
+    return "document_qa"
+
+
+def _extract_memory_candidates(text: str) -> list[str]:
+    content = " ".join((text or "").split())
+    if not content:
+        return []
+
+    candidates: list[str] = []
+    patterns = [
+        r"\bremember(?: that)?\s+(.+)$",
+        r"\bthis (?:file|document|project)\s+belongs to\s+(.+)$",
+        r"\bthis (?:file|document|project)\s+has\s+(.+)$",
+        r"\bthis (?:file|document|project)\s+is\s+(.+)$",
+        r"\b(?:my|our|the)\s+project\s+has\s+(.+)$",
+        r"\b(?:my|our)\s+project\s+is\s+(.+)$",
+        r"\b(?:we|i)\s+(?:have|need|use|prefer)\s+(.+)$",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, content, flags=re.IGNORECASE)
+        if m:
+            fact = m.group(1).strip(" .")
+            if fact and len(fact) >= 3:
+                candidates.append(fact)
+
+    return candidates
+
+
+def _conversation_long_term_memory_facts(
+    conversation_id: int | None,
+    db: Session,
+    max_messages: int = 240,
+    max_facts: int = 48,
+    exclude_message_ids: set[int] | None = None,
+) -> list[str]:
+    if not conversation_id:
+        return []
+    excluded = exclude_message_ids or set()
+    rows = (
+        db.query(AIMessage)
+        .filter(
+            AIMessage.conversation_id == conversation_id,
+            AIMessage.role == MessageRole.USER,
+        )
+        .order_by(AIMessage.created_at.desc())
+        .limit(max_messages)
+        .all()
+    )
+    seen: set[str] = set()
+    facts: list[str] = []
+    for msg in rows:
+        if msg.id in excluded:
+            continue
+        for candidate in _extract_memory_candidates(msg.content or ""):
+            key = re.sub(r"\s+", " ", candidate.lower()).strip()
+            if key in seen:
+                continue
+            seen.add(key)
+            facts.append(candidate)
+            if len(facts) >= max_facts:
+                return facts
+    return facts
+
+
+def _select_relevant_memory_facts(query_text: str, facts: list[str], max_items: int = 4) -> list[str]:
+    if not facts:
+        return []
+    if _is_memory_recall_query(query_text):
+        return facts[:max_items]
+
+    query_tokens = {t for t in re.split(r"\W+", (query_text or "").lower()) if len(t) >= 3}
+    scored: list[tuple[int, int, str]] = []
+    for idx, fact in enumerate(facts):
+        fact_tokens = {t for t in re.split(r"\W+", fact.lower()) if len(t) >= 3}
+        overlap = len(query_tokens & fact_tokens)
+        if overlap <= 0:
+            continue
+        scored.append((overlap, -idx, fact))
+
+    if not scored:
+        return []
+    scored.sort(reverse=True)
+    return [fact for _, _, fact in scored[:max_items]]
+
+
+def _conversation_summary_from_memory(memory_window: str, memory_facts: list[str]) -> str | None:
+    lines = [line.strip() for line in (memory_window or "").splitlines() if line.strip()]
+    if not lines and not memory_facts:
+        return None
+
+    user_turns: list[str] = []
+    assistant_turns: list[str] = []
+    for line in lines:
+        if line.startswith("User:"):
+            user_turns.append(line.split(":", 1)[1].strip())
+        elif line.startswith("Assistant:"):
+            assistant_turns.append(line.split(":", 1)[1].strip())
+
+    bullets: list[str] = []
+    for fact in memory_facts[:3]:
+        bullets.append(f"- You asked me to remember: {fact}")
+    for msg in user_turns[-3:]:
+        if msg and not any(msg.lower() in f.lower() for f in memory_facts):
+            bullets.append(f"- You asked: {msg}")
+    for msg in assistant_turns[-2:]:
+        if msg:
+            bullets.append(f"- I responded: {msg}")
+
+    if not bullets:
+        return None
+
+    return "Here is a recap of what we just discussed:\n\n" + "\n".join(bullets[:6])
+
+
+def _memory_store_acknowledgement(query_text: str) -> str:
+    facts = _extract_memory_candidates(query_text)
+    if facts:
+        return f"Got it. I’ll remember this for our conversation: {facts[0]}."
+    cleaned = " ".join((query_text or "").split()).strip(" .")
+    if cleaned:
+        return f"Got it. I’ll remember that: {cleaned}."
+    return "Got it. I’ll remember that for this conversation."
+
+
+def _memory_recall_answer(query_text: str, memory_window: str, memory_facts: list[str] | None = None) -> str | None:
+    if not _is_memory_recall_query(query_text):
+        return None
+    if (not memory_window or not memory_window.strip()) and not (memory_facts or []):
+        return None
+
+    user_lines = []
+    for line in memory_window.splitlines():
+        if line.startswith("User:"):
+            msg = line.split(":", 1)[1].strip()
+            if msg:
+                user_lines.append(msg)
+    for fact in (memory_facts or []):
+        if fact:
+            user_lines.append(fact)
+
+    if not user_lines:
+        return None
+
+    q = (query_text or "").strip().lower()
+    if "region" in q:
+        patterns = [
+            r"(?:has|have|are|is)\s+(?:two|2)\s+regions?\s*[:\-]\s*([^\n.]+)",
+            r"regions?\s*(?:are|:)\s*([^\n.]+)",
+        ]
+        for msg in reversed(user_lines):
+            for pattern in patterns:
+                m = re.search(pattern, msg, flags=re.IGNORECASE)
+                if m:
+                    regions = " ".join(m.group(1).split()).strip(" .")
+                    if regions:
+                        return f"You previously said your project has two regions: {regions}."
+
+    # Generic fallback for recall-style prompts
+    latest = user_lines[-1]
+    latest = re.sub(r"\bremember that\b", "", latest, flags=re.IGNORECASE).strip(" .")
+    if latest:
+        return f"From earlier in this conversation, you said: \"{latest}\"."
+    return None
 
 
 def _build_assistant_message_content(
@@ -550,22 +886,35 @@ def _build_assistant_message_content(
 
     chunk_ids = []
     lines = []
+    source_rows: list[str] = []
+    seen_source_rows: set[str] = set()
     used_summary_keys = set()
     for doc_id in document_ids:
         document = doc_map.get(doc_id)
         chunk = chunk_map.get(doc_id)
+        next_chunk = next_chunk_map.get(doc_id)
         if not document:
             continue
         snippet = doc_summaries_map.get(doc_id) if is_summary_request else None
         if not snippet:
             primary_text = (chunk.text if chunk else "") or ""
-            next_chunk = next_chunk_map.get(doc_id)
             combined = primary_text + (" " + (next_chunk.text or "") if next_chunk else "")
             snippet = " ".join(combined.split())[:700] if combined.strip() else "No preview available"
         if chunk:
             chunk_ids.append(chunk.id)
-        if next_chunk_map.get(doc_id):
-            chunk_ids.append(next_chunk_map[doc_id].id)
+        if next_chunk:
+            chunk_ids.append(next_chunk.id)
+
+        chunk_id_value = chunk.id if chunk else "n/a"
+        chunk_index_value = chunk.chunk_index if chunk else "n/a"
+        source_row = (
+            f"- {document.filename} "
+            f"(doc_id={document.id}, chunk_id={chunk_id_value}, chunk_index={chunk_index_value})"
+        )
+        if source_row not in seen_source_rows:
+            seen_source_rows.add(source_row)
+            source_rows.append(source_row)
+
         if is_summary_request:
             dedupe_key = (document.filename.lower(), re.sub(r"\s+", " ", snippet.lower())[:180])
             if dedupe_key in used_summary_keys:
@@ -573,10 +922,16 @@ def _build_assistant_message_content(
             used_summary_keys.add(dedupe_key)
             summary_block = _format_summary_block(document.filename, snippet, detailed_summary_request)
             line_number = len(lines) + 1
-            lines.append(f"{line_number}. {summary_block}")
+            lines.append(
+                f"{line_number}. {summary_block}\n"
+                f"   Source: doc_id={document.id}, chunk_id={chunk_id_value}, chunk_index={chunk_index_value}"
+            )
         else:
             line_number = len(lines) + 1
-            lines.append(f"{line_number}. {document.filename}: {snippet}")
+            lines.append(
+                f"{line_number}. {document.filename}: {snippet}\n"
+                f"   Evidence: doc_id={document.id}, chunk_id={chunk_id_value}, chunk_index={chunk_index_value}"
+            )
 
     if not lines:
         return (
@@ -604,14 +959,18 @@ def _build_assistant_message_content(
                 intro = "Here is a longer structured summary of the selected document(s):"
         content = (
             f"{intro}\n\n"
+            + "Answer:\n"
             + "\n".join(lines)
+            + ("\n\nSources used:\n" + "\n".join(source_rows) if source_rows else "")
             + ("\n\nIf you want, I can break this into action items and risks next." if detailed_summary_request else "\n\nIf you want, I can produce a longer structured summary next.")
             + pending_scope_note
         )
     else:
         content = (
-            ("I searched the selected documents and found these relevant snippets:\n\n" if requested_scope else "I searched your workspace and found these relevant snippets:\n\n")
+            ("I searched the selected documents and found grounded evidence.\n\n" if requested_scope else "I searched your workspace and found grounded evidence.\n\n")
+            + "Evidence:\n"
             + "\n".join(lines)
+            + ("\n\nSources used:\n" + "\n".join(source_rows) if source_rows else "")
             + "\n\nIf you want, ask a follow-up and I can narrow this down further."
             + pending_scope_note
         )
@@ -773,21 +1132,87 @@ async def send_message(
     db.commit()
     db.refresh(user_message)
     
-    # Generate assistant response grounded in workspace and user's personal documents
-    assistant_content, assistant_doc_ids, assistant_chunk_ids, skip_llm_refinement = _build_assistant_message_content(
-        request.content,
-        workspace_id,
-        db,
-        request.document_ids or [],
-        conversation_id,
-        current_user_id=current_user.id,
-    )
+    requested_document_ids = request.document_ids or []
+    intent = _detect_conversation_intent(request.content, requested_document_ids)
+    assistant_content = ""
+    assistant_doc_ids: list[int] = []
+    assistant_chunk_ids: list[int] = []
+    skip_llm_refinement = False
+    assistant_source = "router"
 
-    assistant_source = "catalog" if skip_llm_refinement else "retrieval"
+    memory_window_context = ""
+    selected_memory_facts: list[str] = []
+    if settings.conversation_memory_window_enabled:
+        memory_window_context = _conversation_memory_window(
+            conversation_id=conversation_id,
+            db=db,
+            limit=max(settings.conversation_memory_window_messages, 0),
+            max_chars=max(settings.conversation_memory_window_max_chars, 0),
+            exclude_message_ids={user_message.id},
+        )
+        all_facts = _conversation_long_term_memory_facts(
+            conversation_id=conversation_id,
+            db=db,
+            exclude_message_ids={user_message.id},
+        )
+        selected_memory_facts = _select_relevant_memory_facts(request.content, all_facts, max_items=4)
+        if selected_memory_facts:
+            facts_block = "\n".join([f"User fact: {fact}" for fact in selected_memory_facts])
+            if memory_window_context:
+                memory_window_context = f"{memory_window_context}\n\n{facts_block}"
+            else:
+                memory_window_context = facts_block
+
+    window_turns = len(re.findall(r"^(?:User|Assistant):", memory_window_context, flags=re.MULTILINE))
+    if settings.conversation_memory_window_enabled:
+        logger.info(
+            "conversation memory window: conversation_id=%s intent=%s turns=%s chars=%s facts=%s",
+            conversation_id,
+            intent,
+            window_turns,
+            len(memory_window_context),
+            len(selected_memory_facts),
+        )
+
+    # Hybrid router:
+    # - memory_store / memory_recall / conversation_summary -> memory-first
+    # - document_qa / workspace_catalog / default -> retrieval-first
+    if intent == "memory_store":
+        assistant_content = _memory_store_acknowledgement(request.content)
+        assistant_source = "memory-window"
+        skip_llm_refinement = True
+    elif intent == "memory_recall":
+        memory_answer = _memory_recall_answer(request.content, memory_window_context, selected_memory_facts)
+        if memory_answer:
+            assistant_content = memory_answer
+        elif selected_memory_facts:
+            assistant_content = f"From earlier in this conversation, you asked me to remember: {selected_memory_facts[0]}."
+        else:
+            assistant_content = "I don’t have enough prior conversation context yet to recall that. Please restate it once and I’ll keep it in mind."
+        assistant_source = "memory-window"
+        skip_llm_refinement = True
+    elif intent == "conversation_summary":
+        convo_summary = _conversation_summary_from_memory(memory_window_context, selected_memory_facts)
+        assistant_content = convo_summary or "We don’t have enough prior turns in this conversation to summarize yet."
+        assistant_source = "memory-window"
+        skip_llm_refinement = True
+    else:
+        assistant_content, assistant_doc_ids, assistant_chunk_ids, skip_llm_refinement = _build_assistant_message_content(
+            request.content,
+            workspace_id,
+            db,
+            requested_document_ids,
+            conversation_id,
+            current_user_id=current_user.id,
+        )
+        assistant_source = "catalog" if skip_llm_refinement else "retrieval"
+
     has_grounded_context = bool(assistant_doc_ids or assistant_chunk_ids)
     # With documents selected, still run the LLM so answers target the question — not raw chunk dumps.
     is_greeting_reply = _is_simple_greeting_or_small_talk(request.content) and not assistant_doc_ids
     if (
+        intent not in {"memory_store", "memory_recall", "conversation_summary"}
+        and
         has_grounded_context
         and not is_greeting_reply
         and not skip_llm_refinement
@@ -797,6 +1222,7 @@ async def send_message(
             assistant_content = summary_generation_service.generate_grounded_response(
                 user_query=request.content,
                 retrieved_context=assistant_content,
+                memory_window=memory_window_context,
             )
             assistant_source = settings.summary_llm_provider.lower()
         except Exception as exc:

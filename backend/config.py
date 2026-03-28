@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     summary_llm_max_input_chars: int = int(os.getenv("SUMMARY_LLM_MAX_INPUT_CHARS", "12000"))
     summary_llm_temperature: float = float(os.getenv("SUMMARY_LLM_TEMPERATURE", "0.2"))
     summary_llm_max_output_tokens: int = int(os.getenv("SUMMARY_LLM_MAX_OUTPUT_TOKENS", "500"))
+    # Conversation memory window passed to LLM refinement (last N prior turns)
+    conversation_memory_window_enabled: bool = os.getenv("CONVERSATION_MEMORY_WINDOW_ENABLED", "true").lower() == "true"
+    conversation_memory_window_messages: int = int(os.getenv("CONVERSATION_MEMORY_WINDOW_MESSAGES", "8"))
+    conversation_memory_window_max_chars: int = int(os.getenv("CONVERSATION_MEMORY_WINDOW_MAX_CHARS", "3500"))
 
     class Config:
         env_file = ".env"
@@ -86,4 +90,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

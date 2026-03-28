@@ -12,6 +12,7 @@ import { getApiErrorMessage, isWorkspaceAccessErrorMessage } from '../utils/apiE
 import { CONTAINER_SWATCH_PRESETS } from '../utils/colorPresets';
 import { normalizeItems } from '../utils/listUtils';
 import { apiFetch } from '../utils/apiClient';
+import { scheduleClientFilterSearchLog } from '../utils/clientSearchActivity';
 import './Documents.css';
 
 function Documents({ currentUser }) {
@@ -281,6 +282,18 @@ function Documents({ currentUser }) {
     if (Number(selectedWorkspace) === Number(workspaceIdFromQuery)) return;
     setSelectedWorkspace(workspaceIdFromQuery);
   }, [workspaceIdFromQuery, workspaces, selectedWorkspace, containerIdParam]);
+
+  useEffect(() => {
+    const ws = Number(selectedWorkspace || workspaceIdFromQuery || openedFolder?.workspace_id);
+    if (!Number.isFinite(ws) || ws <= 0) return;
+    scheduleClientFilterSearchLog(ws, searchQuery, 'documents_browser');
+  }, [searchQuery, selectedWorkspace, workspaceIdFromQuery, openedFolder?.workspace_id]);
+
+  useEffect(() => {
+    const ws = Number(openedFolder?.workspace_id || selectedWorkspace || workspaceIdFromQuery);
+    if (!Number.isFinite(ws) || ws <= 0) return;
+    scheduleClientFilterSearchLog(ws, folderSearchQuery, 'documents_folder');
+  }, [folderSearchQuery, openedFolder?.workspace_id, selectedWorkspace, workspaceIdFromQuery]);
 
   const fetchContainers = async () => {
     try {

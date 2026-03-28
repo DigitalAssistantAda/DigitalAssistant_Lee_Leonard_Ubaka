@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, List, Any
+from pydantic import BaseModel, Field
+from typing import Optional, List, Any, Literal
 from datetime import datetime
 
 
@@ -22,3 +22,16 @@ class SearchResultItem(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     items: List[SearchResultItem]
+
+
+ClientFilterSearchContext = Literal["documents_browser", "documents_folder", "ai_assistant"]
+
+
+class ClientFilterSearchLogRequest(BaseModel):
+    workspace_id: int = Field(..., ge=1)
+    query: str = Field(..., max_length=600)
+    context: ClientFilterSearchContext
+
+
+class ClientFilterSearchLogResponse(BaseModel):
+    ok: bool = True

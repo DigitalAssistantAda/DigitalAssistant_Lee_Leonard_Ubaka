@@ -119,11 +119,13 @@ function Dashboard() {
     window.addEventListener('workspaces-updated', handleRealtimeRefresh);
     window.addEventListener('containers-updated', handleRealtimeRefresh);
     window.addEventListener('documents-updated', handleRealtimeRefresh);
+    window.addEventListener('client-search-logged', handleRealtimeRefresh);
 
     return () => {
       window.removeEventListener('workspaces-updated', handleRealtimeRefresh);
       window.removeEventListener('containers-updated', handleRealtimeRefresh);
       window.removeEventListener('documents-updated', handleRealtimeRefresh);
+      window.removeEventListener('client-search-logged', handleRealtimeRefresh);
     };
   }, [fetchDashboardData]);
 

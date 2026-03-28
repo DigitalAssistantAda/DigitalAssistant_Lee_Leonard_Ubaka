@@ -20,6 +20,7 @@ import {
   PanelLeft,
 } from 'lucide-react';
 import './AIAssistant.css';
+import { scheduleClientFilterSearchLog } from '../utils/clientSearchActivity';
 
 const HISTORY_SIDEBAR_KEY = 'ada:chat-history-collapsed';
 const CONTEXT_SIDEBAR_KEY = 'ada:chat-context-collapsed';
@@ -115,6 +116,11 @@ function AIAssistant() {
     fetchDocuments(activeWorkspaceId, activeContainerId || null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspaceId, activeContainerId]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) return;
+    scheduleClientFilterSearchLog(activeWorkspaceId, contextSearch, 'ai_assistant');
+  }, [activeWorkspaceId, contextSearch]);
 
   useEffect(() => {
     const chatArea = chatAreaRef.current;

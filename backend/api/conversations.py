@@ -394,6 +394,52 @@ def _is_conversation_summary_query(query_text: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def _is_followup_refinement_request(query_text: str) -> bool:
+    text = " ".join((query_text or "").strip().lower().split())
+    if not text:
+        return False
+    patterns = [
+        r"\bnarrow (it|this|that) down\b",
+        r"\bnarrow (it|this|that) down further\b",
+        r"\bany more key points\b",
+        r"\bwhat else\b",
+        r"\bdidn'?t mention\b",
+        r"\bshorten (it|this|that)\b",
+        r"\bmake (it|this|that) (shorter|clearer|simpler)\b",
+        r"\bsummar(?:ize|y) (it|this|that)\b",
+        r"\belaborate\b",
+        r"\bexpand (it|this|that)\b",
+        r"\bclarify (it|this|that)\b",
+        r"\bbe more specific\b",
+        r"\bgive me fewer points\b",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _is_explicit_document_query(query_text: str) -> bool:
+    text = " ".join((query_text or "").strip().lower().split())
+    if not text:
+        return False
+    doc_markers = (
+        "document",
+        "file",
+        "selected file",
+        "selected document",
+        "pdf",
+        "checklist",
+    )
+    return any(marker in text for marker in doc_markers)
+
+
+def _should_include_memory_for_llm(query_text: str, intent: str) -> bool:
+    if intent in {"memory_store", "memory_recall", "conversation_summary"}:
+        return True
+    # For explicit document-focused questions, avoid contaminating answer with unrelated chat memory.
+    if intent == "document_qa" and _is_explicit_document_query(query_text):
+        return False
+    return True
+
+
 def _is_non_question_assertion_or_directive(query_text: str) -> bool:
     text = " ".join((query_text or "").strip().lower().split())
     if not text or "?" in text:
@@ -421,6 +467,10 @@ def _is_non_question_assertion_or_directive(query_text: str) -> bool:
         "were ",
     )
     if text.startswith(interrogative_starts):
+        return False
+
+    # Follow-up refinement commands should continue answer flow, not memory-store ack.
+    if _is_followup_refinement_request(text):
         return False
 
     # Let explicit document summary/list/search flows continue to document QA/catalog.
@@ -461,6 +511,8 @@ def _detect_conversation_intent(query_text: str, requested_document_ids: list[in
         return "conversation_summary"
     if _is_memory_recall_query(query_text):
         return "memory_recall"
+    if _is_followup_refinement_request(query_text):
+        return "document_qa"
     if _is_workspace_catalog_query(query_text):
         return "workspace_catalog"
     if _is_non_question_assertion_or_directive(query_text):
@@ -589,6 +641,15 @@ def _memory_store_acknowledgement(query_text: str) -> str:
     if cleaned:
         return f"Got it. I’ll remember that: {cleaned}."
     return "Got it. I’ll remember that for this conversation."
+
+
+def _extract_sources_block(content: str) -> str:
+    marker = "Sources used:\n"
+    text = content or ""
+    idx = text.find(marker)
+    if idx < 0:
+        return ""
+    return text[idx:].strip()
 
 
 def _memory_recall_answer(query_text: str, memory_window: str, memory_facts: list[str] | None = None) -> str | None:
@@ -909,7 +970,7 @@ def _build_assistant_message_content(
         chunk_index_value = chunk.chunk_index if chunk else "n/a"
         source_row = (
             f"- {document.filename} "
-            f"(doc_id={document.id}, chunk_id={chunk_id_value}, chunk_index={chunk_index_value})"
+            f"(section {chunk_index_value if chunk_index_value != 'n/a' else 'n/a'})"
         )
         if source_row not in seen_source_rows:
             seen_source_rows.add(source_row)
@@ -924,13 +985,13 @@ def _build_assistant_message_content(
             line_number = len(lines) + 1
             lines.append(
                 f"{line_number}. {summary_block}\n"
-                f"   Source: doc_id={document.id}, chunk_id={chunk_id_value}, chunk_index={chunk_index_value}"
+                f"   Source: {document.filename}, section {chunk_index_value if chunk_index_value != 'n/a' else 'n/a'}"
             )
         else:
             line_number = len(lines) + 1
             lines.append(
                 f"{line_number}. {document.filename}: {snippet}\n"
-                f"   Evidence: doc_id={document.id}, chunk_id={chunk_id_value}, chunk_index={chunk_index_value}"
+                f"   Evidence: {document.filename}, section {chunk_index_value if chunk_index_value != 'n/a' else 'n/a'}"
             )
 
     if not lines:
@@ -1218,15 +1279,28 @@ async def send_message(
         and not skip_llm_refinement
         and summary_generation_service.is_available()
     ):
+        llm_memory_window = memory_window_context if _should_include_memory_for_llm(request.content, intent) else ""
+        retrieval_sources_block = _extract_sources_block(assistant_content)
         try:
             assistant_content = summary_generation_service.generate_grounded_response(
                 user_query=request.content,
                 retrieved_context=assistant_content,
-                memory_window=memory_window_context,
+                memory_window=llm_memory_window,
             )
+            if retrieval_sources_block and "Sources used:" not in assistant_content:
+                assistant_content = f"{assistant_content.rstrip()}\n\n{retrieval_sources_block}"
             assistant_source = settings.summary_llm_provider.lower()
         except Exception as exc:
             logger.warning("Conversation LLM unavailable; using retrieval response: %s: %s", type(exc).__name__, exc)
+            assistant_source = "retrieval-fallback-llm-unavailable"
+    elif (
+        intent not in {"memory_store", "memory_recall", "conversation_summary"}
+        and has_grounded_context
+        and not is_greeting_reply
+        and not skip_llm_refinement
+        and not summary_generation_service.is_available()
+    ):
+        assistant_source = "retrieval-fallback-ai-off"
 
     assistant_message = AIMessage(
         conversation_id=conversation_id,

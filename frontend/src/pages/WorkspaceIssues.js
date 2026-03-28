@@ -1,9 +1,23 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Trash2, AlertCircle, Pencil, Search as SearchIcon, List, ListTodo, Columns3 } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  AlertCircle,
+  Pencil,
+  Search as SearchIcon,
+  List,
+  ListTodo,
+  Columns3,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
 import LoadingState from '../components/LoadingState';
+import IssueDescriptionMarkdown from '../components/IssueDescriptionMarkdown';
 import './WorkspaceIssues.css';
+
+const ISSUE_STATUS_ORDER = ['open', 'in_progress', 'overdue', 'completed', 'closed'];
 
 function WorkspaceIssues({ workspaceId, currentUser }) {
   const { id } = useParams();
@@ -23,6 +37,9 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const [workspaces, setWorkspaces] = useState([]);
   const [draggingIssueId, setDraggingIssueId] = useState(null);
   const [dragOverColumn, setDragOverColumn] = useState(null);
+  const [taskHistory, setTaskHistory] = useState([]);
+  const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
+  const [taskHistoryOpen, setTaskHistoryOpen] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -62,6 +79,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const getEffectiveStatus = (issue) => {
     const rawStatus = issue?.status || 'open';
     if (rawStatus === 'completed' || rawStatus === 'closed') return rawStatus;
+    if (rawStatus === 'overdue') return 'overdue';
     if (!issue?.due_date) return rawStatus;
 
     const dueDate = new Date(issue.due_date);
@@ -78,6 +96,10 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       now.getUTCMonth(),
       now.getUTCDate()
     );
+
+    if (dueUtcDate < todayUtcDate && rawStatus !== 'completed' && rawStatus !== 'closed') {
+      return 'overdue';
+    }
 
     return rawStatus;
   };
@@ -134,9 +156,8 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     return [...incomplete, ...completed];
   }, [filteredIssues, currentUserId]);
 
-  const statusOrder = ['open', 'in_progress', 'completed', 'closed'];
   const kanbanColumns = useMemo(() => {
-    return statusOrder.map((status) => ({
+    return ISSUE_STATUS_ORDER.map((status) => ({
       status,
       label: status.replace('_', ' '),
       issues: filteredIssues.filter(
@@ -238,10 +259,44 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     }
   }, [assignmentScope, viewMode]);
 
+  const fetchTaskHistory = useCallback(async (issueId) => {
+    if (!resolvedWorkspaceId || !issueId) {
+      setTaskHistory([]);
+      return;
+    }
+    setTaskHistoryLoading(true);
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/tasks/${resolvedWorkspaceId}/${issueId}/history`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) {
+        setTaskHistory([]);
+        return;
+      }
+      const data = await response.json();
+      setTaskHistory(Array.isArray(data.items) ? data.items : []);
+    } catch (err) {
+      console.error(err);
+      setTaskHistory([]);
+    } finally {
+      setTaskHistoryLoading(false);
+    }
+  }, [resolvedWorkspaceId, API_URL, token]);
+
+  useEffect(() => {
+    setTaskHistoryOpen(false);
+    if (!selectedIssueId) {
+      setTaskHistory([]);
+      return;
+    }
+    fetchTaskHistory(selectedIssueId);
+  }, [selectedIssueId, fetchTaskHistory]);
+
   const fetchIssues = async () => {
     try {
       setLoading(true);
-      const query = new URLSearchParams({ task_type: 'issue' });
+      const query = new URLSearchParams({ task_type: 'issue', limit: '500' });
       if (assignmentScope === 'assigned' && currentUserId) {
         query.set('assigned_to', 'me');
       }
@@ -413,6 +468,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       setShowCreateModal(false);
       setEditingIssue(null);
       setError(null);
+      fetchTaskHistory(updated.id);
     } catch (err) {
       setError('Failed to update issue');
       console.error(err);
@@ -437,6 +493,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       }
       const updated = await response.json();
       setIssues(issues.map((i) => (i.id === issueId ? updated : i)));
+      fetchTaskHistory(issueId);
     } catch (err) {
       setError('Failed to update issue');
       console.error(err);
@@ -465,7 +522,36 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   };
 
-  const getStatusLabel = (status) => status.replace('_', ' ');
+  const getStatusLabel = (status) =>
+    (status || '')
+      .split('_')
+      .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ''))
+      .join(' ');
+
+  const formatAssigneeIdList = (ids) => {
+    if (!Array.isArray(ids) || ids.length === 0) return 'None';
+    return ids.map((uid) => memberLookup.get(uid) || `User ${uid}`).join(', ');
+  };
+
+  const formatHistoryChangeLine = (change) => {
+    if (!change || !change.field) return '';
+    switch (change.field) {
+      case 'status':
+        return `Status changed from "${getStatusLabel(change.old)}" to "${getStatusLabel(change.new)}"`;
+      case 'title':
+        return `Title updated`;
+      case 'priority':
+        return `Priority: ${change.old || '—'} → ${change.new || '—'}`;
+      case 'due_date':
+        return `Due date updated`;
+      case 'assignees':
+        return `Assignees: ${formatAssigneeIdList(change.old)} → ${formatAssigneeIdList(change.new)}`;
+      case 'description':
+        return 'Description updated';
+      default:
+        return `${change.field} changed`;
+    }
+  };
   const getStatusClass = (status) => `status-${status}`;
 
   const handleDeleteIssue = async (issueId) => {
@@ -696,7 +782,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         >
           All · {normalizedIssues.length}
         </button>
-        {statusOrder.map((status) => (
+        {ISSUE_STATUS_ORDER.map((status) => (
           <button
             key={status}
             type="button"
@@ -904,12 +990,13 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                   id="issue-status-select"
                   value={selectedIssue.status || 'open'}
                   onChange={(e) => handleUpdateStatus(selectedIssue.id, e.target.value)}
-                  className={`issue-status-select status-${selectedIssue.status}`}
+                  className={`issue-status-select status-${selectedIssue.effectiveStatus || selectedIssue.status}`}
                   title="Change issue status"
                   aria-label="Change issue status"
                 >
                   <option value="open">Open</option>
                   <option value="in_progress">In Progress</option>
+                  <option value="overdue">Overdue</option>
                   <option value="completed">Completed</option>
                   <option value="closed">Closed</option>
                 </select>
@@ -924,10 +1011,59 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
               </div>
 
               {selectedIssue.description ? (
-                <p className="issue-detail-description">{selectedIssue.description}</p>
+                <IssueDescriptionMarkdown
+                  text={selectedIssue.description}
+                  className="issue-detail-description-md"
+                />
               ) : (
                 <p className="issue-detail-description empty">No description provided.</p>
               )}
+
+              <div className="issue-detail-history">
+                <button
+                  type="button"
+                  className="issue-detail-history-toggle"
+                  onClick={() => setTaskHistoryOpen((o) => !o)}
+                  aria-expanded={taskHistoryOpen}
+                >
+                  {taskHistoryOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  <span>Activity history</span>
+                  {taskHistory.length > 0 && (
+                    <span className="issue-detail-history-count">{taskHistory.length}</span>
+                  )}
+                </button>
+                {taskHistoryOpen && (
+                  <div className="issue-detail-history-body">
+                    {taskHistoryLoading ? (
+                      <p className="issue-detail-history-empty">Loading history…</p>
+                    ) : taskHistory.length === 0 ? (
+                      <p className="issue-detail-history-empty">
+                        No recorded changes yet. Updates to status, assignees, title, description, and
+                        other fields will appear here.
+                      </p>
+                    ) : (
+                      <ul className="issue-detail-history-list">
+                        {taskHistory.map((entry) => (
+                          <li key={entry.id} className="issue-detail-history-item">
+                            <div className="issue-detail-history-meta">
+                              <strong>
+                                {memberLookup.get(entry.actor_user_id)
+                                  || `User ${entry.actor_user_id}`}
+                              </strong>
+                              <span>{formatDateTime(entry.created_at)}</span>
+                            </div>
+                            <ul className="issue-detail-history-changes">
+                              {(entry.changes || []).map((ch, idx) => (
+                                <li key={idx}>{formatHistoryChangeLine(ch)}</li>
+                              ))}
+                            </ul>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <div className="issue-detail-controls">
                 <div className="issue-detail-control">
@@ -999,12 +1135,15 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
 
             <div className="form-group">
               <label htmlFor="issue-description">Description</label>
+              <p className="form-helper">
+                Basic Markdown: **bold**, *italic*, `code`, links, lists, headings, and fenced code blocks.
+              </p>
               <textarea
                 id="issue-description"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="form-textarea"
-                placeholder="Describe the issue (optional)"
+                placeholder="Describe the issue (optional). You can use **bold**, lists, and `code`."
                 rows="4"
               />
             </div>

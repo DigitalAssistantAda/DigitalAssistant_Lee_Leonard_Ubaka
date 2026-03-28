@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { X, Trash2, Check } from 'lucide-react';
+import { X, Trash2, Check, ChevronDown, ChevronRight } from 'lucide-react';
 import AccessState from '../components/AccessState';
 import ColorSwatchPicker from '../components/ColorSwatchPicker';
 import { getApiErrorMessage, isWorkspaceAccessErrorMessage } from '../utils/apiError';
@@ -24,6 +24,10 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
   const [savingName, setSavingName] = useState(false);
   const [autonomousOrganizationEnabled, setAutonomousOrganizationEnabled] = useState(false);
   const [savingAutonomousOrganization, setSavingAutonomousOrganization] = useState(false);
+  const [workspaceActivityOpen, setWorkspaceActivityOpen] = useState(false);
+  const [workspaceActivity, setWorkspaceActivity] = useState([]);
+  const [workspaceActivityTotal, setWorkspaceActivityTotal] = useState(0);
+  const [workspaceActivityLoading, setWorkspaceActivityLoading] = useState(false);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
@@ -81,6 +85,122 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
 
   const canInviteMembers = currentMemberRole === 'owner';
   const canManageMembers = currentMemberRole === 'owner';
+  const canViewWorkspaceActivity =
+    currentMemberRole === 'owner' || currentMemberRole === 'admin';
+
+  const memberLookupByUserId = useMemo(() => {
+    const map = new Map();
+    members.forEach((mem) => {
+      const label = mem.username || mem.email || `User ${mem.user_id}`;
+      map.set(mem.user_id, label);
+    });
+    return map;
+  }, [members]);
+
+  const formatActivityTime = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
+  const describeWorkspaceActivity = (entry) => {
+    const meta = entry.metadata || {};
+    const action = String(entry.action || '');
+    switch (action) {
+      case 'workspace.created':
+        return 'Workspace created';
+      case 'workspace.updated':
+        return 'Workspace settings updated (name, accent, or preferences)';
+      case 'workspace.deleted':
+        return 'Workspace deleted';
+      case 'workspace.invite_sent':
+        return `Invitation sent to ${meta.invited_user_email || 'user'} (${String(meta.invited_role || 'member')})`;
+      case 'workspace.invite_accepted':
+        return 'A member accepted an invitation';
+      case 'workspace.invite_declined':
+        return 'An invitation was declined';
+      case 'workspace.member_removed':
+        return `Member removed (user id ${entry.object_id ?? '—'})`;
+      case 'workspace.member_updated':
+        return 'Member role or status changed';
+      case 'document.uploaded':
+        return `File uploaded: ${meta.filename || meta.name || 'document'}`;
+      case 'document.deleted':
+        return `Document deleted: ${meta.filename || meta.name || `#${entry.object_id ?? ''}`}`;
+      case 'document.updated':
+        return `Document updated: ${meta.filename || meta.name || `#${entry.object_id ?? ''}`}`;
+      case 'document.shared':
+        return `Document shared: ${meta.filename || meta.name || 'document'}`;
+      case 'document.deletion_requested':
+        return `Deletion requested: ${meta.filename || meta.name || 'document'}`;
+      case 'document.deletion_approved':
+        return `Deletion approved: ${meta.filename || meta.name || 'document'}`;
+      case 'document.deletion_denied':
+        return `Deletion request denied: ${meta.filename || meta.name || 'document'}`;
+      case 'message.sent':
+        return 'Posted a message in workspace chat';
+      case 'task.history':
+        return 'Issue / task details were edited (see issue activity on the ticket)';
+      default:
+        if (action.startsWith('container.')) {
+          return `Folder: ${action.replace('container.', '').replace(/_/g, ' ')}`;
+        }
+        if (action.startsWith('document.')) {
+          return action.replace(/\./g, ' ').replace(/_/g, ' ');
+        }
+        if (action.startsWith('workspace.')) {
+          return action.replace(/\./g, ' ').replace(/_/g, ' ');
+        }
+        return action.replace(/\./g, ' ');
+    }
+  };
+
+  useEffect(() => {
+    if (!workspaceActivityOpen || !canViewWorkspaceActivity || !resolvedWorkspaceId) {
+      return undefined;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setWorkspaceActivityLoading(true);
+      try {
+        const response = await fetch(
+          `${API_URL}/api/v1/workspaces/${resolvedWorkspaceId}/activity?limit=80`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!response.ok) {
+          if (!cancelled) {
+            setWorkspaceActivity([]);
+            setWorkspaceActivityTotal(0);
+          }
+          return;
+        }
+        const data = await response.json();
+        if (!cancelled) {
+          setWorkspaceActivity(Array.isArray(data.items) ? data.items : []);
+          setWorkspaceActivityTotal(Number(data.total) || 0);
+        }
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) {
+          setWorkspaceActivity([]);
+          setWorkspaceActivityTotal(0);
+        }
+      } finally {
+        if (!cancelled) setWorkspaceActivityLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceActivityOpen, canViewWorkspaceActivity, resolvedWorkspaceId, API_URL, token]);
 
   const fetchWorkspaceData = useCallback(async () => {
     try {
@@ -590,6 +710,56 @@ function WorkspaceSettings({ workspaceId, onClose, inline = false }) {
                 )}
               </div>
             </div>
+
+            {canViewWorkspaceActivity && (
+              <div className="settings-section settings-activity-section">
+                <button
+                  type="button"
+                  className="settings-activity-toggle"
+                  onClick={() => setWorkspaceActivityOpen((open) => !open)}
+                  aria-expanded={workspaceActivityOpen}
+                >
+                  {workspaceActivityOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  <span>Workspace activity</span>
+                  {workspaceActivityTotal > 0 && (
+                    <span className="settings-activity-count">{workspaceActivityTotal} events</span>
+                  )}
+                </button>
+                <p className="settings-activity-hint">
+                  Recent invites, uploads, deletions, folder changes, settings updates, and chat posts
+                  (owners and admins only).
+                </p>
+                {workspaceActivityOpen && (
+                  <div className="settings-activity-body">
+                    {workspaceActivityLoading ? (
+                      <p className="settings-activity-empty">Loading activity…</p>
+                    ) : workspaceActivity.length === 0 ? (
+                      <p className="settings-activity-empty">
+                        No activity has been recorded yet, or older events are not in the log.
+                      </p>
+                    ) : (
+                      <ul className="settings-activity-list">
+                        {workspaceActivity.map((entry) => (
+                          <li key={entry.id} className="settings-activity-item">
+                            <div className="settings-activity-item-head">
+                              <span className="settings-activity-actor">
+                                {memberLookupByUserId.get(entry.actor_user_id)
+                                  || `User ${entry.actor_user_id}`}
+                              </span>
+                              <time className="settings-activity-time" dateTime={entry.created_at}>
+                                {formatActivityTime(entry.created_at)}
+                              </time>
+                            </div>
+                            <p className="settings-activity-detail">{describeWorkspaceActivity(entry)}</p>
+                            <span className="settings-activity-action-tag">{entry.action}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

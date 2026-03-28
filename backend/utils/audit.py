@@ -205,3 +205,5 @@ class AuditActions:
     TASK_ASSIGNED = "task.assigned"
     TASK_UPDATED = "task.updated"
     TASK_DELETED = "task.deleted"
+    # Structured field-level changes for issue detail history (metadata_json.changes)
+    TASK_HISTORY = "task.history"

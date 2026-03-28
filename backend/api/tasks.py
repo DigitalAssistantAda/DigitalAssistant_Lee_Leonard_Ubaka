@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -8,7 +9,15 @@ from models.task import Task, TaskType, TaskStatus, TaskPriority
 from models.task_assignee import TaskAssignee
 from models.user import User
 from models.workspace import WorkspaceMember, MemberStatus
-from schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskListResponse
+from models.audit_log import AuditLog
+from schemas.task import (
+    TaskCreate,
+    TaskUpdate,
+    TaskResponse,
+    TaskListResponse,
+    TaskHistoryItem,
+    TaskHistoryListResponse,
+)
 from utils.auth import get_current_user
 from utils.audit import create_audit_log, AuditActions
 from realtime import connection_manager
@@ -63,6 +72,87 @@ def _priority_str(pr) -> str | None:
     if pr is None:
         return None
     return pr.value if hasattr(pr, "value") else str(pr)
+
+
+def _text_preview(value: str | None, max_len: int = 200) -> str:
+    if not value:
+        return ""
+    t = value.strip()
+    if len(t) <= max_len:
+        return t
+    return t[: max_len - 1] + "…"
+
+
+def _parse_audit_metadata(meta) -> dict:
+    if meta is None:
+        return {}
+    if isinstance(meta, dict):
+        return meta
+    if isinstance(meta, str):
+        try:
+            return json.loads(meta)
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _collect_task_history_changes(
+    *,
+    old_title: str,
+    old_description: str | None,
+    old_status: str,
+    old_priority: str | None,
+    old_due,
+    old_assignees: set[int],
+    task: Task,
+    new_assignees: set[int],
+) -> list[dict]:
+    changes: list[dict] = []
+    if task.title != old_title:
+        changes.append({"field": "title", "old": old_title, "new": task.title})
+
+    old_desc = old_description or ""
+    new_desc = task.description or ""
+    if new_desc != old_desc:
+        changes.append(
+            {
+                "field": "description",
+                "old_preview": _text_preview(old_desc),
+                "new_preview": _text_preview(new_desc),
+            }
+        )
+
+    if _status_str(task.status) != old_status:
+        changes.append({"field": "status", "old": old_status, "new": _status_str(task.status)})
+
+    if _priority_str(task.priority) != old_priority:
+        changes.append(
+            {
+                "field": "priority",
+                "old": old_priority,
+                "new": _priority_str(task.priority),
+            }
+        )
+
+    if task.due_date != old_due:
+        changes.append(
+            {
+                "field": "due_date",
+                "old": old_due.isoformat() if old_due else None,
+                "new": task.due_date.isoformat() if task.due_date else None,
+            }
+        )
+
+    if sorted(old_assignees) != sorted(new_assignees):
+        changes.append(
+            {
+                "field": "assignees",
+                "old": sorted(old_assignees),
+                "new": sorted(new_assignees),
+            }
+        )
+
+    return changes
 
 
 async def _ping_notification_users(user_ids: set[int]) -> None:
@@ -276,7 +366,7 @@ def list_tasks(
     status: str = Query(None, description="Filter by status"),
     assigned_to: str = Query(None, description="Filter by assigned user ID or 'me'"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -321,7 +411,12 @@ def list_tasks(
         query = query.distinct()
 
     total = query.count()
-    tasks = query.order_by(Task.created_at.desc()).offset(skip).limit(limit).all()
+    tasks = (
+        query.order_by(Task.updated_at.desc(), Task.id.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
     assignees_map = fetch_task_assignees(db, [task.id for task in tasks])
     items = []
@@ -349,6 +444,48 @@ def get_task(
     return build_task_response(task, assignees)
 
 
+@router.get("/{workspace_id}/{task_id}/history", response_model=TaskHistoryListResponse)
+def get_task_history(
+    workspace_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Field-level change history for an issue (status, assignees, description, etc.)."""
+    require_workspace_member(workspace_id, current_user.id, db)
+    task = db.query(Task).filter(Task.workspace_id == workspace_id, Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    logs = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.workspace_id == workspace_id,
+            AuditLog.object_type == "task",
+            AuditLog.object_id == task_id,
+            AuditLog.action == AuditActions.TASK_HISTORY,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(200)
+        .all()
+    )
+
+    items: list[TaskHistoryItem] = []
+    for log in logs:
+        meta = _parse_audit_metadata(log.metadata_json)
+        changes = meta.get("changes") if isinstance(meta.get("changes"), list) else []
+        items.append(
+            TaskHistoryItem(
+                id=log.id,
+                actor_user_id=log.actor_user_id,
+                created_at=log.created_at,
+                changes=changes,
+            )
+        )
+
+    return TaskHistoryListResponse(items=items)
+
+
 @router.put("/{workspace_id}/{task_id}", response_model=TaskResponse)
 async def update_task(
     workspace_id: int,
@@ -370,7 +507,7 @@ async def update_task(
     old_priority = _priority_str(task.priority)
     old_due = task.due_date
 
-    update_data = task_data.dict(exclude_unset=True)
+    update_data = task_data.model_dump(exclude_unset=True)
 
     if "status" in update_data:
         try:
@@ -404,6 +541,22 @@ async def update_task(
         for assignee_id in normalize_assignees(assignees, None):
             db.add(TaskAssignee(task_id=task.id, user_id=assignee_id))
 
+    if assignees is not None:
+        new_assignee_set = set(normalize_assignees(assignees, None))
+    else:
+        new_assignee_set = set(old_assignees)
+
+    history_changes = _collect_task_history_changes(
+        old_title=old_title,
+        old_description=old_description,
+        old_status=old_status,
+        old_priority=old_priority,
+        old_due=old_due,
+        old_assignees=old_assignees,
+        task=task,
+        new_assignees=new_assignee_set,
+    )
+
     task.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(task)
@@ -432,6 +585,21 @@ async def update_task(
             old_status,
             old_priority,
             old_due,
+        )
+
+    if history_changes:
+        create_audit_log(
+            db,
+            current_user,
+            action=AuditActions.TASK_HISTORY,
+            object_type="task",
+            object_id=task.id,
+            metadata={
+                "task_id": task.id,
+                "workspace_id": workspace_id,
+                "changes": history_changes,
+            },
+            workspace_id=workspace_id,
         )
 
     return build_task_response(task, assignees)

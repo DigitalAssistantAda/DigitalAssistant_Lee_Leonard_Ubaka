@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 from datetime import datetime
 
 
@@ -46,3 +46,14 @@ class TaskResponse(BaseModel):
 class TaskListResponse(BaseModel):
     items: List[TaskResponse]
     total: int
+
+
+class TaskHistoryItem(BaseModel):
+    id: int
+    actor_user_id: int
+    created_at: datetime
+    changes: List[Dict[str, Any]]
+
+
+class TaskHistoryListResponse(BaseModel):
+    items: List[TaskHistoryItem]

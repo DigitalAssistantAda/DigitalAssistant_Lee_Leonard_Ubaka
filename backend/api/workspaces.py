@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+import json
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_, and_
 from database import get_db
 from models.user import User
 from models.workspace import Workspace, WorkspaceMember, WorkspaceRole, MemberStatus
 from models.container import Container
 from models.document import Document
+from models.audit_log import AuditLog
 from schemas.workspace import (
     CreateWorkspaceRequest,
     WorkspaceResponse,
@@ -17,6 +19,8 @@ from schemas.workspace import (
     WorkspaceInvitationListResponse,
     AddMemberRequest,
     UpdateMemberRequest,
+    WorkspaceActivityItem,
+    WorkspaceActivityListResponse,
 )
 from schemas.auth import SuccessResponse
 from utils.auth import get_current_user, create_audit_log
@@ -27,6 +31,19 @@ from utils.workspace_members import active_workspace_member_ids
 from realtime import connection_manager
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
+
+
+def _parse_activity_metadata(value):
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return None
 
 
 async def _notify_workspace_changed(db: Session, workspace_id: int) -> None:
@@ -274,6 +291,57 @@ async def get_workspace(
     data["member_count"] = member_count
     data["document_count"] = document_count
     return WorkspaceResponse(**data)
+
+
+@router.get("/{workspace_id}/activity", response_model=WorkspaceActivityListResponse)
+def get_workspace_activity(
+    workspace_id: int,
+    limit: int = Query(80, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Recent workspace-scoped audit events for owners and admins (invites, documents, settings, etc.)."""
+    require_workspace_access(
+        workspace_id=workspace_id,
+        user=current_user,
+        db=db,
+        required_roles=[WorkspaceRole.OWNER, WorkspaceRole.ADMIN],
+    )
+
+    activity_filter = or_(
+        AuditLog.action.like("workspace.%"),
+        and_(AuditLog.action.like("document.%"), AuditLog.action != AuditActions.DOCUMENT_DOWNLOADED),
+        AuditLog.action.like("container.%"),
+        AuditLog.action == AuditActions.TASK_HISTORY,
+        AuditLog.action == AuditActions.MESSAGE_SENT,
+    )
+
+    base = db.query(AuditLog).filter(
+        AuditLog.workspace_id == workspace_id,
+        activity_filter,
+    )
+    total = base.count()
+    rows = (
+        base.order_by(AuditLog.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    items = [
+        WorkspaceActivityItem(
+            id=row.id,
+            actor_user_id=row.actor_user_id,
+            action=row.action,
+            object_type=row.object_type,
+            object_id=row.object_id,
+            metadata=_parse_activity_metadata(row.metadata_json),
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+    return WorkspaceActivityListResponse(items=items, total=total)
 
 
 @router.put("/{workspace_id}", response_model=WorkspaceResponse)

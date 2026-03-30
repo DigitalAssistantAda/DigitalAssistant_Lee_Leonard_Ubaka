@@ -151,7 +151,7 @@ function Dashboard() {
     const monthIndex = monthIndexMap[monthName] ?? 0;
     const year = Number.parseInt(yearValue, 10) || new Date().getFullYear();
     const nextDate = new Date(year, monthIndex + direction, 1);
-    setCurrentMonth(nextDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+    setCurrentMonth(nextDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
     setSelectedDay(1);
   };
 
@@ -364,7 +364,7 @@ function Dashboard() {
                 <button className="cal-nav-btn" type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
                   <ChevronLeft size={14} />
                 </button>
-                <span className="cal-month">{currentMonth}</span>
+                <span className="cal-month" style={{ whiteSpace: 'nowrap' }}>{currentMonth}</span>
                 <button className="cal-nav-btn" type="button" aria-label="Next month" onClick={() => shiftMonth(1)}>
                   <ChevronRight size={14} />
                 </button>

@@ -16,6 +16,8 @@ function NotificationsPage() {
     permanently_deleted_mention_ids: [],
     task_notification_ids: [],
     permanently_deleted_task_notification_ids: [],
+    workspace_invitation_ids: [],
+    permanently_deleted_workspace_invitation_ids: [],
   });
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('pending');
@@ -140,6 +142,8 @@ function NotificationsPage() {
                 permanently_deleted_mention_ids: Array.isArray(d.permanently_deleted_mention_ids) ? d.permanently_deleted_mention_ids : [],
                 task_notification_ids: Array.isArray(d.task_notification_ids) ? d.task_notification_ids : [],
                 permanently_deleted_task_notification_ids: Array.isArray(d.permanently_deleted_task_notification_ids) ? d.permanently_deleted_task_notification_ids : [],
+                workspace_invitation_ids: Array.isArray(d.workspace_invitation_ids) ? d.workspace_invitation_ids : [],
+                permanently_deleted_workspace_invitation_ids: Array.isArray(d.permanently_deleted_workspace_invitation_ids) ? d.permanently_deleted_workspace_invitation_ids : [],
               }
             : {
                 deletion_request_ids: [],
@@ -148,15 +152,14 @@ function NotificationsPage() {
                 permanently_deleted_mention_ids: [],
                 task_notification_ids: [],
                 permanently_deleted_task_notification_ids: [],
+                workspace_invitation_ids: [],
+                permanently_deleted_workspace_invitation_ids: [],
               }
         );
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
-      setNotifications([]);
-      setMentionNotifications([]);
-      setTaskNotifications([]);
-      setWorkspaceInvitations([]);
+      /* Do not clear all lists: a single failing request would wipe unrelated items. */
     }
     setLoading(false);
   }, [API_URL, currentUserId]);
@@ -273,6 +276,30 @@ function NotificationsPage() {
     } catch (error) { console.error('Error permanently deleting task notification:', error); }
   };
 
+  const workspaceInviteKey = (invitationId) => `invite-${invitationId}`;
+
+  const handleDismissWorkspaceInvitation = async (invitationId) => {
+    const key = workspaceInviteKey(invitationId);
+    try {
+      const response = await callDismissEndpoint({ workspace_invitation_ids: [key] });
+      if (response.ok) {
+        setDismissedIds((prev) => ({ ...prev, workspace_invitation_ids: [...(prev.workspace_invitation_ids || []), key] }));
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    } catch (error) { console.error('Error dismissing workspace invitation:', error); }
+  };
+
+  const handlePermanentlyDeleteWorkspaceInvitation = async (invitationId) => {
+    const key = workspaceInviteKey(invitationId);
+    try {
+      const response = await callDismissEndpoint({ permanently_deleted_workspace_invitation_ids: [key] });
+      if (response.ok) {
+        setDismissedIds((prev) => ({ ...prev, permanently_deleted_workspace_invitation_ids: [...(prev.permanently_deleted_workspace_invitation_ids || []), key] }));
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    } catch (error) { console.error('Error permanently deleting workspace invitation:', error); }
+  };
+
   const handleOpenMentionDiscussion = (mention) => {
     const wsId = mention?.workspace_id;
     if (!wsId) return;
@@ -321,9 +348,23 @@ function NotificationsPage() {
   const permMentionDeleted = dismissedIds.permanently_deleted_mention_ids || [];
   const taskDismissed = dismissedIds.task_notification_ids || [];
   const permTaskDeleted = dismissedIds.permanently_deleted_task_notification_ids || [];
+  const inviteDismissed = dismissedIds.workspace_invitation_ids || [];
+  const permInviteDeleted = dismissedIds.permanently_deleted_workspace_invitation_ids || [];
 
-  const pendingDeletionNotifications = notifications.filter(n => n.status === 'pending');
-  const pendingCount = pendingDeletionNotifications.length + workspaceInvitations.length;
+  const activeWorkspaceInvitations = workspaceInvitations.filter((inv) => {
+    const key = workspaceInviteKey(inv.invitation_id);
+    return !inviteDismissed.includes(key) && !permInviteDeleted.includes(key);
+  });
+
+  const historyWorkspaceInvitations = workspaceInvitations.filter((inv) => {
+    const key = workspaceInviteKey(inv.invitation_id);
+    return inviteDismissed.includes(key) && !permInviteDeleted.includes(key);
+  });
+
+  const pendingDeletionNotifications = notifications.filter(
+    (n) => n.status === 'pending' && !drDismissed.includes(n.id) && !permDrDeleted.includes(n.id)
+  );
+  const pendingCount = pendingDeletionNotifications.length + activeWorkspaceInvitations.length;
 
   // Non pending, not permanently deleted
   const respondedNotDismissed = notifications.filter(
@@ -345,7 +386,43 @@ function NotificationsPage() {
     (t) => taskDismissed.includes(t.id) && !permTaskDeleted.includes(t.id)
   );
 
-  const allCount = pendingCount + respondedNotDismissed.length + mentionsNotDismissed.length + tasksNotDismissed.length + dismissedRequests.length + dismissedMentions.length + dismissedTasks.length;
+  const historyCount =
+    dismissedRequests.length + dismissedMentions.length + dismissedTasks.length + historyWorkspaceInvitations.length;
+
+  const allCount =
+    pendingCount +
+    respondedNotDismissed.length +
+    mentionsNotDismissed.length +
+    tasksNotDismissed.length +
+    historyCount;
+
+  const historyRows = useMemo(() => {
+    const rows = [];
+    dismissedRequests.forEach((n) => {
+      rows.push({
+        kind: 'dr',
+        key: `history-dr-${n.id}`,
+        sortAt: n.responded_at || n.created_at,
+        data: n,
+      });
+    });
+    dismissedMentions.forEach((m) => {
+      rows.push({ kind: 'mention', key: m.id, sortAt: m.created_at, data: m });
+    });
+    dismissedTasks.forEach((t) => {
+      rows.push({ kind: 'task', key: t.id, sortAt: t.created_at, data: t });
+    });
+    historyWorkspaceInvitations.forEach((inv) => {
+      rows.push({
+        kind: 'invite',
+        key: `history-inv-${inv.invitation_id}`,
+        sortAt: inv.invited_at,
+        data: inv,
+      });
+    });
+    rows.sort((a, b) => new Date(b.sortAt || 0).getTime() - new Date(a.sortAt || 0).getTime());
+    return rows;
+  }, [dismissedRequests, dismissedMentions, dismissedTasks, historyWorkspaceInvitations]);
 
   const hasAnyVisible = (() => {
     if (filter === 'pending') return pendingCount > 0;
@@ -446,11 +523,30 @@ function NotificationsPage() {
     </div>
   );
 
+  const renderWorkspaceInvitationCard = (invitation, { faded, actions }) => (
+    <div key={`workspace-invite-${invitation.invitation_id}`} className={`notification-card${faded ? ' notification-card--faded' : ''}`}>
+      <div className="notification-content">
+        <div className="notification-header">
+          <div className="status-with-icon">
+            <Users size={18} className="status-icon pending" />
+            <h3>Workspace invitation</h3>
+          </div>
+          {!faded && <span className="status-badge pending">pending</span>}
+        </div>
+        <p className="notification-reason">
+          Invited to join <strong>{invitation.workspace_name}</strong> as <strong>{invitation.role}</strong>.
+        </p>
+        <p className="notification-date">{formatDate(invitation.invited_at, 'Invited')}</p>
+      </div>
+      <div className="notification-actions">{actions}</div>
+    </div>
+  );
+
   return (
     <div className="notifications-page">
       <div className="notifications-hero">
         <h1>Notifications</h1>
-        <p>Requests, invitations, mentions, and task activity across your workspaces.</p>
+        <p>Invites, mentions, tasks, and document requests — dismiss anything to move it into history, or remove it for good.</p>
       </div>
 
       <div className="filter-tabs">
@@ -473,10 +569,10 @@ function NotificationsPage() {
           </div>
         )}
 
-        {/* Pending deletion requests */}
-        {!loading && pendingDeletionNotifications.length > 0 && (
+        {/* Pending deletion requests — Pending + All */}
+        {!loading && (filter === 'pending' || filter === 'all') && pendingDeletionNotifications.length > 0 && (
           <>
-            <div className="section-title">Awaiting Your Decision</div>
+            <div className="section-title">Awaiting your decision</div>
             {pendingDeletionNotifications.map((n) =>
               renderDeletionRequestCard(n, {
                 faded: false,
@@ -484,6 +580,7 @@ function NotificationsPage() {
                   <>
                     <button type="button" className="icon-action icon-action-accept" onClick={() => handleApprove(n.id)} title="Approve" aria-label="Approve deletion request"><Check size={18} strokeWidth={2.5} /></button>
                     <button type="button" className="icon-action icon-action-decline" onClick={() => handleDeny(n.id)} title="Deny" aria-label="Deny deletion request"><X size={18} strokeWidth={2.5} /></button>
+                    <button type="button" className="btn btn-dismiss" onClick={() => handleDismissDeletionRequest(n.id)} title="Hide for now" aria-label="Dismiss deletion request"><Trash2 size={15} /> Dismiss</button>
                   </>
                 ),
               })
@@ -491,29 +588,22 @@ function NotificationsPage() {
           </>
         )}
 
-        {/* Workspace invitations */}
-        {!loading && workspaceInvitations.length > 0 && (
+        {/* Workspace invitations — Pending + All */}
+        {!loading && (filter === 'pending' || filter === 'all') && activeWorkspaceInvitations.length > 0 && (
           <>
-            <div className="section-title">Workspace Invitations</div>
-            {workspaceInvitations.map((invitation) => (
-              <div key={`workspace-invite-${invitation.invitation_id}`} className="notification-card">
-                <div className="notification-content">
-                  <div className="notification-header">
-                    <div className="status-with-icon">
-                      <Users size={18} className="status-icon pending" />
-                      <h3>Workspace Invitation</h3>
-                    </div>
-                    <span className="status-badge pending">pending</span>
-                  </div>
-                  <p className="notification-reason">You were invited to join <strong>{invitation.workspace_name}</strong> as <strong>{invitation.role}</strong>.</p>
-                  <p className="notification-date">{formatDate(invitation.invited_at, 'Invited')}</p>
-                </div>
-                <div className="notification-actions">
-                  <button type="button" className="icon-action icon-action-accept" onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)} title="Accept" aria-label="Accept workspace invitation"><Check size={18} strokeWidth={2.5} /></button>
-                  <button type="button" className="icon-action icon-action-decline" onClick={() => handleDeclineWorkspaceInvite(invitation.invitation_id)} title="Decline" aria-label="Decline workspace invitation"><X size={18} strokeWidth={2.5} /></button>
-                </div>
-              </div>
-            ))}
+            <div className="section-title">Workspace invitations</div>
+            {activeWorkspaceInvitations.map((invitation) =>
+              renderWorkspaceInvitationCard(invitation, {
+                faded: false,
+                actions: (
+                  <>
+                    <button type="button" className="icon-action icon-action-accept" onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)} title="Accept" aria-label="Accept workspace invitation"><Check size={18} strokeWidth={2.5} /></button>
+                    <button type="button" className="icon-action icon-action-decline" onClick={() => handleDeclineWorkspaceInvite(invitation.invitation_id)} title="Decline" aria-label="Decline workspace invitation"><X size={18} strokeWidth={2.5} /></button>
+                    <button type="button" className="btn btn-dismiss" onClick={() => handleDismissWorkspaceInvitation(invitation.invitation_id)} title="Hide for now" aria-label="Dismiss invitation"><Trash2 size={15} /> Dismiss</button>
+                  </>
+                ),
+              })
+            )}
           </>
         )}
 
@@ -567,34 +657,43 @@ function NotificationsPage() {
           </>
         )}
 
-        {/* All tab only: dismissed requests (faded, with permanent delete) */}
-        {!loading && filter === 'all' && (dismissedRequests.length > 0 || dismissedMentions.length > 0 || dismissedTasks.length > 0) && (
+        {/* All tab: chronological history (dismissed / hidden items) */}
+        {!loading && filter === 'all' && historyRows.length > 0 && (
           <>
-            <div className="section-title">Dismissed</div>
-            {dismissedRequests.map((n) =>
-              renderDeletionRequestCard(n, {
-                faded: true,
-                actions: (
-                  <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteDeletionRequest(n.id)} title="Delete permanently" aria-label="Permanently delete notification"><Trash2 size={15} /> Delete</button>
-                ),
-              })
-            )}
-            {dismissedMentions.map((m) =>
-              renderMentionCard(m, {
-                faded: true,
-                actions: (
-                  <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteMention(m.id)} title="Delete permanently" aria-label="Permanently delete mention"><Trash2 size={15} /> Delete</button>
-                ),
-              })
-            )}
-            {dismissedTasks.map((t) =>
-              renderTaskNotificationCard(t, {
-                faded: true,
-                actions: (
-                  <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteTaskNotification(t.id)} title="Delete permanently" aria-label="Permanently delete task notification"><Trash2 size={15} /> Delete</button>
-                ),
-              })
-            )}
+            <div className="section-title">History</div>
+            <p className="section-subtitle notifications-history-hint">Newest first. Delete removes an item from this list permanently.</p>
+            {historyRows.map((row) => (
+              <React.Fragment key={row.key}>
+                {row.kind === 'dr' &&
+                  renderDeletionRequestCard(row.data, {
+                    faded: true,
+                    actions: (
+                      <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteDeletionRequest(row.data.id)} title="Delete permanently" aria-label="Permanently delete notification"><Trash2 size={15} /> Delete</button>
+                    ),
+                  })}
+                {row.kind === 'mention' &&
+                  renderMentionCard(row.data, {
+                    faded: true,
+                    actions: (
+                      <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteMention(row.data.id)} title="Delete permanently" aria-label="Permanently delete mention"><Trash2 size={15} /> Delete</button>
+                    ),
+                  })}
+                {row.kind === 'task' &&
+                  renderTaskNotificationCard(row.data, {
+                    faded: true,
+                    actions: (
+                      <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteTaskNotification(row.data.id)} title="Delete permanently" aria-label="Permanently delete task notification"><Trash2 size={15} /> Delete</button>
+                    ),
+                  })}
+                {row.kind === 'invite' &&
+                  renderWorkspaceInvitationCard(row.data, {
+                    faded: true,
+                    actions: (
+                      <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteWorkspaceInvitation(row.data.invitation_id)} title="Delete permanently" aria-label="Permanently delete invitation from history"><Trash2 size={15} /> Delete</button>
+                    ),
+                  })}
+              </React.Fragment>
+            ))}
           </>
         )}
       </div>

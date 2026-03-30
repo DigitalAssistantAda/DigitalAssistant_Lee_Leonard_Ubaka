@@ -111,6 +111,18 @@
   margin-top: 0;
 }
 
+.notifications-page .section-subtitle {
+  margin: -0.35rem 0 var(--s-12) 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-weight: 300;
+  line-height: 1.4;
+}
+
+.notifications-page .notifications-history-hint {
+  margin-top: calc(-1 * var(--s-8));
+}
+
 /* Row-style cards matching workspace-row pattern */
 .notification-card {
   display: grid;

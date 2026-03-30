@@ -76,6 +76,14 @@ function Navigation({ user, onLogout }) {
         const permanentlyDeletedTaskIds = new Set(
           Array.isArray(dn?.permanently_deleted_task_notification_ids) ? dn.permanently_deleted_task_notification_ids : []
         );
+        const dismissedDeletionIds = new Set(Array.isArray(dn?.deletion_request_ids) ? dn.deletion_request_ids : []);
+        const permanentlyDeletedDeletionIds = new Set(
+          Array.isArray(dn?.permanently_deleted_deletion_request_ids) ? dn.permanently_deleted_deletion_request_ids : []
+        );
+        const dismissedWorkspaceInvites = new Set(Array.isArray(dn?.workspace_invitation_ids) ? dn.workspace_invitation_ids : []);
+        const permanentlyDeletedWorkspaceInvites = new Set(
+          Array.isArray(dn?.permanently_deleted_workspace_invitation_ids) ? dn.permanently_deleted_workspace_invitation_ids : []
+        );
 
         let mentionCount = 0;
         if (mentionsResponse.ok) {
@@ -125,14 +133,22 @@ function Navigation({ user, onLogout }) {
         if (invitationsResponse.ok) {
           const invitationsData = await invitationsResponse.json();
           const invitations = Array.isArray(invitationsData?.items) ? invitationsData.items : [];
-          invitationsCount = invitations.length;
+          invitationsCount = invitations.filter((inv) => {
+            const key = `invite-${inv.invitation_id}`;
+            return !dismissedWorkspaceInvites.has(key) && !permanentlyDeletedWorkspaceInvites.has(key);
+          }).length;
         }
 
         let deletionRequestsCount = 0;
         if (deletionRequestsResponse.ok) {
           const requestsData = await deletionRequestsResponse.json();
           const requests = Array.isArray(requestsData?.requests) ? requestsData.requests : [];
-          deletionRequestsCount = requests.length;
+          deletionRequestsCount = requests.filter(
+            (r) =>
+              r.status === 'pending' &&
+              !dismissedDeletionIds.has(r.id) &&
+              !permanentlyDeletedDeletionIds.has(r.id)
+          ).length;
         }
 
         if (!cancelled) {

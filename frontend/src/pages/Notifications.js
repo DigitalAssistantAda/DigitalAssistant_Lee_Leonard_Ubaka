@@ -20,6 +20,7 @@ function NotificationsPage() {
     permanently_deleted_workspace_invitation_ids: [],
   });
   const [loading, setLoading] = useState(false);
+  const [clearingAllPending, setClearingAllPending] = useState(false);
   const [filter, setFilter] = useState('pending');
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -104,7 +105,7 @@ function NotificationsPage() {
       } else {
         const tasksData = await tasksAuditResponse.json();
         const tlogs = Array.isArray(tasksData?.logs) ? tasksData.logs : [];
-        const taskRows = tlogs
+        const taskRowsRaw = tlogs
           .map((log) => {
             const metadata = parseMetadata(log);
             const notifiedUserId = Number(metadata?.notified_user_id);
@@ -144,6 +145,18 @@ function NotificationsPage() {
             };
           })
           .filter(Boolean);
+        /* Audit logs are newest-first; keep one reminders_generated row per issue so dismiss matches the visible card. */
+        const seenReminderKeys = new Set();
+        const taskRows = taskRowsRaw.filter((row) => {
+          if (row.kind !== 'reminders') return true;
+          const ws = row.workspace_id;
+          const tid = row.task_id;
+          if (!Number.isFinite(ws) || !Number.isFinite(tid)) return true;
+          const key = `${ws}:${tid}`;
+          if (seenReminderKeys.has(key)) return false;
+          seenReminderKeys.add(key);
+          return true;
+        });
         setTaskNotifications(taskRows);
       }
 
@@ -417,6 +430,38 @@ function NotificationsPage() {
     activeWorkspaceInvitations.length +
     tasksNotDismissed.length;
 
+  const handleClearAllPending = async () => {
+    if (pendingCount === 0) return;
+    const drIds = pendingDeletionNotifications
+      .map((n) => Number(n.id))
+      .filter((id) => Number.isFinite(id));
+    const inviteKeys = activeWorkspaceInvitations.map((inv) => workspaceInviteKey(inv.invitation_id));
+    const taskIds = tasksNotDismissed.map((t) => t.id).filter((id) => typeof id === 'string' && id.length > 0);
+    const payload = {};
+    if (drIds.length) payload.deletion_request_ids = drIds;
+    if (inviteKeys.length) payload.workspace_invitation_ids = inviteKeys;
+    if (taskIds.length) payload.task_notification_ids = taskIds;
+    if (Object.keys(payload).length === 0) return;
+
+    setClearingAllPending(true);
+    try {
+      const response = await callDismissEndpoint(payload);
+      if (response.ok) {
+        setDismissedIds((prev) => ({
+          ...prev,
+          deletion_request_ids: Array.from(new Set([...(prev.deletion_request_ids || []), ...drIds])),
+          workspace_invitation_ids: Array.from(new Set([...(prev.workspace_invitation_ids || []), ...inviteKeys])),
+          task_notification_ids: Array.from(new Set([...(prev.task_notification_ids || []), ...taskIds])),
+        }));
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    } catch (error) {
+      console.error('Error clearing pending notifications:', error);
+    } finally {
+      setClearingAllPending(false);
+    }
+  };
+
   const historyCount =
     dismissedRequests.length + dismissedMentions.length + dismissedTasks.length + historyWorkspaceInvitations.length;
 
@@ -644,13 +689,26 @@ function NotificationsPage() {
         <p>Invites, mentions, tasks, and document requests — dismiss anything to move it into history, or remove it for good.</p>
       </div>
 
-      <div className="filter-tabs">
-        <button className={`filter-tab ${filter === 'pending' ? 'active' : ''}`} onClick={() => setFilter('pending')}>
-          Pending ({pendingCount})
-        </button>
-        <button className={`filter-tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
-          All ({allCount})
-        </button>
+      <div className="notifications-filter-row">
+        <div className="filter-tabs">
+          <button type="button" className={`filter-tab ${filter === 'pending' ? 'active' : ''}`} onClick={() => setFilter('pending')}>
+            Pending ({pendingCount})
+          </button>
+          <button type="button" className={`filter-tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
+            All ({allCount})
+          </button>
+        </div>
+        {filter === 'pending' && pendingCount > 0 && (
+          <button
+            type="button"
+            className="notifications-clear-all"
+            onClick={handleClearAllPending}
+            disabled={loading || clearingAllPending}
+            aria-label="Dismiss all pending notifications from this view"
+          >
+            {clearingAllPending ? 'Clearing…' : 'Clear all'}
+          </button>
+        )}
       </div>
 
       <div className="notifications-list">

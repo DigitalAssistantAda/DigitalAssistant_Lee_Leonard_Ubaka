@@ -111,9 +111,8 @@ function Navigation({ user, onLogout }) {
         if (tasksAuditResponse.ok) {
           const tasksData = await tasksAuditResponse.json();
           const tlogs = Array.isArray(tasksData?.logs) ? tasksData.logs : [];
+          const seenReminderKeys = new Set();
           taskNotifyCount = tlogs.reduce((total, log) => {
-            const tid = `task-${log.id}`;
-            if (dismissedTaskIds.has(tid) || permanentlyDeletedTaskIds.has(tid)) return total;
             let metadata = {};
             if (typeof log?.metadata_json === 'string') {
               try {
@@ -125,7 +124,27 @@ function Navigation({ user, onLogout }) {
               metadata = log.metadata_json;
             }
             const notifiedUserId = Number(metadata?.notified_user_id);
-            return notifiedUserId === currentUserId ? total + 1 : total;
+            if (notifiedUserId !== currentUserId) return total;
+
+            const act = String(log.action || '');
+            if (act.includes('reminders_generated')) {
+              const ws = Number(metadata?.workspace_id ?? log.workspace_id);
+              const taskId =
+                metadata?.task_id != null
+                  ? Number(metadata.task_id)
+                  : log.object_id != null
+                    ? Number(log.object_id)
+                    : NaN;
+              if (Number.isFinite(ws) && Number.isFinite(taskId)) {
+                const key = `${ws}:${taskId}`;
+                if (seenReminderKeys.has(key)) return total;
+                seenReminderKeys.add(key);
+              }
+            }
+
+            const tid = `task-${log.id}`;
+            if (dismissedTaskIds.has(tid) || permanentlyDeletedTaskIds.has(tid)) return total;
+            return total + 1;
           }, 0);
         }
 

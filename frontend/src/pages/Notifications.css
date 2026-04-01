@@ -30,10 +30,48 @@
   font-size: 1rem;
 }
 
+.notifications-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--s-8) var(--s-24);
+  margin-bottom: var(--s-24);
+}
+
 .filter-tabs {
   display: flex;
   gap: var(--s-24);
-  margin-bottom: var(--s-24);
+  margin-bottom: 0;
+}
+
+.notifications-clear-all {
+  margin: 0;
+  padding: 0 0 var(--s-4);
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 300;
+  font-family: var(--font-display);
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+  transition: color 0.2s ease;
+}
+
+.notifications-clear-all:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.notifications-clear-all:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.notifications-clear-all:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
+  outline-offset: 3px;
 }
 
 .filter-tab {

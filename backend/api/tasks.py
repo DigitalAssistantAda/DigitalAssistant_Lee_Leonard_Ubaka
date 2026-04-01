@@ -315,6 +315,75 @@ async def _notify_task_updates(
     await _ping_notification_users(ping)
 
 
+def _reminder_lines_signature(lines: object) -> str:
+    """Stable JSON signature for comparing reminder payloads between notifications."""
+    if not isinstance(lines, list):
+        lines = []
+    norm: list[dict] = []
+    for x in lines:
+        if not isinstance(x, dict):
+            continue
+        try:
+            rid = int(x["id"]) if x.get("id") is not None else None
+        except (TypeError, ValueError, KeyError):
+            rid = None
+        norm.append(
+            {
+                "id": rid,
+                "hint_type": str(x.get("hint_type") or ""),
+                "content": str(x.get("content") or ""),
+            }
+        )
+    norm.sort(key=lambda r: (r["id"] is None, r["id"] if r["id"] is not None else 0))
+    return json.dumps(norm, sort_keys=True)
+
+
+def _reminder_count_from_metadata(md: dict) -> int | None:
+    v = md.get("reminder_count")
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _last_reminder_notify_metadata_for_user(
+    db: Session, workspace_id: int, task_id: int, user_id: int
+) -> dict | None:
+    rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.workspace_id == workspace_id,
+            AuditLog.action == AuditActions.TASK_REMINDERS_GENERATED,
+            AuditLog.object_id == task_id,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(40)
+        .all()
+    )
+    for log in rows:
+        md = _parse_audit_metadata(log.metadata_json)
+        try:
+            nu = int(md.get("notified_user_id"))
+        except (TypeError, ValueError):
+            continue
+        if nu == user_id:
+            return md
+    return None
+
+
+def _same_reminder_notification_payload(
+    prev_md: dict | None, reminder_count: int, reminder_lines: list[dict]
+) -> bool:
+    if not prev_md:
+        return False
+    pc = _reminder_count_from_metadata(prev_md)
+    if pc is None or pc != int(reminder_count):
+        return False
+    return _reminder_lines_signature(prev_md.get("reminder_lines")) == _reminder_lines_signature(reminder_lines)
+
+
 def _active_reminder_lines_for_notify(
     db: Session,
     task_id: int,
@@ -366,6 +435,9 @@ async def _notify_task_reminders_generated(
         recipients.add(task.created_by)
     recipients.discard(actor.id)
     for uid in recipients:
+        prev = _last_reminder_notify_metadata_for_user(db, workspace_id, task.id, uid)
+        if _same_reminder_notification_payload(prev, reminder_count, reminder_lines):
+            continue
         create_audit_log(
             db,
             actor,

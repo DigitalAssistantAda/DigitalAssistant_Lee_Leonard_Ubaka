@@ -8,7 +8,11 @@ logger = get_task_logger(__name__)
 
 
 @celery_app.task(name="tasks.chat.generate_grounded_response")
-def generate_grounded_response(user_query: str, retrieved_context: str) -> str:
+def generate_grounded_response(
+    user_query: str,
+    retrieved_context: str,
+    memory_window: str | None = None,
+) -> str:
     """Generate grounded chat response through configured LLM provider."""
     if not summary_generation_service.is_available():
         raise RuntimeError("Summary LLM service is not configured")
@@ -17,6 +21,7 @@ def generate_grounded_response(user_query: str, retrieved_context: str) -> str:
         return summary_generation_service.generate_grounded_response(
             user_query=user_query,
             retrieved_context=retrieved_context,
+            memory_window=memory_window,
         )
     except Exception as exc:
         logger.warning("Celery chat generation failed: %s: %s", type(exc).__name__, exc)

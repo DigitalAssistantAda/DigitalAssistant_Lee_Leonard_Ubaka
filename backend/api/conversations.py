@@ -34,9 +34,12 @@ logger = logging.getLogger(__name__)
 
 COMMON_QUERY_STOPWORDS = {
     "the", "and", "for", "with", "from", "that", "this", "what", "when", "where", "which",
-    "about", "into", "your", "you", "are", "can", "could", "would", "should", "want", "need",
+    "about", "into", "your", "you", "are", "can", "could", "would", "should", "want", "need", "needs", "needed",
     "does", "have", "has", "had", "was", "were", "how", "why", "who", "will", "make", "making",
     "doing", "just", "please", "tell", "show", "give", "there", "their", "them", "then", "than",
+    "summarize", "summary", "find", "create", "draft", "compare", "explain", "review", "analyze",
+    "current", "required", "much", "prepare", "prepared", "preparing", "start", "starting", "started",
+    "before", "begin", "begins", "beginning",
 }
 
 
@@ -317,29 +320,41 @@ def _answer_workspace_catalog(
     return (content, doc_ids, [], True)
 
 
-def _recent_turns_for_retrieval(conversation_id: int | None, db: Session, limit: int = 6) -> str:
-    """Compact transcript tail so short follow-ups (e.g. \"two regions?\") still retrieve relevant chunks."""
-    if not conversation_id:
+def _recent_turns_for_retrieval(
+    conversation_id: int | None,
+    db: Session,
+    limit: int = 6,
+    include_assistant: bool = False,
+) -> str:
+    """Compact recent transcript tail for retrieval, usually using user turns only."""
+    if not conversation_id or limit <= 0:
         return ""
+
+    fetch_limit = max(limit * 3, limit + 4)
     rows = (
         db.query(AIMessage)
         .filter(AIMessage.conversation_id == conversation_id)
         .order_by(AIMessage.created_at.desc())
-        .limit(limit)
+        .limit(fetch_limit)
         .all()
     )
     if not rows:
         return ""
+
     rows = list(reversed(rows))
     parts: list[str] = []
     for m in rows:
         text = (m.content or "").strip()
         if not text:
             continue
+        if m.role != MessageRole.USER and not include_assistant:
+            continue
         label = "User" if m.role == MessageRole.USER else "Assistant"
-        if len(text) > 4000:
-            text = text[:3997] + "..."
+        if len(text) > 2000:
+            text = text[:1997] + "..."
         parts.append(f"{label}:\n{text}")
+        if len(parts) >= limit:
+            break
     return "\n\n".join(parts)
 
 
@@ -349,6 +364,7 @@ def _conversation_memory_window(
     limit: int,
     max_chars: int,
     exclude_message_ids: set[int] | None = None,
+    include_assistant: bool = True,
 ) -> str:
     """Last N turns for response continuity, clipped for prompt budget."""
     if not conversation_id or limit <= 0 or max_chars <= 0:
@@ -371,6 +387,8 @@ def _conversation_memory_window(
         if msg.id in excluded:
             continue
         if not (msg.content or "").strip():
+            continue
+        if msg.role != MessageRole.USER and not include_assistant:
             continue
         selected.append(msg)
         if len(selected) >= limit:
@@ -407,55 +425,6 @@ def _format_summary_block(filename: str, summary_text: str, detailed: bool) -> s
         lines.append("Key points:")
         lines.extend([f"- {point}" for point in key_points])
     return "\n".join(lines)
-
-
-def _build_sources_used_block(
-    db: Session,
-    document_ids: list[int],
-    chunk_ids: list[int],
-    max_items: int = 6,
-) -> str:
-    if not document_ids:
-        return ""
-
-    docs = db.query(Document).filter(Document.id.in_(document_ids)).all()
-    doc_map = {doc.id: doc for doc in docs}
-
-    section_by_doc: dict[int, int] = {}
-    if chunk_ids:
-        chunks = db.query(DocumentChunk).filter(
-            DocumentChunk.id.in_(chunk_ids),
-            DocumentChunk.document_id.in_(document_ids),
-        ).order_by(
-            DocumentChunk.document_id.asc(),
-            DocumentChunk.chunk_index.asc(),
-        ).all()
-        for chunk in chunks:
-            if chunk.document_id not in section_by_doc:
-                section_by_doc[chunk.document_id] = int(chunk.chunk_index) + 1
-
-    lines: list[str] = []
-    seen_docs: set[int] = set()
-    for doc_id in document_ids:
-        if doc_id in seen_docs:
-            continue
-        seen_docs.add(doc_id)
-        doc = doc_map.get(doc_id)
-        if not doc:
-            continue
-        name = doc.filename or f"Document {doc_id}"
-        section = section_by_doc.get(doc_id)
-        if section is not None:
-            lines.append(f"- {name} (section {section})")
-        else:
-            lines.append(f"- {name}")
-        if len(lines) >= max_items:
-            break
-
-    if not lines:
-        return ""
-
-    return "Sources Used:\n" + "\n".join(lines)
 
 
 def _is_simple_greeting_or_small_talk(text: str) -> bool:
@@ -559,13 +528,62 @@ def _is_explicit_document_query(query_text: str) -> bool:
     return any(marker in text for marker in doc_markers)
 
 
+def _is_context_dependent_followup(query_text: str) -> bool:
+    text = " ".join((query_text or "").strip().lower().split())
+    if not text:
+        return False
+
+    if _is_followup_refinement_request(text) or _is_affirmative_followup(text):
+        return True
+
+    followup_starts = (
+        "and ",
+        "also ",
+        "then ",
+        "so ",
+        "what about",
+        "how about",
+        "what else",
+        "anything else",
+        "tell me more",
+        "explain that",
+        "clarify that",
+        "expand on that",
+    )
+    if text.startswith(followup_starts):
+        return True
+
+    tokens = re.findall(r"[a-z0-9']+", text)
+    if not tokens:
+        return False
+
+    referential_terms = {
+        "it", "this", "that", "these", "those", "they", "them",
+        "one", "ones", "former", "latter", "same", "earlier", "previous",
+    }
+    has_reference = any(token in referential_terms for token in tokens)
+    short_context_question = len(tokens) <= 10 and has_reference
+    if short_context_question:
+        return True
+
+    if len(tokens) <= 6 and text.endswith("?"):
+        short_question_starts = (
+            "why", "when", "where", "which", "who", "how", "what about",
+        )
+        if text.startswith(short_question_starts):
+            return True
+
+    return False
+
+
 def _should_include_memory_for_llm(query_text: str, intent: str) -> bool:
     if intent in {"memory_store", "memory_recall", "conversation_summary"}:
         return True
-    # For explicit document-focused questions, avoid contaminating answer with unrelated chat memory.
-    if intent == "document_qa" and _is_explicit_document_query(query_text):
+    if _is_explicit_document_query(query_text):
         return False
-    return True
+    if _is_context_dependent_followup(query_text):
+        return True
+    return len(_tokenize_for_match(query_text)) <= 6
 
 
 def _is_non_question_assertion_or_directive(query_text: str) -> bool:
@@ -605,6 +623,27 @@ def _is_non_question_assertion_or_directive(query_text: str) -> bool:
     if _is_summary_request(text) or _is_workspace_catalog_query(text):
         return False
 
+    # Task style requests often omit a question mark but should still be treated as document QA.
+    task_request_starts = (
+        "find ",
+        "show ",
+        "list ",
+        "compare ",
+        "explain ",
+        "tell me ",
+        "give me ",
+        "draft ",
+        "create ",
+        "write ",
+        "analyze ",
+        "review ",
+        "search ",
+        "look up ",
+        "outline ",
+    )
+    if text.startswith(task_request_starts):
+        return False
+
     directive_starts = (
         "set ",
         "mark ",
@@ -625,9 +664,17 @@ def _is_non_question_assertion_or_directive(query_text: str) -> bool:
     if re.search(r"\b(this|that)\s+(file|document|project)\b", text):
         return True
 
-    # General fallback: treat declarative statements as memory updates.
-    # Excludes explicit question/summary/catalog flows above.
-    return True
+    # Only treat clearly user/project factual statements as memory updates.
+    fact_like_starts = (
+        "i ",
+        "we ",
+        "my ",
+        "our ",
+        "this project ",
+        "this document ",
+        "this file ",
+    )
+    return text.startswith(fact_like_starts)
 
 
 def _detect_conversation_intent(query_text: str, requested_document_ids: list[int] | None = None) -> str:
@@ -673,6 +720,47 @@ def _extract_memory_candidates(text: str) -> list[str]:
                 candidates.append(fact)
 
     return candidates
+
+
+def _recent_grounded_document_ids(
+    conversation_id: int | None,
+    db: Session,
+    max_messages: int = 4,
+) -> list[int]:
+    if not conversation_id:
+        return []
+
+    rows = (
+        db.query(AIMessage)
+        .filter(
+            AIMessage.conversation_id == conversation_id,
+            AIMessage.role == MessageRole.ASSISTANT,
+        )
+        .order_by(AIMessage.created_at.desc())
+        .limit(max_messages)
+        .all()
+    )
+
+    for msg in rows:
+        raw_refs = (msg.document_refs or "").strip()
+        if not raw_refs:
+            continue
+        try:
+            parsed = json.loads(raw_refs)
+        except Exception:
+            continue
+        if not isinstance(parsed, list):
+            continue
+        doc_ids: list[int] = []
+        for value in parsed:
+            try:
+                doc_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        if doc_ids:
+            return doc_ids
+
+    return []
 
 
 def _conversation_long_term_memory_facts(
@@ -771,15 +859,6 @@ def _memory_store_acknowledgement(query_text: str) -> str:
     return "Got it. I’ll remember that for this conversation."
 
 
-def _extract_sources_block(content: str) -> str:
-    marker = "Sources used:\n"
-    text = content or ""
-    idx = text.find(marker)
-    if idx < 0:
-        return ""
-    return text[idx:].strip()
-
-
 def _memory_recall_answer(query_text: str, memory_window: str, memory_facts: list[str] | None = None) -> str | None:
     if not _is_memory_recall_query(query_text):
         return None
@@ -837,7 +916,78 @@ def _extract_retrieval_terms(query_text: str, max_terms: int = 8) -> list[str]:
     filtered = [t for t in tokens if t not in COMMON_QUERY_STOPWORDS]
     # Fallback to raw tokens so short queries still work.
     selected = filtered if filtered else tokens
-    return selected[:max_terms]
+
+    # Generic, non-domain specific light normalization so direct evidence like
+    # singular/plural or basic tense variants still counts as grounded support.
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    def add(term: str) -> None:
+        t = (term or "").strip().lower()
+        if not t or t in seen or len(t) < 3:
+            return
+        seen.add(t)
+        expanded.append(t)
+
+    for base in selected[:max_terms]:
+        add(base)
+
+        if base.endswith("ies") and len(base) > 4:
+            add(base[:-3] + "y")
+        if base.endswith("s") and len(base) > 3:
+            add(base[:-1])
+        else:
+            add(base + "s")
+
+        if base.endswith("ing") and len(base) > 5:
+            add(base[:-3])
+        if base.endswith("ed") and len(base) > 4:
+            add(base[:-2])
+        if base.endswith("y") and len(base) > 3:
+            add(base[:-1] + "ies")
+
+    return expanded[: max(max_terms * 2, max_terms)]
+
+
+def _extract_focus_terms(query_text: str, max_terms: int = 6) -> list[str]:
+    """Query terms for attribution: favor topical words, not broad helper words."""
+    tokens = _tokenize_for_match(query_text)
+    low_signal_terms = {
+        "long", "time", "times", "much", "many", "need", "needs", "needed",
+        "require", "required", "requires", "using", "used",
+        "avoid", "avoids", "avoiding",
+        "prepare", "prepared", "preparing", "start", "starting", "started",
+        "before", "begin", "begins", "beginning",
+    }
+    focused = [t for t in tokens if t not in COMMON_QUERY_STOPWORDS and t not in low_signal_terms]
+    selected = focused if focused else [t for t in tokens if t not in COMMON_QUERY_STOPWORDS]
+
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    def add(term: str) -> None:
+        t = (term or "").strip().lower()
+        if not t or t in seen or len(t) < 3:
+            return
+        seen.add(t)
+        expanded.append(t)
+
+    for base in selected[:max_terms]:
+        add(base)
+        if base.endswith("ies") and len(base) > 4:
+            add(base[:-3] + "y")
+        if base.endswith("s") and len(base) > 3:
+            add(base[:-1])
+        else:
+            add(base + "s")
+        if base.endswith("ing") and len(base) > 5:
+            add(base[:-3])
+        if base.endswith("ed") and len(base) > 4:
+            add(base[:-2])
+        if base.endswith("y") and len(base) > 3:
+            add(base[:-1] + "ies")
+
+    return expanded[: max(max_terms * 2, max_terms)]
 
 
 def _is_implication_question(query_text: str) -> bool:
@@ -885,7 +1035,7 @@ def _expand_terms_for_implication(query_terms: list[str], implication_query: boo
     if not implication_query:
         return query_terms
 
-    # Generic, non-domain-specific expansion: lightweight morphological variants
+    # Generic, non-domain specific expansion: lightweight morphological variants
     merged: list[str] = []
     seen: set[str] = set()
 
@@ -1053,35 +1203,6 @@ def _rank_documents_by_keyword_hits(
 
     ranked = sorted(scored.items(), key=lambda item: item[1], reverse=True)
     return [doc_id for doc_id, _ in ranked[:limit]]
-
-
-def _response_claims_missing_context(text: str) -> bool:
-    lower = (text or "").lower()
-    signals = (
-        "no information",
-        "does not contain",
-        "not enough information",
-        "cannot provide",
-        "can't provide",
-        "no mention",
-    )
-    return any(token in lower for token in signals)
-
-
-def _answer_has_inference_caveat(text: str) -> bool:
-    lower = (text or "").lower()
-    caveat_signals = (
-        "not explicitly stated",
-        "not explicitly mentioned",
-        "does not explicitly state",
-        "not directly stated",
-        "not directly mentioned",
-        "based on related context",
-        "inferred",
-        "recommend",
-        "recommended",
-    )
-    return any(token in lower for token in caveat_signals)
 
 
 def _is_counterfactual_or_missing_item_question(query_text: str) -> bool:
@@ -1490,11 +1611,7 @@ def _build_assistant_message_content(
     detailed_summary_request = _is_detailed_summary_request(query_text) or followup_summary_request
     implication_query = _is_implication_question(query_text)
     duration_query = _is_duration_question(query_text)
-    query_keywords = _extract_retrieval_terms(query_text, max_terms=8)
-    query_keywords = _expand_terms_for_implication(query_keywords, implication_query)
-    query_keywords = _expand_terms_for_duration(query_keywords, duration_query)
-    query_phrases = _build_query_phrases(query_text, query_keywords, max_phrases=4)
-
+    query_focus_terms = _extract_focus_terms(query_text, max_terms=6)
     explicit_doc_ids = _find_explicit_document_mentions(
         query_text=query_text,
         workspace_id=workspace_id,
@@ -1504,7 +1621,36 @@ def _build_assistant_message_content(
         max_matches=4,
     )
 
-    history_for_embedding = _recent_turns_for_retrieval(conversation_id, db, limit=6)
+    include_assistant_history = _is_context_dependent_followup(query_text)
+    history_for_embedding = _recent_turns_for_retrieval(
+        conversation_id,
+        db,
+        limit=6,
+        include_assistant=include_assistant_history,
+    )
+
+    continuity_document_ids: list[int] = []
+    if (
+        not requested_scope
+        and not explicit_doc_ids
+        and conversation_id
+        and (len(query_focus_terms) <= 1 or include_assistant_history)
+    ):
+        continuity_document_ids = _recent_grounded_document_ids(conversation_id, db, max_messages=3)
+
+    effective_document_scope_ids = scoped_document_ids if requested_scope else (continuity_document_ids or None)
+    retrieval_seed_text = query_text
+    if len(query_focus_terms) <= 1 and history_for_embedding:
+        retrieval_seed_text = f"{query_text}\n\nRecent conversation:\n{history_for_embedding}"[:12000]
+        query_focus_terms = _extract_focus_terms(retrieval_seed_text, max_terms=6)
+
+    query_focus_phrases = _build_query_phrases(retrieval_seed_text, query_focus_terms, max_phrases=3)
+
+    query_keywords = _extract_retrieval_terms(retrieval_seed_text, max_terms=8)
+    query_keywords = _expand_terms_for_implication(query_keywords, implication_query)
+    query_keywords = _expand_terms_for_duration(query_keywords, duration_query)
+    query_phrases = _build_query_phrases(retrieval_seed_text, query_keywords, max_phrases=4)
+
     embedding_text = query_text
     if history_for_embedding:
         embedding_text = f"{query_text}\n\n---\nRecent conversation:\n{history_for_embedding}"[:12000]
@@ -1529,7 +1675,7 @@ def _build_assistant_message_content(
                 workspace_id,
                 db=db,
                 user_id=current_user_id,
-                document_ids_filter=scoped_document_ids if requested_scope else None,
+                document_ids_filter=effective_document_scope_ids,
                 max_documents=max_docs_from_vector,
                 min_similarity=0.0,
             )
@@ -1571,7 +1717,7 @@ def _build_assistant_message_content(
             current_user_id=current_user_id,
             query_terms=query_keywords,
             query_phrases=query_phrases,
-            scoped_document_ids=scoped_document_ids if requested_scope else None,
+            scoped_document_ids=effective_document_scope_ids,
             limit=6,
         )
 
@@ -1615,8 +1761,8 @@ def _build_assistant_message_content(
                     or_(*keyword_conditions),
                 )
 
-                if scoped_document_ids:
-                    chunk_query = chunk_query.filter(Document.id.in_(scoped_document_ids))
+                if effective_document_scope_ids:
+                    chunk_query = chunk_query.filter(Document.id.in_(effective_document_scope_ids))
 
                 keyword_rows = chunk_query.order_by(DocumentChunk.id.desc()).limit(12).all()
 
@@ -1653,7 +1799,7 @@ def _build_assistant_message_content(
                 workspace_id,
                 db=db,
                 user_id=current_user_id,
-                document_ids_filter=scoped_document_ids if requested_scope else None,
+                document_ids_filter=effective_document_scope_ids,
                 max_documents=max_docs_from_vector,
                 min_similarity=0.0,
             )
@@ -1819,14 +1965,21 @@ def _build_assistant_message_content(
             doc_summaries_map[doc_id] = _simple_summary(joined_text, max_sentences=max_sentences)
 
     chunk_ids = []
+    kept_document_ids: list[int] = []
     lines = []
     source_rows: list[str] = []
     seen_source_rows: set[str] = set()
     used_summary_keys = set()
+    source_terms = query_focus_terms if query_focus_terms else query_keywords[:6]
+    source_phrases = query_focus_phrases if query_focus_phrases else query_phrases[:2]
+    prepared_rows: list[dict[str, object]] = []
+
     for doc_id in document_ids:
         document = doc_map.get(doc_id)
         chunk = chunk_map.get(doc_id)
         next_chunk = next_chunk_map.get(doc_id)
+        anchor_chunk = chunk or next_chunk
+        chunk_index_value = str(int(anchor_chunk.chunk_index) + 1) if anchor_chunk and anchor_chunk.chunk_index is not None else "n/a"
         if not document:
             continue
         snippet = doc_summaries_map.get(doc_id) if is_summary_request else None
@@ -1842,10 +1995,62 @@ def _build_assistant_message_content(
             # Keep a richer contiguous snippet so exact instructions (numbers/ranges) are not lost.
             max_snippet_chars = 1500 if implication_query else 900
             snippet = " ".join(combined.split())[:max_snippet_chars] if combined.strip() else "No preview available"
+
+        source_match_score = _snippet_match_score(snippet or "", source_terms, source_phrases)
+        prepared_rows.append({
+            "doc_id": doc_id,
+            "document": document,
+            "chunk": chunk,
+            "next_chunk": next_chunk,
+            "snippet": snippet,
+            "chunk_index_value": chunk_index_value,
+            "source_match_score": source_match_score,
+        })
+
+    has_positive_source_match = any(int(item["source_match_score"]) > 0 for item in prepared_rows)
+    top_source_match_score = max((int(item["source_match_score"]) for item in prepared_rows), default=0)
+    if has_positive_source_match:
+        prepared_rows.sort(key=lambda item: int(item["source_match_score"]), reverse=True)
+
+    for item in prepared_rows:
+        doc_id = int(item["doc_id"])
+        document = item["document"]
+        chunk = item["chunk"]
+        next_chunk = item["next_chunk"]
+        snippet = str(item["snippet"])
+        chunk_index_value = str(item["chunk_index_value"])
+        source_match_score = int(item["source_match_score"])
+
+        relative_match_ok = (
+            not has_positive_source_match
+            or top_source_match_score < 5
+            or source_match_score >= max(2, top_source_match_score - 2)
+        )
+        should_keep_doc = (
+            doc_id in explicit_doc_ids
+            or (source_match_score >= 2 and relative_match_ok)
+            or len(document_ids) == 1
+            or not has_positive_source_match
+        )
+        if not should_keep_doc:
+            continue
+
+        if doc_id not in kept_document_ids:
+            kept_document_ids.append(doc_id)
+
+        source_row = (
+            f"- {document.filename} (section {chunk_index_value})"
+            if chunk_index_value != "n/a"
+            else f"- {document.filename}"
+        )
+        if source_row not in seen_source_rows:
+            seen_source_rows.add(source_row)
+            source_rows.append(source_row)
+
         if chunk:
             chunk_ids.append(chunk.id)
-        if next_chunk_map.get(doc_id):
-            chunk_ids.append(next_chunk_map[doc_id].id)
+        if next_chunk:
+            chunk_ids.append(next_chunk.id)
         if supplemental_chunks_by_doc.get(doc_id):
             chunk_ids.extend([c.id for c in supplemental_chunks_by_doc[doc_id]])
         if is_summary_request:
@@ -1894,8 +2099,6 @@ def _build_assistant_message_content(
             f"{intro}\n\n"
             + "Answer:\n"
             + "\n".join(lines)
-            + ("\n\nSources used:\n" + "\n".join(source_rows) if source_rows else "")
-            + ("\n\nIf you want, I can break this into action items and risks next." if detailed_summary_request else "\n\nIf you want, I can produce a longer structured summary next.")
             + pending_scope_note
         )
     else:
@@ -1903,11 +2106,9 @@ def _build_assistant_message_content(
             ("I searched the selected documents and found grounded evidence.\n\n" if requested_scope else "I searched your workspace and found grounded evidence.\n\n")
             + "Evidence:\n"
             + "\n".join(lines)
-            + ("\n\nSources used:\n" + "\n".join(source_rows) if source_rows else "")
-            + "\n\nIf you want, ask a follow-up and I can narrow this down further."
             + pending_scope_note
         )
-    return (content, document_ids, chunk_ids, False)
+    return (content, kept_document_ids or document_ids, chunk_ids, False)
 
 
 @router.post("/{workspace_id}", response_model=ConversationResponse)
@@ -2075,6 +2276,7 @@ async def send_message(
 
     memory_window_context = ""
     selected_memory_facts: list[str] = []
+    include_assistant_memory = intent in {"memory_store", "memory_recall", "conversation_summary"} or _is_context_dependent_followup(request.content)
     if settings.conversation_memory_window_enabled:
         memory_window_context = _conversation_memory_window(
             conversation_id=conversation_id,
@@ -2082,6 +2284,7 @@ async def send_message(
             limit=max(settings.conversation_memory_window_messages, 0),
             max_chars=max(settings.conversation_memory_window_max_chars, 0),
             exclude_message_ids={user_message.id},
+            include_assistant=include_assistant_memory,
         )
         all_facts = _conversation_long_term_memory_facts(
             conversation_id=conversation_id,
@@ -2175,7 +2378,6 @@ async def send_message(
         and summary_generation_service.is_available()
     ):
         llm_memory_window = memory_window_context if _should_include_memory_for_llm(request.content, intent) else ""
-        retrieval_sources_block = _extract_sources_block(assistant_content)
         try:
             if use_llm_summary and summary_context:
                 async_result = celery_generate_summary.delay(
@@ -2186,15 +2388,10 @@ async def send_message(
                 assistant_source = f"celery:{settings.summary_llm_provider.lower()}:summary"
             elif not summary_request:
                 llm_context = assistant_content
-                if not effective_direct_context_signal:
-                    llm_context = (
-                        f"{assistant_content}\n\n"
-                        "Grounding note: The retrieved context may be related but may not explicitly state the exact answer. "
-                        "If you provide an inferred or recommended answer, clearly say it is inferred/recommended and not explicitly stated."
-                    )
                 async_result = celery_generate_grounded_response.delay(
                     user_query=request.content,
                     retrieved_context=llm_context,
+                    memory_window=llm_memory_window,
                 )
                 assistant_content = async_result.get(timeout=max(10, settings.summary_llm_timeout_seconds + 5))
                 assistant_source = f"celery:{settings.summary_llm_provider.lower()}"
@@ -2209,56 +2406,21 @@ async def send_message(
                     assistant_source = f"{settings.summary_llm_provider.lower()}:summary"
                 elif not summary_request:
                     llm_context = assistant_content
-                    if not effective_direct_context_signal:
-                        llm_context = (
-                            f"{assistant_content}\n\n"
-                            "Grounding note: The retrieved context may be related but may not explicitly state the exact answer. "
-                            "If you provide an inferred or recommended answer, clearly say it is inferred/recommended and not explicitly stated."
-                        )
                     assistant_content = summary_generation_service.generate_grounded_response(
                         user_query=request.content,
                         retrieved_context=llm_context,
                         memory_window=llm_memory_window,
-            )
-                    if retrieval_sources_block and "Sources used:" not in assistant_content:
-                assistant_content = f"{assistant_content.rstrip()}\n\n{retrieval_sources_block}"
-            assistant_source = settings.summary_llm_provider.lower()
+                    )
+                    assistant_source = settings.summary_llm_provider.lower()
             except Exception as llm_exc:
                 logger.warning("Conversation LLM unavailable; using retrieval response: %s: %s", type(llm_exc).__name__, llm_exc)
 
     if summary_request and not assistant_content:
         assistant_content = base_summary_content
 
-    if (
-        assistant_content
-        and has_grounded_context
-        and not summary_request
-        and not effective_direct_context_signal
-        and not _response_claims_missing_context(assistant_content)
-        and not _answer_has_inference_caveat(assistant_content)
-    ):
-        assistant_content = (
-            "The documents do not explicitly state this exact point; this is a recommendation inferred from related context. "
-            + assistant_content
-        )
 
     requested_scope = bool(request.document_ids)
     if (
-        assistant_content
-        and assistant_doc_ids
-        and not requested_scope
-        and not skip_llm_refinement
-        and "sources used" not in assistant_content.lower()
-    ):
-        sources_used_block = _build_sources_used_block(
-            db=db,
-            document_ids=assistant_doc_ids,
-            chunk_ids=assistant_chunk_ids,
-        )
-        if sources_used_block:
-            assistant_content = f"{assistant_content.rstrip()}\n\n{sources_used_block}"
-            assistant_source = "retrieval-fallback-llm-unavailable"
-    elif (
         intent not in {"memory_store", "memory_recall", "conversation_summary"}
         and has_grounded_context
         and not is_greeting_reply

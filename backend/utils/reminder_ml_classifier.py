@@ -129,7 +129,8 @@ def extract_ml_reminder_candidates(combined_text: str) -> List[Dict[str, Any]]:
             {
                 "hint_type": label,
                 "content": content,
-                "ai_suggested": False,
+                "ai_suggested": True,
+                "ai_model_used": "reminder_classifier",
                 "confidence_score": max(1, min(99, int(round(p * 100)))),
             }
         )

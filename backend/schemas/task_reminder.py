@@ -9,6 +9,7 @@ class TaskReminderResponse(BaseModel):
     hint_type: str
     content: str
     ai_suggested: bool
+    ai_model_used: Optional[str] = None
     confidence_score: Optional[int] = None
     source_document_id: Optional[int] = None
 

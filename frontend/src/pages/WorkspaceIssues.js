@@ -48,6 +48,8 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const [issueRemindersDegraded, setIssueRemindersDegraded] = useState(null);
   const [issueReminderActionId, setIssueReminderActionId] = useState(null);
   const [issueRemindersBusy, setIssueRemindersBusy] = useState(false);
+  /** Bumps when this workspace's documents change so reminder context can refresh. */
+  const [reminderDocEpoch, setReminderDocEpoch] = useState(0);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -184,14 +186,35 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     return null;
   }, [workspaceId, id]);
 
-  /** When this changes (issue selected or server updates issue), reminders regenerate after debounce. */
+  /**
+   * Reminder extraction uses title, description, and due date (not arbitrary updated_at bumps).
+   * `reminderDocEpoch` increments when workspace documents change (WebSocket).
+   */
   const reminderRegenerationKey = useMemo(() => {
     if (!resolvedWorkspaceId || !selectedIssueId) return null;
     const issue = issues.find((i) => i.id === selectedIssueId);
     if (!issue) return null;
-    const stamp = issue.updated_at || issue.created_at || '';
-    return `${issue.id}:${stamp}`;
-  }, [resolvedWorkspaceId, selectedIssueId, issues]);
+    const title = issue.title || '';
+    const desc = issue.description || '';
+    const due = issue.due_date != null ? String(issue.due_date) : '';
+    return `${issue.id}|${title}|${desc}|${due}|doc${reminderDocEpoch}`;
+  }, [resolvedWorkspaceId, selectedIssueId, issues, reminderDocEpoch]);
+
+  useEffect(() => {
+    setReminderDocEpoch(0);
+  }, [resolvedWorkspaceId]);
+
+  useEffect(() => {
+    const onDocs = (e) => {
+      const raw = e?.detail?.workspace_id;
+      const wid = raw == null ? null : Number(raw);
+      if (Number.isFinite(wid) && wid === Number(resolvedWorkspaceId)) {
+        setReminderDocEpoch((n) => n + 1);
+      }
+    };
+    window.addEventListener('documents-updated', onDocs);
+    return () => window.removeEventListener('documents-updated', onDocs);
+  }, [resolvedWorkspaceId]);
 
   useEffect(() => {
     if (!resolvedWorkspaceId) {
@@ -1184,7 +1207,9 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                   )}
                 </div>
                 <p className="issue-reminders-caption">
-                  From this issue and related workspace documents. Refreshes when the issue changes.
+                  From this issue and related workspace documents. Refreshes when the issue text, due date,
+                  or workspace files change. Acknowledged and dismissed lines stay cleared when suggestions
+                  refresh.
                 </p>
                 {issueRemindersDegraded && (
                   <p className="issue-reminders-note issue-reminders-note--warn" role="status">
@@ -1209,7 +1234,11 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                       <div className="issue-reminders-item-main">
                         <span className="issue-reminders-type">{formatReminderType(r.hint_type)}</span>
                         <span className="issue-reminders-content">{r.content}</span>
-                        {r.ai_suggested && <span className="issue-reminders-badge">Ada</span>}
+                        {r.ai_suggested && (
+                          <span className="issue-reminders-badge">
+                            {r.ai_model_used === 'reminder_classifier' ? 'ML' : 'Ada'}
+                          </span>
+                        )}
                       </div>
                       <div className="issue-reminders-actions">
                         <button

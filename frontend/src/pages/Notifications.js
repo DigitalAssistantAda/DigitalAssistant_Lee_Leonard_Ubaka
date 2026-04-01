@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Check, X, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2, FileText, ListTodo } from 'lucide-react';
+import { Check, X, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2, FileText, ListTodo, Bell } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import './Notifications.css';
 
@@ -515,7 +515,7 @@ function NotificationsPage() {
         : row.kind === 'deleted'
           ? 'denied'
           : row.kind === 'reminders'
-            ? 'pending'
+            ? 'reminders'
             : 'mention';
     const badgeLabel =
       row.kind === 'assigned'
@@ -523,32 +523,42 @@ function NotificationsPage() {
         : row.kind === 'deleted'
           ? 'deleted'
           : row.kind === 'reminders'
-            ? 'reminders'
+            ? 'Reminders'
             : 'update';
+    const cardMods = [
+      'notification-card',
+      faded ? 'notification-card--faded' : '',
+      row.kind === 'reminders' ? 'notification-card--reminders' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
     return (
-      <div key={row.id} className={`notification-card${faded ? ' notification-card--faded' : ''}`}>
+      <div key={row.id} className={cardMods}>
         <div className="notification-content">
           <div className="notification-header">
             <div className="status-with-icon">
               {row.kind === 'deleted' ? (
                 <Trash2 size={18} className="status-icon denied" aria-hidden />
+              ) : row.kind === 'reminders' ? (
+                <Bell size={18} className="status-icon reminders" strokeWidth={1.75} aria-hidden />
               ) : (
                 <ListTodo size={18} className="status-icon pending" aria-hidden />
               )}
-              <h3>{title}</h3>
+              <h3 className={row.kind === 'reminders' ? 'notification-title--ui' : undefined}>{title}</h3>
             </div>
             {!faded && <span className={`status-badge ${badgeClass}`}>{badgeLabel}</span>}
           </div>
           {row.kind === 'reminders' ? (
             <>
-              <p className="notification-reason">
-                New or refreshed reminder suggestions for{' '}
-                <strong>{row.task_title || `Issue #${row.task_id ?? ''}`}</strong>
+              <p className="notification-reason notification-reason--reminders">
+                Suggestions for{' '}
+                <span className="notification-issue-title">{row.task_title || `Issue #${row.task_id ?? ''}`}</span>
                 {row.reminder_count != null && row.reminder_count > 0 && (
-                  <> · {row.reminder_count} active</>
+                  <span className="notification-reminder-meta"> · {row.reminder_count} active</span>
                 )}
-                {row.reminder_count === 0 && <> · no active suggestions</>}
-                {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
+                {row.reminder_count === 0 && (
+                  <span className="notification-reminder-meta"> · none active</span>
+                )}
               </p>
               {Array.isArray(row.reminder_lines) && row.reminder_lines.length > 0 && (
                 <ul className="notification-reminder-lines" aria-label="Reminder suggestions">

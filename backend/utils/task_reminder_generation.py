@@ -4,8 +4,10 @@ Build reminder text from issue/task + optional workspace document excerpts (vect
 from __future__ import annotations
 
 import logging
-from typing import List
+from datetime import timezone
+from typing import List, Set
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -13,8 +15,10 @@ from models.document_chunk import DocumentChunk
 from models.task import Task
 from models.task_reminder import TaskReminder
 from utils.document_reminders import (
+    _fingerprint,
     extract_llm_reminders,
     extract_rule_based_reminders,
+    filter_echo_reminder_items,
     merge_reminder_batches,
 )
 from utils.embeddings import embeddings_service
@@ -30,14 +34,45 @@ _MAX_EXCERPT_PER_CHUNK = 1800
 _MAX_DOC_GROUPS = 6
 
 
+def _suppressed_reminder_fingerprints(db: Session, task_id: int) -> Set[str]:
+    """Fingerprints of suggestions the user already acknowledged or dismissed (do not recreate)."""
+    rows = (
+        db.query(TaskReminder.hint_type, TaskReminder.content)
+        .filter(
+            TaskReminder.task_id == task_id,
+            or_(
+                TaskReminder.dismissed == True,  # noqa: E712
+                TaskReminder.acknowledged_at.isnot(None),
+            ),
+        )
+        .all()
+    )
+    out: Set[str] = set()
+    for hint_type, content in rows:
+        out.add(_fingerprint(hint_type or "follow_up", content or ""))
+    return out
+
+
 def _due_date_context_line(task: Task) -> str:
-    """Human-readable due date for models and rules (timezone-aware ISO)."""
+    """
+    Due date for retrieval + models. Wording avoids rule-regex phrases like \"due date\" / \"deadline\"
+    so we do not auto-extract our own metadata line as a fake \"ACTION REQUIRED\" reminder.
+    """
     if task.due_date is None:
-        return "Due date: not set on this issue."
+        return "Issue completion target (tracker only): not set."
     try:
-        return f"Due date: {task.due_date.isoformat()}"
+        dt = task.due_date
+        if getattr(dt, "tzinfo", None) is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        month = dt.strftime("%b")
+        human = f"{month} {dt.day}, {dt.year}"
+        anchor = dt.date().isoformat()
+        return (
+            f"Issue completion target (tracker only): {human} "
+            f"(calendar day {anchor}, UTC). Prefer this over guessing dates from prose."
+        )
     except Exception:
-        return "Due date: not set on this issue."
+        return "Issue completion target (tracker only): not set."
 
 
 def build_task_reminder_context(db: Session, task: Task, _user_id: int) -> str:
@@ -138,9 +173,11 @@ def generate_and_persist_task_reminders(db: Session, task: Task, actor_user_id: 
                 f"Issue/task: {task.title or '(untitled)'}",
                 "Description: (none)",
                 _due_date_context_line(task),
-                "(No description yet.)",
+                "Description body missing — add context for smarter suggestions.",
             ]
         )
+
+    suppressed = _suppressed_reminder_fingerprints(db, task.id)
 
     db.query(TaskReminder).filter(
         TaskReminder.task_id == task.id,
@@ -171,28 +208,41 @@ def generate_and_persist_task_reminders(db: Session, task: Task, actor_user_id: 
     else:
         merge_batches = [rules, ml_items, llm_items]
     merged = merge_reminder_batches(merge_batches, cap=8)
-    if not merged:
+    raw_nonempty = bool(merged)
+    merged = filter_echo_reminder_items(merged)
+    if merged:
         merged = [
-            {
-                "hint_type": "follow_up",
-                "content": "No specific deadline or review phrases were detected from this issue and related documents.",
-                "ai_suggested": False,
-                "confidence_score": None,
-            }
+            item
+            for item in merged
+            if _fingerprint(item["hint_type"], item["content"]) not in suppressed
         ]
+    if not merged:
+        if raw_nonempty:
+            merged = []  # Noise, user suppressions, or duplicates only — show empty list.
+        else:
+            merged = [
+                {
+                    "hint_type": "follow_up",
+                    "content": "No specific deadline or review phrases were detected from this issue and related documents.",
+                    "ai_suggested": False,
+                    "confidence_score": None,
+                }
+            ]
 
-    model_name = None
-    if summary_generation_service.is_available():
-        model_name = summary_generation_service.model
+    llm_model_name = summary_generation_service.model if summary_generation_service.is_available() else None
 
     for item in merged:
+        ai = bool(item.get("ai_suggested"))
+        ai_model = None
+        if ai:
+            ai_model = item.get("ai_model_used") or llm_model_name
         db.add(
             TaskReminder(
                 task_id=task.id,
                 hint_type=item["hint_type"],
                 content=item["content"],
-                ai_suggested=bool(item.get("ai_suggested")),
-                ai_model_used=model_name if item.get("ai_suggested") else None,
+                ai_suggested=ai,
+                ai_model_used=ai_model,
                 confidence_score=item.get("confidence_score"),
             )
         )

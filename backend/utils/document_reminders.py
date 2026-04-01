@@ -76,6 +76,26 @@ def _fingerprint(hint_type: str, content: str) -> str:
     return f"{hint_type}:{content[:96].lower()}"
 
 
+# Rule extraction can echo structured tracker lines (e.g. raw ISO) — drop before showing users.
+_SHALLOW_DUE_ECHO = re.compile(r"^\s*due\s+date\s*:\s*", re.IGNORECASE)
+_RAW_ISO_PREFIX = re.compile(r"^\s*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")
+
+
+def is_shallow_metadata_echo_reminder(content: str) -> bool:
+    t = (content or "").strip()
+    if len(t) < 8:
+        return True
+    if _SHALLOW_DUE_ECHO.search(t):
+        return True
+    if _RAW_ISO_PREFIX.match(t):
+        return True
+    return False
+
+
+def filter_echo_reminder_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [it for it in items if not is_shallow_metadata_echo_reminder(it.get("content", ""))]
+
+
 def extract_rule_based_reminders(text: str, max_hints: int = 6) -> List[Dict[str, Any]]:
     """Scan plain text for deadline/review/follow-up style phrases."""
     if not text or not text.strip():
@@ -147,14 +167,18 @@ def extract_llm_reminders(
     system_prompt = (
         "You extract short, actionable reminders from internal work context (issues and documents). "
         "Use only facts that appear in the excerpt. Do not invent dates or obligations. "
-        "If the excerpt includes an explicit issue due date line, you may use it when suggesting "
-        "time-sensitive reminders. If there is nothing actionable, reply with exactly: NONE"
+        "Write each message in clear, conversational English for humans. "
+        "Never output a line that is only a raw ISO-8601 timestamp; use phrasing like "
+        "'Apr 3, 2026' when a date is real and relevant. "
+        "If the excerpt states an issue completion target from the tracker, you may reference it once "
+        "in natural language (not as a duplicated metadata dump). "
+        "If there is nothing actionable, reply with exactly: NONE"
     )
     user_prompt = (
         f"From the excerpt below, list up to {max_lines} reminders. One per line.\n"
         "Each line must be: TYPE|message\n"
         "TYPE is one of: expiration, renewal, review_needed, action_required, follow_up\n"
-        "message must be under 140 characters and grounded in the excerpt.\n\n"
+        "message must be under 140 characters, grounded in the excerpt, and free of naked machine timestamps.\n\n"
         f"Excerpt:\n{excerpt[:excerpt_max_chars]}"
     )
 

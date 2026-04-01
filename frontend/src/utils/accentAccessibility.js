@@ -10,6 +10,8 @@ export const normalizeHexColor = (value) => {
   return hex.toUpperCase();
 };
 
+export const USER_ACCENT_STORAGE_KEY = 'ada:user-accent-color';
+
 const hexToRgb = (hex) => {
   const normalized = normalizeHexColor(hex);
   if (!normalized) return null;

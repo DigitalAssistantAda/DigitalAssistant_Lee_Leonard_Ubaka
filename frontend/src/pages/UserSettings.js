@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getApiErrorMessage, parseApiErrorMessage } from '../utils/apiError';
 import ColorSwatchPicker from '../components/ColorSwatchPicker';
-import { normalizeHexColor } from '../utils/accentAccessibility';
+import { applyAccentColor, normalizeHexColor, USER_ACCENT_STORAGE_KEY } from '../utils/accentAccessibility';
 import { ACCENT_SWATCH_PRESETS } from '../utils/colorPresets';
 import LoadingState from '../components/LoadingState';
 import './UserSettings.css';
@@ -83,7 +83,14 @@ function UserSettings() {
         });
         if (response.ok) {
           const data = await response.json();
-          setAccentColor(data.accent_color || '');
+          const normalizedAccent = normalizeHexColor(data.accent_color);
+          setAccentColor(normalizedAccent || '');
+          if (normalizedAccent) {
+            localStorage.setItem(USER_ACCENT_STORAGE_KEY, normalizedAccent);
+          } else {
+            localStorage.removeItem(USER_ACCENT_STORAGE_KEY);
+          }
+          applyAccentColor(normalizedAccent);
         } else {
           const message = await getApiErrorMessage(response, 'Failed to load accent color');
           setAccentError(message);
@@ -148,7 +155,14 @@ function UserSettings() {
         setAccentError(message);
       } else {
         const data = await response.json();
-        setAccentColor(data.accent_color || '');
+        const normalizedAccent = normalizeHexColor(data.accent_color);
+        setAccentColor(normalizedAccent || '');
+        if (normalizedAccent) {
+          localStorage.setItem(USER_ACCENT_STORAGE_KEY, normalizedAccent);
+        } else {
+          localStorage.removeItem(USER_ACCENT_STORAGE_KEY);
+        }
+        applyAccentColor(normalizedAccent);
       }
     } catch (err) {
       setAccentError('Failed to update accent color');

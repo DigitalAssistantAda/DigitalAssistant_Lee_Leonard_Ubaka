@@ -5,7 +5,7 @@ import './App.css';
 import Navigation from './components/Navigation';
 import PetalSpinner from './components/PetalSpinner';
 import { apiFetch } from './utils/apiClient';
-import { applyAccentColor } from './utils/accentAccessibility';
+import { applyAccentColor, normalizeHexColor, USER_ACCENT_STORAGE_KEY } from './utils/accentAccessibility';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -29,6 +29,9 @@ function App() {
     if (localStorage.getItem('darkMode') === 'true') {
       document.documentElement.classList.add('dark');
     }
+
+    const cachedAccent = normalizeHexColor(localStorage.getItem(USER_ACCENT_STORAGE_KEY));
+    applyAccentColor(cachedAccent);
   }, []);
 
   useEffect(() => {
@@ -76,10 +79,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (loading) {
+      return;
+    }
+
     const fetchPreferences = async () => {
       try {
         const data = await apiFetch('/api/v1/users/preferences');
-        applyAccentColor(data?.accent_color ?? null);
+        const normalizedAccent = normalizeHexColor(data?.accent_color);
+        if (normalizedAccent) {
+          localStorage.setItem(USER_ACCENT_STORAGE_KEY, normalizedAccent);
+        } else {
+          localStorage.removeItem(USER_ACCENT_STORAGE_KEY);
+        }
+        applyAccentColor(normalizedAccent);
       } catch (err) {
         console.error('Error fetching preferences:', err);
       }
@@ -88,9 +101,10 @@ function App() {
     if (user) {
       fetchPreferences();
     } else {
+      localStorage.removeItem(USER_ACCENT_STORAGE_KEY);
       applyAccentColor(null);
     }
-  }, [user]);
+  }, [user, loading]);
 
   // Real-time: WebSocket for server-push (notifications, workspaces). Not used by Chat with Ada (chat uses REST only).
   useEffect(() => {

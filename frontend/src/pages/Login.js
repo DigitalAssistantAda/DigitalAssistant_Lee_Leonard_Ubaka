@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { parseApiErrorMessage } from '../utils/apiError';
+import { applyAccentColor, normalizeHexColor, USER_ACCENT_STORAGE_KEY } from '../utils/accentAccessibility';
 import adaLogo from '../ada_logo.png';
 import './Login.css';
 
@@ -134,6 +135,28 @@ function Login({ onLogin }) {
       } else {
         localStorage.removeItem('persist_session');
         sessionStorage.setItem('session_active', 'true');
+      }
+
+      if (!isRegister) {
+        try {
+          const prefsResponse = await fetch(`${API_URL}/api/v1/users/preferences`, {
+            headers: {
+              Authorization: `Bearer ${data.access_token}`,
+            },
+          });
+          if (prefsResponse.ok) {
+            const prefsData = await prefsResponse.json();
+            const normalizedAccent = normalizeHexColor(prefsData?.accent_color);
+            if (normalizedAccent) {
+              localStorage.setItem(USER_ACCENT_STORAGE_KEY, normalizedAccent);
+            } else {
+              localStorage.removeItem(USER_ACCENT_STORAGE_KEY);
+            }
+            applyAccentColor(normalizedAccent);
+          }
+        } catch (prefErr) {
+          console.error('Failed to preload accent preference:', prefErr);
+        }
       }
 
       onLogin(data);

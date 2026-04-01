@@ -147,7 +147,8 @@ def extract_llm_reminders(
     system_prompt = (
         "You extract short, actionable reminders from internal work context (issues and documents). "
         "Use only facts that appear in the excerpt. Do not invent dates or obligations. "
-        "If there is nothing actionable, reply with exactly: NONE"
+        "If the excerpt includes an explicit issue due date line, you may use it when suggesting "
+        "time-sensitive reminders. If there is nothing actionable, reply with exactly: NONE"
     )
     user_prompt = (
         f"From the excerpt below, list up to {max_lines} reminders. One per line.\n"

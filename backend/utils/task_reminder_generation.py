@@ -30,26 +30,47 @@ _MAX_EXCERPT_PER_CHUNK = 1800
 _MAX_DOC_GROUPS = 6
 
 
-def build_task_reminder_context(db: Session, task: Task, user_id: int) -> str:
+def _due_date_context_line(task: Task) -> str:
+    """Human-readable due date for models and rules (timezone-aware ISO)."""
+    if task.due_date is None:
+        return "Due date: not set on this issue."
+    try:
+        return f"Due date: {task.due_date.isoformat()}"
+    except Exception:
+        return "Due date: not set on this issue."
+
+
+def build_task_reminder_context(db: Session, task: Task, _user_id: int) -> str:
     """
     Build text for reminder extraction:
-    - Issue title + description
-    - Workspace document excerpts: bi-encoder retrieval (dense vectors), then optional
-      cross-encoder reranking (second neural model for query–passage relevance).
+    - Issue title, description, and due date (all included in the retrieval query embedding)
+    - Document excerpts from this workspace only (dense retrieval + optional cross-encoder rerank)
     """
-    parts: List[str] = [f"Issue/task: {task.title}", f"Description:\n{task.description or ''}".strip()]
-    query = f"{task.title}\n{task.description or ''}".strip()[:_MAX_QUERY_CHARS]
+    title = (task.title or "").strip()
+    desc = (task.description or "").strip()
+    due_line = _due_date_context_line(task)
+
+    parts: List[str] = [
+        f"Issue/task: {title}" if title else "Issue/task: (untitled)",
+        f"Description:\n{desc}" if desc else "Description: (none)",
+        due_line,
+    ]
+    # Query drives embedding similarity: same signals the issue panel uses, so workspace doc chunks align.
+    query = "\n".join(
+        segment for segment in (title, desc, due_line) if segment
+    ).strip()[:_MAX_QUERY_CHARS]
     if not query:
         return "\n\n".join(p for p in parts if p)
 
     try:
         query_embedding = embeddings_service.generate_embedding(query, input_type="query")
-        # Retrieve a wider pool so cross-encoder can rerank beyond bi-encoder ordering
+        # Retrieve a wider pool so cross-encoder can rerank beyond bi-encoder ordering.
+        # Workspace-only: do not blend in personal uploads (workspace_id IS NULL).
         rows = embeddings_service.find_top_chunk_per_document(
             query_embedding,
             task.workspace_id,
             db=db,
-            user_id=user_id,
+            user_id=None,
             max_documents=16,
             min_similarity=0.0,
         )
@@ -89,10 +110,10 @@ def build_task_reminder_context(db: Session, task: Task, user_id: int) -> str:
                     continue
                 _cid, _did, sim, excerpt = row_meta[i]
                 doc_excerpts.append(
-                    f"[Workspace document excerpt, bi-encoder match ~{float(sim):.2f}]\n{excerpt}"
+                    f"[Same-workspace document excerpt, similarity ~{float(sim):.2f}]\n{excerpt}"
                 )
         if doc_excerpts:
-            parts.append("Related workspace document excerpts:\n\n" + "\n\n".join(doc_excerpts))
+            parts.append("Related document excerpts (this workspace only):\n\n" + "\n\n".join(doc_excerpts))
     except Exception:
         logger.warning(
             "Document context for task reminders failed workspace_id=%s task_id=%s",
@@ -112,7 +133,14 @@ def generate_and_persist_task_reminders(db: Session, task: Task, actor_user_id: 
     """
     combined = build_task_reminder_context(db, task, actor_user_id)
     if not combined.strip():
-        combined = f"Issue/task: {task.title}\n(No description yet.)"
+        combined = "\n".join(
+            [
+                f"Issue/task: {task.title or '(untitled)'}",
+                "Description: (none)",
+                _due_date_context_line(task),
+                "(No description yet.)",
+            ]
+        )
 
     db.query(TaskReminder).filter(
         TaskReminder.task_id == task.id,

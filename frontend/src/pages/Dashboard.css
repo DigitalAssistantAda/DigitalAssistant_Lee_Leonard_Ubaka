@@ -623,6 +623,11 @@
   background: var(--dash-green-50);
 }
 
+.ai-workspace {
+  color: #2F6FE4;
+  background: color-mix(in srgb, #2F6FE4 16%, var(--bg-secondary) 84%);
+}
+
 .ai-search {
   color: var(--dash-amber-500);
   background: var(--dash-amber-50);

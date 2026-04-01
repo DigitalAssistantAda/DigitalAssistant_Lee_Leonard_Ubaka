@@ -42,18 +42,18 @@ function Dashboard() {
   const [activityFilter, setActivityFilter] = useState('all');
 
   const monthIndexMap = {
-    January: 0,
-    February: 1,
-    March: 2,
-    April: 3,
+    Jan: 0,
+    Feb: 1,
+    Mar: 2,
+    Apr: 3,
     May: 4,
-    June: 5,
-    July: 6,
-    August: 7,
-    September: 8,
-    October: 9,
-    November: 10,
-    December: 11,
+    Jun: 5,
+    Jul: 6,
+    Aug: 7,
+    Sep: 8,
+    Oct: 9,
+    Nov: 10,
+    Dec: 11,
   };
 
   const currentMonthInfo = useMemo(() => {
@@ -119,11 +119,13 @@ function Dashboard() {
     window.addEventListener('workspaces-updated', handleRealtimeRefresh);
     window.addEventListener('containers-updated', handleRealtimeRefresh);
     window.addEventListener('documents-updated', handleRealtimeRefresh);
+    window.addEventListener('client-search-logged', handleRealtimeRefresh);
 
     return () => {
       window.removeEventListener('workspaces-updated', handleRealtimeRefresh);
       window.removeEventListener('containers-updated', handleRealtimeRefresh);
       window.removeEventListener('documents-updated', handleRealtimeRefresh);
+      window.removeEventListener('client-search-logged', handleRealtimeRefresh);
     };
   }, [fetchDashboardData]);
 
@@ -149,7 +151,7 @@ function Dashboard() {
     const monthIndex = monthIndexMap[monthName] ?? 0;
     const year = Number.parseInt(yearValue, 10) || new Date().getFullYear();
     const nextDate = new Date(year, monthIndex + direction, 1);
-    setCurrentMonth(nextDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
+    setCurrentMonth(nextDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
     setSelectedDay(1);
   };
 
@@ -362,7 +364,7 @@ function Dashboard() {
                 <button className="cal-nav-btn" type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}>
                   <ChevronLeft size={14} />
                 </button>
-                <span className="cal-month">{currentMonth}</span>
+                <span className="cal-month" style={{ whiteSpace: 'nowrap' }}>{currentMonth}</span>
                 <button className="cal-nav-btn" type="button" aria-label="Next month" onClick={() => shiftMonth(1)}>
                   <ChevronRight size={14} />
                 </button>

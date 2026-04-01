@@ -118,6 +118,7 @@ services:
       - REACT_APP_API_URL=http://localhost:8000
     volumes:
       - ./frontend:/app
+      # Isolated node_modules; entrypoint runs npm install if package.json added deps (e.g. react-markdown) after this volume was created.
       - /app/node_modules
     depends_on:
       - backend

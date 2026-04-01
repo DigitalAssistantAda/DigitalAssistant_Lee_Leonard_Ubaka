@@ -103,3 +103,10 @@ SECURITY_TODO.md
 symposium/
 TEST_NOTES_W9_ASSISTANT.md
 TEST_NOTES_W10_BACKEND.md
+
+# Demo seed data (local use only)
+demo_seed/
+
+backend/data/
+backend/data/embedding_model_data/
+backend/tests/

@@ -36,3 +36,19 @@ Documents stuck in the queue
 	- Set REDIS_URL and DATABASE_URL in .env (same as the API).
 	- Run: celery -A celery_app worker --loglevel=info
 - **Restart button:** For each stuck document, use the **Restart** action in the document list to re-queue indexing. If the worker is running, it will pick up the task.
+
+AI-off validation (retrieval/fallback mode)
+- Goal: verify the assistant remains usable when LLM refinement is disabled.
+- In `backend/.env`, set:
+	- `SUMMARY_LLM_ENABLED=false`
+- Restart backend:
+	- `docker compose up -d --build backend`
+- Open the app and ask a document-grounded question in chat, for example:
+	- `what are the key points in the selected file`
+- Expected behavior:
+	- Response is still grounded using retrieval snippets.
+	- Response includes `Sources used:` provenance section.
+	- Backend stores assistant message with `model_used=retrieval-fallback-ai-off`.
+- Optional compare run:
+	- Set `SUMMARY_LLM_ENABLED=true`, restart backend, ask the same question.
+	- Compare wording polish; both modes should stay grounded and usable.

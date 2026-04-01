@@ -1,6 +1,6 @@
 """
 Celery tasks for embeddings and document processing
-Handles async embedding generation, deduplication, and AI hint generation
+Handles async embedding generation and deduplication
 Uses local Ollama for embeddings (free, private, no API costs)
 """
 from celery.utils.log import get_task_logger
@@ -18,26 +18,25 @@ from models.document_chunk import DocumentChunk
 from models.chunk_embedding import ChunkEmbedding
 from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
 from models.document_duplicate import DocumentDuplicate, DuplicateStatus
-from models.document_hint import DocumentHint
 from models.workspace import Workspace
 from models.embedding_training_job import (
     EmbeddingTrainingJob,
     EmbeddingTrainingJobType,
     EmbeddingTrainingJobStatus,
 )
-from models.audit_log import AuditLog
-from utils.audit import AuditActions
 from utils.embeddings import embeddings_service, reset_embeddings_service
 from utils.text_extraction import extract_text_from_storage
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from celery_app import celery_app
+from config import settings
 from utils.document_helpers import (
     infer_auto_container_name,
     ensure_workspace_container,
-    workspace_feedback_boosts,
+    filename_as_embedding_hint,
+    run_workspace_container_scoring,
+    suggestion_confidence_label,
 )
-
 logger = get_task_logger(__name__)
 
 
@@ -82,23 +81,28 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
         ))
         db.commit()
         return True
-    container_ids = {container.id for container in containers}
-
     chunks = db.query(DocumentChunk).filter(
         DocumentChunk.document_id == document.id,
-    ).order_by(DocumentChunk.chunk_index.asc()).limit(4).all()
-    combined_text = "\n".join((chunk.text or "") for chunk in chunks).strip()
+    ).order_by(DocumentChunk.chunk_index.asc()).limit(settings.suggestion_chunk_limit).all()
+    body_text = "\n".join((chunk.text or "") for chunk in chunks).strip()
+    filename_hint = filename_as_embedding_hint(document.filename)
+    text_parts: list[str] = []
+    if filename_hint:
+        text_parts.append(filename_hint)
+    if body_text:
+        text_parts.append(body_text)
+    combined_text = "\n".join(text_parts).strip()
     if not combined_text:
         return False
 
     try:
-        query_embedding = embeddings_service.generate_embedding(combined_text[:6000])
-        similar_rows = embeddings_service.find_similar_embeddings(
-            query_embedding=query_embedding,
-            workspace_id=document.workspace_id,
-            limit=120,
-            threshold=0.2,
-            db=db,
+        adjusted_scores, max_similarity_by_container, _kw, _fb = run_workspace_container_scoring(
+            db,
+            document,
+            containers,
+            combined_text=combined_text,
+            body_text=body_text,
+            filename_hint=filename_hint,
         )
     except Exception as exc:
         logger.warning(
@@ -108,26 +112,6 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
             exc,
         )
         return False
-
-    max_similarity_by_container: dict[int, float] = {}
-    feedback_boosts = workspace_feedback_boosts(db, document.workspace_id)
-    for _chunk_id, similar_doc_id, similarity in similar_rows:
-        if similar_doc_id == document.id:
-            continue
-        similar_doc = db.query(Document).filter(
-            Document.id == similar_doc_id,
-            Document.workspace_id == document.workspace_id,
-            Document.status != DocumentStatus.DELETED,
-        ).first()
-        if not similar_doc or not similar_doc.container_id:
-            continue
-        if similar_doc.container_id not in container_ids:
-            continue
-        sim = float(similarity)
-        max_similarity_by_container[similar_doc.container_id] = max(
-            max_similarity_by_container.get(similar_doc.container_id, 0.0),
-            sim,
-        )
 
     if not max_similarity_by_container:
         inferred_container, _ = ensure_workspace_container(
@@ -162,13 +146,8 @@ def _auto_organize_document_after_index(document: Document, db: Session, actor_u
         db.commit()
         return True
 
-    adjusted_scores = {
-        container_id: score + feedback_boosts.get(container_id, 0.0)
-        for container_id, score in max_similarity_by_container.items()
-    }
-
     best_container_id, best_score = max(adjusted_scores.items(), key=lambda item: item[1])
-    confidence = _confidence_label(best_score)
+    confidence = suggestion_confidence_label(best_score)
 
     # Autonomous mode only applies high-confidence moves.
     if confidence != "high":
@@ -335,17 +314,6 @@ def process_document_embeddings(self, document_id: int, triggered_by_user_id: in
                     document.workspace_id,
                 )
         
-        # Step 6: Generate AI hints/suggestions
-        try:
-            _generate_hints(document_id, chunks, db)
-        except Exception:
-            db.rollback()
-            logger.warning(
-                "Hint generation failed for document_id=%s workspace_id=%s",
-                document_id,
-                document.workspace_id,
-            )
-        
         # Update job status
         job.status = EmbeddingJobStatus.COMPLETE
         job.chunks_processed = len(chunks)
@@ -487,28 +455,6 @@ def _check_and_flag_duplicates(document: Document, first_embedding: List[float],
         )
         db.add(dup_record)
         db.commit()
-
-
-def _generate_hints(document_id: int, chunks: List[str], db: Session) -> None:
-    """Generate AI hints based on document content (stub)"""
-    
-    # This is a placeholder - would use LLM to analyze chunks
-    # Look for keywords like:
-    # - "expires", "expiration", "renewal" -> expiration hint
-    # - "must review", "to be reviewed" -> review_needed hint
-    # - "deadline", "due date" -> action_required hint
-    
-    logger.info(f"Would generate hints for document {document_id}")
-    
-    # For now, just create a placeholder hint
-    hint = DocumentHint(
-        document_id=document_id,
-        hint_type="processing_complete",
-        content="Document successfully processed and indexed.",
-        ai_suggested=False
-    )
-    db.add(hint)
-    db.commit()
 
 
 # ---------- Embedding refresh and fine-tune tasks ----------

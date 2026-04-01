@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from schemas.color import validate_hex_color
 
@@ -79,3 +79,18 @@ class AddMemberRequest(BaseModel):
 class UpdateMemberRequest(BaseModel):
     role: Optional[str] = None
     status: Optional[str] = None
+
+
+class WorkspaceActivityItem(BaseModel):
+    id: int
+    actor_user_id: int
+    action: str
+    object_type: str
+    object_id: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+
+class WorkspaceActivityListResponse(BaseModel):
+    items: List[WorkspaceActivityItem]
+    total: int

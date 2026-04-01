@@ -1,6 +1,6 @@
 """
 API endpoints for embeddings and AI features
-Handles duplicate detection, hints, similarity search, etc.
+Handles duplicate detection, similarity search, etc.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -12,7 +12,6 @@ from utils.auth import get_current_user
 from utils.authorization import check_workspace_access
 from models.user import User
 from models.document_duplicate import DocumentDuplicate, DuplicateStatus
-from models.document_hint import DocumentHint
 from models.embedding_job import EmbeddingJob, EmbeddingJobStatus
 from models.embedding_training_job import (
     EmbeddingTrainingJob,
@@ -39,19 +38,6 @@ class DuplicateCheckResponse(BaseModel):
     duplicate_of_id: Optional[int] = None
     similarity_score: float = 0.0
     message: str
-
-
-class DocumentHintResponse(BaseModel):
-    """Response for document hints"""
-    id: int
-    hint_type: str
-    content: str
-    ai_suggested: bool
-    confidence_score: Optional[int]
-    dismissed: bool
-    
-    class Config:
-        from_attributes = True
 
 
 class EmbeddingJobResponse(BaseModel):
@@ -153,101 +139,6 @@ async def check_duplicate(
             status_code=500,
             detail=f"Error checking duplicates: {str(e)}"
         )
-
-
-@router.get("/documents/{document_id}/hints", response_model=List[DocumentHintResponse])
-async def get_document_hints(
-    document_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Get AI-generated hints and reminders for a document
-    
-    Includes:
-    - Expiration dates detected
-    - Action items from content
-    - Review reminders
-    - Context-specific tips
-    """
-    from models.document import Document
-    
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    
-    check_workspace_access(current_user, doc.workspace_id, db)
-    
-    hints = db.query(DocumentHint).filter(
-        DocumentHint.document_id == document_id,
-        DocumentHint.dismissed == False
-    ).all()
-    
-    return hints
-
-
-@router.post("/documents/{document_id}/hints/{hint_id}/acknowledge")
-async def acknowledge_hint(
-    document_id: int,
-    hint_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Mark a hint as acknowledged by the user"""
-    from models.document import Document
-    from datetime import datetime
-    
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    
-    check_workspace_access(current_user, doc.workspace_id, db)
-    
-    hint = db.query(DocumentHint).filter(
-        DocumentHint.id == hint_id,
-        DocumentHint.document_id == document_id
-    ).first()
-    
-    if not hint:
-        raise HTTPException(status_code=404, detail="Hint not found")
-    
-    hint.acknowledged_by = current_user.id
-    hint.acknowledged_at = datetime.utcnow()
-    db.commit()
-    
-    return {"message": "Hint acknowledged"}
-
-
-@router.post("/documents/{document_id}/hints/{hint_id}/dismiss")
-async def dismiss_hint(
-    document_id: int,
-    hint_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Dismiss a hint (hide it but don't delete)"""
-    from models.document import Document
-    from datetime import datetime
-    
-    doc = db.query(Document).filter(Document.id == document_id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
-    
-    check_workspace_access(current_user, doc.workspace_id, db)
-    
-    hint = db.query(DocumentHint).filter(
-        DocumentHint.id == hint_id,
-        DocumentHint.document_id == document_id
-    ).first()
-    
-    if not hint:
-        raise HTTPException(status_code=404, detail="Hint not found")
-    
-    hint.dismissed = True
-    hint.dismissed_at = datetime.utcnow()
-    db.commit()
-    
-    return {"message": "Hint dismissed"}
 
 
 @router.get("/jobs/{job_id}", response_model=EmbeddingJobResponse)

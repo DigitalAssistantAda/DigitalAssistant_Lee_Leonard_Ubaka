@@ -408,15 +408,15 @@
   border-bottom: none;
 }
 
+/* Active row: same quiet highlight as todo list — brand rose tint, no borders/outlines */
 .issue-row.active {
-  color: var(--accent-primary);
   background: var(--accent-highlight);
-  border-left: 3px solid var(--accent-primary);
   border-radius: var(--radius-base);
 }
 
 .issue-row.active .issue-row-title {
-  color: var(--accent-primary);
+  color: var(--text-primary);
+  font-weight: 400;
 }
 
 .issue-row-main {
@@ -857,6 +857,190 @@
   color: var(--text-muted);
 }
 
+.issue-detail-description-md {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin: 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.issue-description-md {
+  max-width: 100%;
+  overflow-wrap: break-word;
+}
+
+.issue-description-md p {
+  margin: 0 0 0.65em;
+}
+
+.issue-description-md p:last-child {
+  margin-bottom: 0;
+}
+
+.issue-description-md ul,
+.issue-description-md ol {
+  margin: 0.35em 0 0.65em;
+  padding-left: 1.35em;
+}
+
+.issue-description-md li {
+  margin: 0.2em 0;
+}
+
+.issue-description-md h1,
+.issue-description-md h2,
+.issue-description-md h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.05rem;
+  margin: 0.75em 0 0.35em;
+  color: var(--text-primary);
+}
+
+.issue-description-md h1:first-child,
+.issue-description-md h2:first-child,
+.issue-description-md h3:first-child {
+  margin-top: 0;
+}
+
+.issue-description-md code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.88em;
+  padding: 0.12em 0.35em;
+  border-radius: var(--radius-tight);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+.issue-description-md pre {
+  margin: 0.65em 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-base);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+  font-size: 0.82rem;
+}
+
+.issue-description-md pre code {
+  padding: 0;
+  background: none;
+}
+
+.issue-description-md a {
+  color: var(--text-secondary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-primary) 45%, var(--border-color));
+  text-underline-offset: 2px;
+}
+
+.issue-description-md a:hover {
+  color: var(--text-primary);
+  text-decoration-color: var(--accent-hover);
+}
+
+.issue-description-md blockquote {
+  margin: 0.65em 0;
+  padding: 0.35rem 0 0.35rem 0.75rem;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.issue-detail-history {
+  margin-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  padding-top: 0.5rem;
+}
+
+.issue-detail-history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.45rem 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: var(--font-ui);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  border-radius: var(--radius-base);
+  transition: background 0.15s ease;
+}
+
+.issue-detail-history-toggle:hover {
+  background: var(--bg-tertiary);
+}
+
+.issue-detail-history-count {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+}
+
+.issue-detail-history-body {
+  padding: 0.35rem 0 0.5rem 1.85rem;
+}
+
+.issue-detail-history-empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.issue-detail-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.issue-detail-history-item {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.issue-detail-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+  margin-bottom: 0.35rem;
+}
+
+.issue-detail-history-meta strong {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.issue-detail-history-meta span {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.issue-detail-history-changes {
+  margin: 0;
+  padding-left: 1rem;
+  list-style: disc;
+}
+
+.issue-detail-history-changes li {
+  margin: 0.2em 0;
+}
+
 .issue-detail-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1187,6 +1371,187 @@
   border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
   color: var(--accent-primary);
   background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
+}
+
+/* Issue reminders — minimal, aligned with issue detail typography */
+.issue-reminders {
+  margin-top: 0.5rem;
+  padding: 0.85rem 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.issue-reminders-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+
+.issue-reminders-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.issue-reminders-heading {
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.issue-reminders-status {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-caption {
+  margin: 0 0 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--text-muted);
+  line-height: 1.45;
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-note {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-family: var(--font-ui);
+  font-weight: 300;
+  padding-left: 0.55rem;
+  border-left: 1px solid color-mix(in srgb, var(--border-color) 85%, transparent);
+}
+
+.issue-reminders-note--warn {
+  color: var(--text-secondary);
+}
+
+.issue-reminders-note--error {
+  color: var(--status-danger, #b91c1c);
+  border-left-color: color-mix(in srgb, var(--status-danger) 35%, var(--border-color));
+}
+
+.issue-reminders-empty {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 300;
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.issue-reminders-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0;
+  border: none;
+  background: transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+}
+
+.issue-reminders-item:last-child {
+  border-bottom: none;
+}
+
+.issue-reminders-item-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+}
+
+.issue-reminders-type {
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-content {
+  flex: 1 1 100%;
+  font-size: 0.84rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-badge {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  letter-spacing: 0.04em;
+}
+
+.issue-reminders-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.issue-reminders-action {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 400;
+  font-family: var(--font-ui);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
+  text-underline-offset: 2px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.issue-reminders-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  text-decoration-color: var(--accent-hover, var(--accent-primary));
+}
+
+.issue-reminders-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+  text-decoration: none;
+}
+
+.issue-reminders-action--muted {
+  color: var(--text-muted);
+  text-decoration-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+.issue-reminders-action--muted:hover:not(:disabled) {
+  color: var(--text-secondary);
+}
+
+.issue-reminders-action-sep {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  user-select: none;
+  padding: 0 0.1rem;
 }
 
 /* Responsive */

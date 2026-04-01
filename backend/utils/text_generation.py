@@ -103,13 +103,21 @@ class SummaryGenerationService:
         name = (out or "").strip().strip('"\'.,;:')
         return name if name else "New folder"
 
-    def generate_grounded_response(self, user_query: str, retrieved_context: str) -> str:
+    def generate_grounded_response(
+        self,
+        user_query: str,
+        retrieved_context: str,
+        memory_window: str | None = None,
+    ) -> str:
         if not self.is_available():
             raise RuntimeError("Summary LLM service is not configured")
 
         system_prompt = (
             "You are Ada, a helpful assistant for internal knowledge work. "
             "Answer the user's question based on the retrieved context below. "
+            "Use the recent conversation window to resolve references and to answer recall questions about what the user previously said. "
+            "If the user asks to recall prior conversation details (for example, 'what did I say' or 'what were the two regions'), prioritize the conversation window even if retrieved document context is unrelated. "
+            "When both are relevant, synthesize them clearly and do not contradict either source. "
             "Use the context when it is relevant; synthesize and explain clearly. "
             "Do not invent facts or cite information that is not in the context. "
             "For any numbers, ranges, dates, durations, percentages, or quantities, use the exact values from context and do not alter them. "
@@ -119,8 +127,16 @@ class SummaryGenerationService:
             "Prefer 2-4 sentences unless the user explicitly asks for detailed output. "
             "When a direct sentence in context answers the question, quote or closely paraphrase that sentence first, then add at most one short follow-up sentence. "
         )
-        user_prompt = (
+        memory_block = ""
+        if memory_window and memory_window.strip():
+            memory_block = (
+                "Recent conversation window (last turns, for continuity):\n"
+                f"{memory_window.strip()}\n\n"
+            )
+
+        base_user_prompt = (
             f"User question: {user_query}\n\n"
+            f"{memory_block}"
             "Retrieved context from the user's documents:\n"
             f"{retrieved_context}\n\n"
             "Provide a clear, direct answer based on the context above. "
@@ -128,6 +144,32 @@ class SummaryGenerationService:
         )
 
         max_chars = getattr(settings, "summary_llm_max_input_chars", 12000)
+        user_prompt = base_user_prompt
+        if len(system_prompt) + len(user_prompt) > max_chars and memory_block:
+            # Keep retrieval context intact; trim memory first.
+            static_without_memory = (
+                f"User question: {user_query}\n\n"
+                "Retrieved context from the user's documents:\n"
+                f"{retrieved_context}\n\n"
+                "Provide a clear, direct answer based on the context above."
+            )
+            available_for_memory = max_chars - len(system_prompt) - len(static_without_memory) - 100
+            if available_for_memory > 120:
+                clipped_memory = memory_window.strip()[:available_for_memory]
+                memory_block = (
+                    "Recent conversation window (last turns, for continuity):\n"
+                    f"{clipped_memory}\n\n"
+                )
+                user_prompt = (
+                    f"User question: {user_query}\n\n"
+                    f"{memory_block}"
+                    "Retrieved context from the user's documents:\n"
+                    f"{retrieved_context}\n\n"
+                    "Provide a clear, direct answer based on the context above."
+                )
+            else:
+                user_prompt = static_without_memory
+
         if len(system_prompt) + len(user_prompt) > max_chars:
             return REQUEST_TOO_LARGE_MESSAGE
 

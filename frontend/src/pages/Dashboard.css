@@ -170,9 +170,10 @@
 }
 
 .calendar-card {
-  overflow: hidden;
+  overflow: visible;
   background: transparent;
   border: none;
+  min-width: 0;
 }
 
 .cal-header {
@@ -233,10 +234,11 @@
 
 .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   text-align: center;
-  gap: var(--dash-s-2);
-  padding: var(--dash-s-16) var(--dash-s-20);
+  gap: var(--dash-s-4) var(--dash-s-2);
+  padding: var(--dash-s-16) var(--dash-s-24) var(--dash-s-16) var(--dash-s-24);
+  box-sizing: border-box;
 }
 
 .cal-label {
@@ -247,7 +249,8 @@
 }
 
 .cal-day {
-  width: 32px;
+  width: 100%;
+  max-width: 36px;
   height: 32px;
   margin: 0 auto;
   border: none;

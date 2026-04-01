@@ -177,8 +177,12 @@ class AuditActions:
     DOCUMENT_DOWNLOADED = "document.downloaded"
     DOCUMENT_SHARED = "document.shared"
     DOCUMENT_UPDATED = "document.updated"
-    DOCUMENT_CONTAINER_SUGGESTED = "document.container_suggested"
+    DOCUMENT_CONTAINER_SUGGESTED = "document.container_suggested"  # legacy; prefer DOCUMENT_CONTAINER_SUGGESTION_REQUESTED
+    DOCUMENT_CONTAINER_SUGGESTION_REQUESTED = "document.container_suggestion_requested"
     DOCUMENT_CONTAINER_SUGGESTION_APPLIED = "document.container_suggestion_applied"
+    DOCUMENT_HINTS_GENERATED = "document.hints_generated"
+    DOCUMENT_HINT_ACKNOWLEDGED = "document.hint_acknowledged"
+    DOCUMENT_HINT_DISMISSED = "document.hint_dismissed"
     DOCUMENT_DELETION_REQUESTED = "document.deletion_requested"
     DOCUMENT_DELETION_APPROVED = "document.deletion_approved"
     DOCUMENT_DELETION_DENIED = "document.deletion_denied"
@@ -205,3 +209,8 @@ class AuditActions:
     TASK_ASSIGNED = "task.assigned"
     TASK_UPDATED = "task.updated"
     TASK_DELETED = "task.deleted"
+    # Structured field-level changes for issue detail history (metadata_json.changes)
+    TASK_HISTORY = "task.history"
+    TASK_REMINDERS_GENERATED = "task.reminders_generated"
+    TASK_REMINDER_ACKNOWLEDGED = "task.reminder_acknowledged"
+    TASK_REMINDER_DISMISSED = "task.reminder_dismissed"

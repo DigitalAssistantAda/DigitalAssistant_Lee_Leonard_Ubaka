@@ -138,6 +138,8 @@ async def dismiss_notifications(
         "permanently_deleted_mention_ids",
         "task_notification_ids",
         "permanently_deleted_task_notification_ids",
+        "workspace_invitation_ids",
+        "permanently_deleted_workspace_invitation_ids",
     )
     for key in list_keys:
         if key not in base or not isinstance(base.get(key), list):
@@ -148,6 +150,8 @@ async def dismiss_notifications(
     perm_m_ids = base["permanently_deleted_mention_ids"]
     task_ids = base["task_notification_ids"]
     perm_task_ids = base["permanently_deleted_task_notification_ids"]
+    invite_ids = base["workspace_invitation_ids"]
+    perm_invite_ids = base["permanently_deleted_workspace_invitation_ids"]
 
     for rid in request.deletion_request_ids or []:
         if isinstance(rid, int) and rid not in dr_ids:
@@ -167,6 +171,12 @@ async def dismiss_notifications(
     for tid in request.permanently_deleted_task_notification_ids or []:
         if isinstance(tid, str) and tid and tid not in perm_task_ids:
             perm_task_ids.append(tid)
+    for iid in request.workspace_invitation_ids or []:
+        if isinstance(iid, str) and iid and iid not in invite_ids:
+            invite_ids.append(iid)
+    for iid in request.permanently_deleted_workspace_invitation_ids or []:
+        if isinstance(iid, str) and iid and iid not in perm_invite_ids:
+            perm_invite_ids.append(iid)
 
     preferences.dismissed_notification_ids = {
         **base,
@@ -176,6 +186,8 @@ async def dismiss_notifications(
         "permanently_deleted_mention_ids": perm_m_ids,
         "task_notification_ids": task_ids,
         "permanently_deleted_task_notification_ids": perm_task_ids,
+        "workspace_invitation_ids": invite_ids,
+        "permanently_deleted_workspace_invitation_ids": perm_invite_ids,
     }
     db.commit()
     db.refresh(preferences)

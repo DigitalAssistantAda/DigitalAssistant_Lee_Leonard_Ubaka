@@ -16,6 +16,8 @@ function NotificationsPage() {
     permanently_deleted_mention_ids: [],
     task_notification_ids: [],
     permanently_deleted_task_notification_ids: [],
+    workspace_invitation_ids: [],
+    permanently_deleted_workspace_invitation_ids: [],
   });
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState('pending');
@@ -111,6 +113,24 @@ function NotificationsPage() {
             let kind = 'updated';
             if (act.includes('assigned')) kind = 'assigned';
             else if (act.includes('deleted')) kind = 'deleted';
+            else if (act.includes('reminders_generated')) kind = 'reminders';
+            const reminderCountRaw = metadata?.reminder_count;
+            const reminder_count =
+              reminderCountRaw != null && Number.isFinite(Number(reminderCountRaw))
+                ? Number(reminderCountRaw)
+                : null;
+            let reminder_lines = [];
+            const rawLines = metadata?.reminder_lines;
+            if (Array.isArray(rawLines)) {
+              reminder_lines = rawLines
+                .filter((x) => x && (x.content != null || x.hint_type != null))
+                .map((x) => ({
+                  id: x.id != null ? Number(x.id) : null,
+                  hint_type: String(x.hint_type || ''),
+                  content: String(x.content || ''),
+                }))
+                .filter((x) => Number.isFinite(x.id));
+            }
             return {
               id: `task-${log.id}`,
               log_id: log.id,
@@ -119,6 +139,8 @@ function NotificationsPage() {
               task_id: metadata?.task_id != null ? Number(metadata.task_id) : (log.object_id != null ? Number(log.object_id) : null),
               task_title: metadata?.task_title || '',
               kind,
+              reminder_count,
+              reminder_lines,
             };
           })
           .filter(Boolean);
@@ -140,6 +162,8 @@ function NotificationsPage() {
                 permanently_deleted_mention_ids: Array.isArray(d.permanently_deleted_mention_ids) ? d.permanently_deleted_mention_ids : [],
                 task_notification_ids: Array.isArray(d.task_notification_ids) ? d.task_notification_ids : [],
                 permanently_deleted_task_notification_ids: Array.isArray(d.permanently_deleted_task_notification_ids) ? d.permanently_deleted_task_notification_ids : [],
+                workspace_invitation_ids: Array.isArray(d.workspace_invitation_ids) ? d.workspace_invitation_ids : [],
+                permanently_deleted_workspace_invitation_ids: Array.isArray(d.permanently_deleted_workspace_invitation_ids) ? d.permanently_deleted_workspace_invitation_ids : [],
               }
             : {
                 deletion_request_ids: [],
@@ -148,15 +172,14 @@ function NotificationsPage() {
                 permanently_deleted_mention_ids: [],
                 task_notification_ids: [],
                 permanently_deleted_task_notification_ids: [],
+                workspace_invitation_ids: [],
+                permanently_deleted_workspace_invitation_ids: [],
               }
         );
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
-      setNotifications([]);
-      setMentionNotifications([]);
-      setTaskNotifications([]);
-      setWorkspaceInvitations([]);
+      /* Do not clear all lists: a single failing request would wipe unrelated items. */
     }
     setLoading(false);
   }, [API_URL, currentUserId]);
@@ -273,6 +296,30 @@ function NotificationsPage() {
     } catch (error) { console.error('Error permanently deleting task notification:', error); }
   };
 
+  const workspaceInviteKey = (invitationId) => `invite-${invitationId}`;
+
+  const handleDismissWorkspaceInvitation = async (invitationId) => {
+    const key = workspaceInviteKey(invitationId);
+    try {
+      const response = await callDismissEndpoint({ workspace_invitation_ids: [key] });
+      if (response.ok) {
+        setDismissedIds((prev) => ({ ...prev, workspace_invitation_ids: [...(prev.workspace_invitation_ids || []), key] }));
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    } catch (error) { console.error('Error dismissing workspace invitation:', error); }
+  };
+
+  const handlePermanentlyDeleteWorkspaceInvitation = async (invitationId) => {
+    const key = workspaceInviteKey(invitationId);
+    try {
+      const response = await callDismissEndpoint({ permanently_deleted_workspace_invitation_ids: [key] });
+      if (response.ok) {
+        setDismissedIds((prev) => ({ ...prev, permanently_deleted_workspace_invitation_ids: [...(prev.permanently_deleted_workspace_invitation_ids || []), key] }));
+        window.dispatchEvent(new Event('notifications-updated'));
+      }
+    } catch (error) { console.error('Error permanently deleting workspace invitation:', error); }
+  };
+
   const handleOpenMentionDiscussion = (mention) => {
     const wsId = mention?.workspace_id;
     if (!wsId) return;
@@ -283,10 +330,17 @@ function NotificationsPage() {
     navigate(`/workspace/${wsId}?${params.toString()}`);
   };
 
-  const handleOpenWorkspaceIssues = (row) => {
+  const handleOpenWorkspaceIssues = (row, opts = {}) => {
     const wsId = row?.workspace_id;
     if (!wsId) return;
-    navigate(`/workspace/${wsId}/issues`);
+    const params = new URLSearchParams();
+    if (row?.task_id != null) {
+      params.set('issueId', String(row.task_id));
+    }
+    const q = params.toString();
+    const path = q ? `/workspace/${wsId}/issues?${q}` : `/workspace/${wsId}/issues`;
+    const hash = opts.focusReminders ? '#issue-reminders' : '';
+    navigate(path + hash);
   };
 
   const getStatusIcon = (statusValue) => {
@@ -321,9 +375,22 @@ function NotificationsPage() {
   const permMentionDeleted = dismissedIds.permanently_deleted_mention_ids || [];
   const taskDismissed = dismissedIds.task_notification_ids || [];
   const permTaskDeleted = dismissedIds.permanently_deleted_task_notification_ids || [];
+  const inviteDismissed = dismissedIds.workspace_invitation_ids || [];
+  const permInviteDeleted = dismissedIds.permanently_deleted_workspace_invitation_ids || [];
 
-  const pendingDeletionNotifications = notifications.filter(n => n.status === 'pending');
-  const pendingCount = pendingDeletionNotifications.length + workspaceInvitations.length;
+  const activeWorkspaceInvitations = workspaceInvitations.filter((inv) => {
+    const key = workspaceInviteKey(inv.invitation_id);
+    return !inviteDismissed.includes(key) && !permInviteDeleted.includes(key);
+  });
+
+  const historyWorkspaceInvitations = workspaceInvitations.filter((inv) => {
+    const key = workspaceInviteKey(inv.invitation_id);
+    return inviteDismissed.includes(key) && !permInviteDeleted.includes(key);
+  });
+
+  const pendingDeletionNotifications = notifications.filter(
+    (n) => n.status === 'pending' && !drDismissed.includes(n.id) && !permDrDeleted.includes(n.id)
+  );
 
   // Non pending, not permanently deleted
   const respondedNotDismissed = notifications.filter(
@@ -345,7 +412,47 @@ function NotificationsPage() {
     (t) => taskDismissed.includes(t.id) && !permTaskDeleted.includes(t.id)
   );
 
-  const allCount = pendingCount + respondedNotDismissed.length + mentionsNotDismissed.length + tasksNotDismissed.length + dismissedRequests.length + dismissedMentions.length + dismissedTasks.length;
+  const pendingCount =
+    pendingDeletionNotifications.length +
+    activeWorkspaceInvitations.length +
+    tasksNotDismissed.length;
+
+  const historyCount =
+    dismissedRequests.length + dismissedMentions.length + dismissedTasks.length + historyWorkspaceInvitations.length;
+
+  const allCount =
+    pendingCount +
+    respondedNotDismissed.length +
+    mentionsNotDismissed.length +
+    historyCount;
+
+  const historyRows = useMemo(() => {
+    const rows = [];
+    dismissedRequests.forEach((n) => {
+      rows.push({
+        kind: 'dr',
+        key: `history-dr-${n.id}`,
+        sortAt: n.responded_at || n.created_at,
+        data: n,
+      });
+    });
+    dismissedMentions.forEach((m) => {
+      rows.push({ kind: 'mention', key: m.id, sortAt: m.created_at, data: m });
+    });
+    dismissedTasks.forEach((t) => {
+      rows.push({ kind: 'task', key: t.id, sortAt: t.created_at, data: t });
+    });
+    historyWorkspaceInvitations.forEach((inv) => {
+      rows.push({
+        kind: 'invite',
+        key: `history-inv-${inv.invitation_id}`,
+        sortAt: inv.invited_at,
+        data: inv,
+      });
+    });
+    rows.sort((a, b) => new Date(b.sortAt || 0).getTime() - new Date(a.sortAt || 0).getTime());
+    return rows;
+  }, [dismissedRequests, dismissedMentions, dismissedTasks, historyWorkspaceInvitations]);
 
   const hasAnyVisible = (() => {
     if (filter === 'pending') return pendingCount > 0;
@@ -360,6 +467,11 @@ function NotificationsPage() {
     });
     return prefix ? `${prefix} ${formatted}` : formatted;
   };
+
+  const formatReminderTypeLabel = (t) =>
+    String(t || '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
 
   const renderDeletionRequestCard = (notification, { faded, actions }) => (
     <div key={notification.id} className={`notification-card${faded ? ' notification-card--faded' : ''}`}>
@@ -390,9 +502,29 @@ function NotificationsPage() {
 
   const renderTaskNotificationCard = (row, { faded, actions }) => {
     const title =
-      row.kind === 'assigned' ? 'Task assigned to you' : row.kind === 'deleted' ? 'Task deleted' : 'Task updated';
-    const badgeClass = row.kind === 'assigned' ? 'pending' : row.kind === 'deleted' ? 'denied' : 'mention';
-    const badgeLabel = row.kind === 'assigned' ? 'assigned' : row.kind === 'deleted' ? 'deleted' : 'update';
+      row.kind === 'assigned'
+        ? 'Task assigned to you'
+        : row.kind === 'deleted'
+          ? 'Task deleted'
+          : row.kind === 'reminders'
+            ? 'Issue reminders updated'
+            : 'Task updated';
+    const badgeClass =
+      row.kind === 'assigned'
+        ? 'pending'
+        : row.kind === 'deleted'
+          ? 'denied'
+          : row.kind === 'reminders'
+            ? 'pending'
+            : 'mention';
+    const badgeLabel =
+      row.kind === 'assigned'
+        ? 'assigned'
+        : row.kind === 'deleted'
+          ? 'deleted'
+          : row.kind === 'reminders'
+            ? 'reminders'
+            : 'update';
     return (
       <div key={row.id} className={`notification-card${faded ? ' notification-card--faded' : ''}`}>
         <div className="notification-content">
@@ -407,21 +539,51 @@ function NotificationsPage() {
             </div>
             {!faded && <span className={`status-badge ${badgeClass}`}>{badgeLabel}</span>}
           </div>
-          <p className="notification-reason">
-            {row.kind === 'deleted' ? (
-              <>
-                <strong>{row.task_title || `Task #${row.task_id ?? ''}`}</strong> was removed.
-                {row.task_id != null && ` (#${row.task_id})`}
+          {row.kind === 'reminders' ? (
+            <>
+              <p className="notification-reason">
+                New or refreshed reminder suggestions for{' '}
+                <strong>{row.task_title || `Issue #${row.task_id ?? ''}`}</strong>
+                {row.reminder_count != null && row.reminder_count > 0 && (
+                  <> · {row.reminder_count} active</>
+                )}
+                {row.reminder_count === 0 && <> · no active suggestions</>}
                 {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
-              </>
-            ) : (
-              <>
-                <strong>{row.task_title || `Task #${row.task_id ?? ''}`}</strong>
-                {row.task_id != null && ` · #${row.task_id}`}
-                {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
-              </>
-            )}
-          </p>
+              </p>
+              {Array.isArray(row.reminder_lines) && row.reminder_lines.length > 0 && (
+                <ul className="notification-reminder-lines" aria-label="Reminder suggestions">
+                  {row.reminder_lines.map((line) => (
+                    <li key={line.id}>
+                      <button
+                        type="button"
+                        className="notification-reminder-line"
+                        onClick={() => handleOpenWorkspaceIssues(row, { focusReminders: true })}
+                      >
+                        <span className="notification-reminder-line-type">{formatReminderTypeLabel(line.hint_type)}</span>
+                        <span className="notification-reminder-line-text">{line.content}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : (
+            <p className="notification-reason">
+              {row.kind === 'deleted' ? (
+                <>
+                  <strong>{row.task_title || `Task #${row.task_id ?? ''}`}</strong> was removed.
+                  {row.task_id != null && ` (#${row.task_id})`}
+                  {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
+                </>
+              ) : (
+                <>
+                  <strong>{row.task_title || `Task #${row.task_id ?? ''}`}</strong>
+                  {row.task_id != null && ` · #${row.task_id}`}
+                  {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
+                </>
+              )}
+            </p>
+          )}
           <p className="notification-date">{formatDate(row.created_at, '')}</p>
         </div>
         <div className="notification-actions">{actions}</div>
@@ -446,11 +608,30 @@ function NotificationsPage() {
     </div>
   );
 
+  const renderWorkspaceInvitationCard = (invitation, { faded, actions }) => (
+    <div key={`workspace-invite-${invitation.invitation_id}`} className={`notification-card${faded ? ' notification-card--faded' : ''}`}>
+      <div className="notification-content">
+        <div className="notification-header">
+          <div className="status-with-icon">
+            <Users size={18} className="status-icon pending" />
+            <h3>Workspace invitation</h3>
+          </div>
+          {!faded && <span className="status-badge pending">pending</span>}
+        </div>
+        <p className="notification-reason">
+          Invited to join <strong>{invitation.workspace_name}</strong> as <strong>{invitation.role}</strong>.
+        </p>
+        <p className="notification-date">{formatDate(invitation.invited_at, 'Invited')}</p>
+      </div>
+      <div className="notification-actions">{actions}</div>
+    </div>
+  );
+
   return (
     <div className="notifications-page">
       <div className="notifications-hero">
         <h1>Notifications</h1>
-        <p>Requests, invitations, mentions, and task activity across your workspaces.</p>
+        <p>Invites, mentions, tasks, and document requests — dismiss anything to move it into history, or remove it for good.</p>
       </div>
 
       <div className="filter-tabs">
@@ -473,10 +654,10 @@ function NotificationsPage() {
           </div>
         )}
 
-        {/* Pending deletion requests */}
-        {!loading && pendingDeletionNotifications.length > 0 && (
+        {/* Pending deletion requests — Pending + All */}
+        {!loading && (filter === 'pending' || filter === 'all') && pendingDeletionNotifications.length > 0 && (
           <>
-            <div className="section-title">Awaiting Your Decision</div>
+            <div className="section-title">Awaiting your decision</div>
             {pendingDeletionNotifications.map((n) =>
               renderDeletionRequestCard(n, {
                 faded: false,
@@ -484,6 +665,7 @@ function NotificationsPage() {
                   <>
                     <button type="button" className="icon-action icon-action-accept" onClick={() => handleApprove(n.id)} title="Approve" aria-label="Approve deletion request"><Check size={18} strokeWidth={2.5} /></button>
                     <button type="button" className="icon-action icon-action-decline" onClick={() => handleDeny(n.id)} title="Deny" aria-label="Deny deletion request"><X size={18} strokeWidth={2.5} /></button>
+                    <button type="button" className="btn btn-dismiss" onClick={() => handleDismissDeletionRequest(n.id)} title="Hide for now" aria-label="Dismiss deletion request"><Trash2 size={15} /> Dismiss</button>
                   </>
                 ),
               })
@@ -491,29 +673,22 @@ function NotificationsPage() {
           </>
         )}
 
-        {/* Workspace invitations */}
-        {!loading && workspaceInvitations.length > 0 && (
+        {/* Workspace invitations — Pending + All */}
+        {!loading && (filter === 'pending' || filter === 'all') && activeWorkspaceInvitations.length > 0 && (
           <>
-            <div className="section-title">Workspace Invitations</div>
-            {workspaceInvitations.map((invitation) => (
-              <div key={`workspace-invite-${invitation.invitation_id}`} className="notification-card">
-                <div className="notification-content">
-                  <div className="notification-header">
-                    <div className="status-with-icon">
-                      <Users size={18} className="status-icon pending" />
-                      <h3>Workspace Invitation</h3>
-                    </div>
-                    <span className="status-badge pending">pending</span>
-                  </div>
-                  <p className="notification-reason">You were invited to join <strong>{invitation.workspace_name}</strong> as <strong>{invitation.role}</strong>.</p>
-                  <p className="notification-date">{formatDate(invitation.invited_at, 'Invited')}</p>
-                </div>
-                <div className="notification-actions">
-                  <button type="button" className="icon-action icon-action-accept" onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)} title="Accept" aria-label="Accept workspace invitation"><Check size={18} strokeWidth={2.5} /></button>
-                  <button type="button" className="icon-action icon-action-decline" onClick={() => handleDeclineWorkspaceInvite(invitation.invitation_id)} title="Decline" aria-label="Decline workspace invitation"><X size={18} strokeWidth={2.5} /></button>
-                </div>
-              </div>
-            ))}
+            <div className="section-title">Workspace invitations</div>
+            {activeWorkspaceInvitations.map((invitation) =>
+              renderWorkspaceInvitationCard(invitation, {
+                faded: false,
+                actions: (
+                  <>
+                    <button type="button" className="icon-action icon-action-accept" onClick={() => handleAcceptWorkspaceInvite(invitation.invitation_id)} title="Accept" aria-label="Accept workspace invitation"><Check size={18} strokeWidth={2.5} /></button>
+                    <button type="button" className="icon-action icon-action-decline" onClick={() => handleDeclineWorkspaceInvite(invitation.invitation_id)} title="Decline" aria-label="Decline workspace invitation"><X size={18} strokeWidth={2.5} /></button>
+                    <button type="button" className="btn btn-dismiss" onClick={() => handleDismissWorkspaceInvitation(invitation.invitation_id)} title="Hide for now" aria-label="Dismiss invitation"><Trash2 size={15} /> Dismiss</button>
+                  </>
+                ),
+              })
+            )}
           </>
         )}
 
@@ -550,7 +725,7 @@ function NotificationsPage() {
           </>
         )}
 
-        {!loading && filter === 'all' && tasksNotDismissed.length > 0 && (
+        {!loading && (filter === 'pending' || filter === 'all') && tasksNotDismissed.length > 0 && (
           <>
             <div className="section-title">Tasks</div>
             {tasksNotDismissed.map((t) =>
@@ -558,7 +733,15 @@ function NotificationsPage() {
                 faded: false,
                 actions: (
                   <>
-                    <button type="button" className="btn btn-mention-open" onClick={() => handleOpenWorkspaceIssues(t)}>Open issues</button>
+                    <button
+                      type="button"
+                      className="btn btn-mention-open"
+                      onClick={() =>
+                        handleOpenWorkspaceIssues(t, { focusReminders: t.kind === 'reminders' })
+                      }
+                    >
+                      {t.kind === 'reminders' ? 'Open issue' : 'Open issues'}
+                    </button>
                     <button type="button" className="btn btn-dismiss" onClick={() => handleDismissTaskNotification(t.id)} title="Dismiss" aria-label="Dismiss task notification"><Trash2 size={15} /> Dismiss</button>
                   </>
                 ),
@@ -567,34 +750,43 @@ function NotificationsPage() {
           </>
         )}
 
-        {/* All tab only: dismissed requests (faded, with permanent delete) */}
-        {!loading && filter === 'all' && (dismissedRequests.length > 0 || dismissedMentions.length > 0 || dismissedTasks.length > 0) && (
+        {/* All tab: chronological history (dismissed / hidden items) */}
+        {!loading && filter === 'all' && historyRows.length > 0 && (
           <>
-            <div className="section-title">Dismissed</div>
-            {dismissedRequests.map((n) =>
-              renderDeletionRequestCard(n, {
-                faded: true,
-                actions: (
-                  <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteDeletionRequest(n.id)} title="Delete permanently" aria-label="Permanently delete notification"><Trash2 size={15} /> Delete</button>
-                ),
-              })
-            )}
-            {dismissedMentions.map((m) =>
-              renderMentionCard(m, {
-                faded: true,
-                actions: (
-                  <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteMention(m.id)} title="Delete permanently" aria-label="Permanently delete mention"><Trash2 size={15} /> Delete</button>
-                ),
-              })
-            )}
-            {dismissedTasks.map((t) =>
-              renderTaskNotificationCard(t, {
-                faded: true,
-                actions: (
-                  <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteTaskNotification(t.id)} title="Delete permanently" aria-label="Permanently delete task notification"><Trash2 size={15} /> Delete</button>
-                ),
-              })
-            )}
+            <div className="section-title">History</div>
+            <p className="section-subtitle notifications-history-hint">Newest first. Delete removes an item from this list permanently.</p>
+            {historyRows.map((row) => (
+              <React.Fragment key={row.key}>
+                {row.kind === 'dr' &&
+                  renderDeletionRequestCard(row.data, {
+                    faded: true,
+                    actions: (
+                      <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteDeletionRequest(row.data.id)} title="Delete permanently" aria-label="Permanently delete notification"><Trash2 size={15} /> Delete</button>
+                    ),
+                  })}
+                {row.kind === 'mention' &&
+                  renderMentionCard(row.data, {
+                    faded: true,
+                    actions: (
+                      <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteMention(row.data.id)} title="Delete permanently" aria-label="Permanently delete mention"><Trash2 size={15} /> Delete</button>
+                    ),
+                  })}
+                {row.kind === 'task' &&
+                  renderTaskNotificationCard(row.data, {
+                    faded: true,
+                    actions: (
+                      <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteTaskNotification(row.data.id)} title="Delete permanently" aria-label="Permanently delete task notification"><Trash2 size={15} /> Delete</button>
+                    ),
+                  })}
+                {row.kind === 'invite' &&
+                  renderWorkspaceInvitationCard(row.data, {
+                    faded: true,
+                    actions: (
+                      <button type="button" className="btn btn-permanent-delete" onClick={() => handlePermanentlyDeleteWorkspaceInvitation(row.data.invitation_id)} title="Delete permanently" aria-label="Permanently delete invitation from history"><Trash2 size={15} /> Delete</button>
+                    ),
+                  })}
+              </React.Fragment>
+            ))}
           </>
         )}
       </div>

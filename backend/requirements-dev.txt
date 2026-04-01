@@ -1,0 +1,5 @@
+# Dev / CI only: pip install -r requirements-dev.txt
+# Run tests: cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest tests/ -v
+-r requirements.txt
+pytest>=7.4.0
+httpx>=0.26.0

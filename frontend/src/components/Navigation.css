@@ -193,7 +193,7 @@
 
 .nav-icon:hover {
   color: var(--accent-primary);
-  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  background: transparent;
   border: none;
   box-shadow: none;
 }
@@ -229,15 +229,15 @@
 /* ── Avatar ── */
 
 .nav-avatar {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   color: var(--accent-primary);
   font-family: var(--font-display);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   display: flex;
   align-items: center;

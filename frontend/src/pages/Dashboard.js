@@ -42,18 +42,18 @@ function Dashboard() {
   const [activityFilter, setActivityFilter] = useState('all');
 
   const monthIndexMap = {
-    Jan: 0,
-    Feb: 1,
-    Mar: 2,
-    Apr: 3,
+    January: 0,
+    February: 1,
+    March: 2,
+    April: 3,
     May: 4,
-    Jun: 5,
-    Jul: 6,
-    Aug: 7,
-    Sep: 8,
-    Oct: 9,
-    Nov: 10,
-    Dec: 11,
+    June: 5,
+    July: 6,
+    August: 7,
+    September: 8,
+    October: 9,
+    November: 10,
+    December: 11,
   };
 
   const currentMonthInfo = useMemo(() => {
@@ -83,9 +83,6 @@ function Dashboard() {
         status: statsData.status_message || '',
       });
 
-      const activityData = await apiFetch('/api/v1/dashboard/activity?limit=8');
-      setRecentActivity(activityData.items || []);
-
       const issuesData = await apiFetch('/api/v1/dashboard/issues');
       const issueItems = issuesData.items || [];
       setIssues(issueItems);
@@ -107,44 +104,42 @@ function Dashboard() {
     }
   }, []);
 
+  const fetchActivityData = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
+      const activityData = await apiFetch(`/api/v1/dashboard/activity?limit=8${filterParam}`);
+      setRecentActivity(activityData.items || []);
+    } catch (err) {
+      console.error('Error fetching filtered activity:', err);
+    }
+  }, [activityFilter]);
+
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
   useEffect(() => {
+    fetchActivityData();
+  }, [fetchActivityData]);
+
+  useEffect(() => {
     const handleRealtimeRefresh = () => {
       fetchDashboardData();
+      fetchActivityData();
     };
 
     window.addEventListener('workspaces-updated', handleRealtimeRefresh);
     window.addEventListener('containers-updated', handleRealtimeRefresh);
     window.addEventListener('documents-updated', handleRealtimeRefresh);
-    window.addEventListener('client-search-logged', handleRealtimeRefresh);
 
     return () => {
       window.removeEventListener('workspaces-updated', handleRealtimeRefresh);
       window.removeEventListener('containers-updated', handleRealtimeRefresh);
       window.removeEventListener('documents-updated', handleRealtimeRefresh);
-      window.removeEventListener('client-search-logged', handleRealtimeRefresh);
     };
-  }, [fetchDashboardData]);
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    const fetchFilteredActivity = async () => {
-      try {
-        const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
-        const data = await apiFetch(`/api/v1/dashboard/activity?limit=8${filterParam}`);
-        setRecentActivity(data.items || []);
-      } catch (err) {
-        console.error('Error fetching filtered activity:', err);
-      }
-    };
-
-    fetchFilteredActivity();
-  }, [activityFilter]);
+  }, [fetchDashboardData, fetchActivityData]);
 
   const shiftMonth = (direction) => {
     const [monthName, yearValue] = currentMonth.split(' ');
@@ -198,23 +193,64 @@ function Dashboard() {
     [recentActivity]
   );
 
+  const resolveActivityType = (activity) => {
+    const type = String(activity?.type || '').toLowerCase();
+    const actionType = String(activity?.action_type || '').toLowerCase();
+    const actionText = String(activity?.action || '').toLowerCase();
+    if (activityFilter === 'searches') {
+      return 'search';
+    }
+    if (
+      activityFilter === 'documents'
+      || actionType.startsWith('document.')
+      || actionText.includes('document')
+    ) {
+      return 'upload';
+    }
+    if (
+      activityFilter === 'workspaces'
+      || actionType.startsWith('workspace.')
+    ) {
+      return 'workspace';
+    }
+    return type || 'success';
+  };
+
   const getActivityIcon = (type) => {
+    const workspaceIcon = (
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-label="Workspace"
+      >
+        <path d="M7.5 3.5H13.8L16.5 6.2V12.5H7.5V3.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M13.8 3.5V6.2H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M3 9H21V20.5H3V9Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M3 9L11 13.2H13L21 9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M11 13.2L11.8 15.2H12.2L13 13.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+
     const icons = {
-      upload: <Upload size={14} aria-label="Upload" />,
+      upload: <FileText size={14} aria-label="Document" />,
       search: <Search size={14} aria-label="Search" />,
       summary: <FileText size={14} aria-label="Summary" />,
       processing: <FileText size={14} aria-label="Processing" />,
       access: <Search size={14} aria-label="Access" />,
       success: <CheckCircle size={14} aria-label="Success" />,
       failed: <AlertCircle size={14} aria-label="Failed" />,
-      workspace: <FileText size={14} aria-label="Workspace" />,
+      workspace: workspaceIcon,
     };
     return icons[type] || <FileText size={14} aria-label="Activity" />;
   };
 
   const getActivityTypeClass = (type) => {
     if (type === 'summary' || type === 'processing') return 'ai-ada';
-    if (type === 'upload' || type === 'workspace') return 'ai-doc';
+    if (type === 'upload') return 'ai-doc';
+    if (type === 'workspace') return 'ai-workspace';
     if (type === 'search' || type === 'access') return 'ai-search';
     return 'ai-check';
   };
@@ -550,8 +586,8 @@ function Dashboard() {
               ) : (
                 filteredActivity.map((activity, index) => (
                   <div key={`${activity.action}-${index}`} className="activity-item">
-                    <div className={`activity-icon ${getActivityTypeClass(activity.type)}`}>
-                      {getActivityIcon(activity.type)}
+                    <div className={`activity-icon ${getActivityTypeClass(resolveActivityType(activity))}`}>
+                      {getActivityIcon(resolveActivityType(activity))}
                     </div>
                     <div className="activity-body">
                       <div className="activity-user">{activity.username || user.username || 'User'}</div>

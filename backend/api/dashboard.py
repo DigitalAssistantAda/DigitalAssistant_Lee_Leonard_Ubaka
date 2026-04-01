@@ -135,8 +135,6 @@ async def get_recent_activity(
         if log.metadata_json and isinstance(log.metadata_json, dict):
             item_name = log.metadata_json.get("filename") or log.metadata_json.get("name")
             location_name = log.metadata_json.get("workspace_name") or log.metadata_json.get("container_name")
-            if log.action == "search.performed" and not item_name:
-                item_name = log.metadata_json.get("query")
         
         # Fallback: fetch from database if not in metadata
         if not item_name:
@@ -183,34 +181,6 @@ async def get_recent_activity(
             action_description = f"sent invite to join {item_name}"
             if invited_user_name:
                 action_description = f"invited {invited_user_name} to {item_name}"
-        elif log.action == "search.performed":
-            meta = log.metadata_json if isinstance(log.metadata_json, dict) else {}
-            q = (meta.get("query") or item_name or "").strip()
-            n = meta.get("result_count")
-            ui = meta.get("ui_context") or "api"
-            if ui == "documents_browser":
-                if q:
-                    action_description = f'filtered Documents for "{q}"'
-                else:
-                    action_description = "filtered Documents view"
-            elif ui == "documents_folder":
-                if q:
-                    action_description = f'filtered folder contents for "{q}"'
-                else:
-                    action_description = "filtered folder contents"
-            elif ui == "ai_assistant":
-                if q:
-                    action_description = f'filtered Ada context for "{q}"'
-                else:
-                    action_description = "filtered Ada context documents"
-            elif q:
-                action_description = f'searched for "{q}"'
-            else:
-                action_description = "searched workspace documents"
-            if location_name:
-                action_description += f" in {location_name}"
-            if isinstance(n, int):
-                action_description += f" ({n} result{'s' if n != 1 else ''})"
         else:
             action_description = log.action.replace(".", " ").title()
         
@@ -219,13 +189,16 @@ async def get_recent_activity(
             "document.uploaded": "upload",
             "document.downloaded": "upload",
             "document.deleted": "upload",
-            "workspace.created": "success",
+            "document.viewed": "search",
             "container.created": "success",
             "user.login": "success",
-            "search.performed": "search",
         }
-        
+
         icon_type = action_map.get(log.action, "success")
+        if log.action.startswith("workspace.") or log.object_type in {"workspace", "workspace_member"}:
+            icon_type = "workspace"
+        elif log.action.startswith("search."):
+            icon_type = "search"
         
         activities.append({
             "username": username,

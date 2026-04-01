@@ -58,15 +58,18 @@ class SummaryGenerationService:
 
         system_prompt = (
             "You are a secure enterprise summarization assistant. "
-            "Summarize only the provided document excerpt. "
-            "Do not invent facts. If context is limited, say so briefly. "
-            "Keep output concise and useful for professional users."
+            "Summarize only the provided document context. "
+            "Synthesize across the full context rather than focusing only on the beginning. "
+            "Capture the main purpose, major sections, key policies or responsibilities, important numbers or timelines, and any consequences or decision-relevant points when present. "
+            "Do not invent facts. If context is partial, say so briefly without overemphasizing missing information. "
+            "Default output should be an executive-style summary in one concise paragraph of 3 to 5 sentences, unless the user explicitly asks for a longer or more detailed summary."
         )
 
         user_prompt = (
             f"User instructions (optional): {instructions.strip() if instructions else 'None'}\n\n"
-            "Create a clear summary of the excerpt below.\n\n"
-            f"Document excerpt:\n{source_text}"
+            "Create a clear, high-quality summary of the document context below. "
+            "Focus on what matters most overall, not just isolated details.\n\n"
+            f"Document context:\n{source_text}"
         )
 
         return self._generate_from_messages(
@@ -109,13 +112,19 @@ class SummaryGenerationService:
             "Answer the user's question based on the retrieved context below. "
             "Use the context when it is relevant; synthesize and explain clearly. "
             "Do not invent facts or cite information that is not in the context. "
-            "If the context genuinely does not contain information needed to answer, say so briefly and suggest rephrasing or checking other documents—do not over-explain or repeat that the context is brief."
+            "For any numbers, ranges, dates, durations, percentages, or quantities, use the exact values from context and do not alter them. "
+            "If an exact value is not present in context, say it is not specified instead of estimating. "
+            "If the context genuinely does not contain information needed to answer, say so briefly and suggest rephrasing or checking other documents. "
+            "Keep answers concise and non-repetitive: do not restate the question, avoid repeating the same fact in different wording, and avoid filler phrases like 'based on the context provided'. "
+            "Prefer 2-4 sentences unless the user explicitly asks for detailed output. "
+            "When a direct sentence in context answers the question, quote or closely paraphrase that sentence first, then add at most one short follow-up sentence. "
         )
         user_prompt = (
             f"User question: {user_query}\n\n"
             "Retrieved context from the user's documents:\n"
             f"{retrieved_context}\n\n"
-            "Provide a clear, direct answer based on the context above."
+            "Provide a clear, direct answer based on the context above. "
+            "Return only the final answer text, with no meta commentary about your process."
         )
 
         max_chars = getattr(settings, "summary_llm_max_input_chars", 12000)

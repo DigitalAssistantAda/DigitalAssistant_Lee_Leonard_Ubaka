@@ -25,10 +25,19 @@ from utils.auth import get_current_user
 from utils.authorization import require_workspace_access
 from utils.embeddings import embeddings_service
 from utils.text_generation import summary_generation_service
+from tasks.chat import generate_grounded_response as celery_generate_grounded_response
+from tasks.chat import generate_summary as celery_generate_summary
 from config import settings
 
 router = APIRouter(prefix="/conversations", tags=["Conversations"])
 logger = logging.getLogger(__name__)
+
+COMMON_QUERY_STOPWORDS = {
+    "the", "and", "for", "with", "from", "that", "this", "what", "when", "where", "which",
+    "about", "into", "your", "you", "are", "can", "could", "would", "should", "want", "need",
+    "does", "have", "has", "had", "was", "were", "how", "why", "who", "will", "make", "making",
+    "doing", "just", "please", "tell", "show", "give", "there", "their", "them", "then", "than",
+}
 
 
 def _owned_workspace_conversation(
@@ -102,12 +111,34 @@ def _simple_summary(text: str, max_sentences: int = 3, max_chars: int = 560) -> 
         return ""
 
     raw_sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", clean) if s.strip()]
-    candidate_sentences = [
-        sentence for sentence in raw_sentences
-        if 30 <= len(sentence) <= 260
-    ]
+    candidate_sentences = [sentence for sentence in raw_sentences if 30 <= len(sentence) <= 260]
+    ranked_pool = candidate_sentences if candidate_sentences else raw_sentences
 
-    chosen = candidate_sentences[:max_sentences] if candidate_sentences else raw_sentences[:max_sentences]
+    scored: list[tuple[float, int, str]] = []
+    for idx, sentence in enumerate(ranked_pool):
+        words = [w for w in re.split(r"[^a-z0-9]+", sentence.lower()) if w]
+        word_count = len(words)
+        unique_ratio = (len(set(words)) / word_count) if word_count else 0.0
+
+        # Prefer substantive, information-dense sentences without domain hardcoding.
+        score = 0.0
+        if 8 <= word_count <= 42:
+            score += 2.0
+        elif word_count > 42:
+            score += 1.0
+        score += unique_ratio * 2.5
+        if any(ch.isdigit() for ch in sentence):
+            score += 1.0
+        if sentence.strip().endswith((".", "!", "?")):
+            score += 0.5
+
+        scored.append((score, idx, sentence))
+
+    if scored:
+        top = sorted(scored, key=lambda item: (item[0], -item[1]), reverse=True)[:max_sentences]
+        chosen = [sentence for _score, idx, sentence in sorted(top, key=lambda item: item[1])]
+    else:
+        chosen = raw_sentences[:max_sentences]
 
     if chosen:
         summary = " ".join(chosen).strip()
@@ -126,6 +157,54 @@ def _format_name_preview(names: list[str], max_items: int = 3) -> str:
     if remaining > 0:
         preview = f"{preview} (+{remaining} more)"
     return preview
+
+
+def _build_summary_generation_context(
+    db: Session,
+    document_ids: list[int],
+    detailed: bool = False,
+) -> str:
+    if not document_ids:
+        return ""
+
+    docs = db.query(Document).filter(Document.id.in_(document_ids)).all()
+    doc_map = {doc.id: doc for doc in docs}
+
+    all_chunks = db.query(DocumentChunk).filter(
+        DocumentChunk.document_id.in_(document_ids)
+    ).order_by(
+        DocumentChunk.document_id.asc(),
+        DocumentChunk.chunk_index.asc(),
+    ).all()
+
+    chunks_by_doc: dict[int, list[str]] = {}
+    for chunk in all_chunks:
+        chunks_by_doc.setdefault(chunk.document_id, []).append(chunk.text or "")
+
+    per_doc_limit = 5000 if detailed else 3200
+    blocks: list[str] = []
+    for doc_id in document_ids:
+        chunk_texts = chunks_by_doc.get(doc_id, [])
+        if not chunk_texts:
+            continue
+
+        if len(chunk_texts) <= 24:
+            sample_chunks = chunk_texts
+        else:
+            head = chunk_texts[:8]
+            mid_start = max(0, (len(chunk_texts) // 2) - 4)
+            middle = chunk_texts[mid_start:mid_start + 8]
+            tail = chunk_texts[-8:]
+            sample_chunks = head + middle + tail
+
+        excerpt = "\n".join(sample_chunks)
+        normalized = " ".join(excerpt.split())[:per_doc_limit]
+        document = doc_map.get(doc_id)
+        filename = document.filename if document else f"Document {doc_id}"
+        blocks.append(f"{filename}:\n{normalized}")
+
+    max_total_chars = getattr(settings, "summary_llm_max_input_chars", 12000) - 1200
+    return "\n\n".join(blocks)[:max_total_chars]
 
 
 def _is_workspace_catalog_query(query_text: str) -> bool:
@@ -279,6 +358,55 @@ def _format_summary_block(filename: str, summary_text: str, detailed: bool) -> s
     return "\n".join(lines)
 
 
+def _build_sources_used_block(
+    db: Session,
+    document_ids: list[int],
+    chunk_ids: list[int],
+    max_items: int = 6,
+) -> str:
+    if not document_ids:
+        return ""
+
+    docs = db.query(Document).filter(Document.id.in_(document_ids)).all()
+    doc_map = {doc.id: doc for doc in docs}
+
+    section_by_doc: dict[int, int] = {}
+    if chunk_ids:
+        chunks = db.query(DocumentChunk).filter(
+            DocumentChunk.id.in_(chunk_ids),
+            DocumentChunk.document_id.in_(document_ids),
+        ).order_by(
+            DocumentChunk.document_id.asc(),
+            DocumentChunk.chunk_index.asc(),
+        ).all()
+        for chunk in chunks:
+            if chunk.document_id not in section_by_doc:
+                section_by_doc[chunk.document_id] = int(chunk.chunk_index) + 1
+
+    lines: list[str] = []
+    seen_docs: set[int] = set()
+    for doc_id in document_ids:
+        if doc_id in seen_docs:
+            continue
+        seen_docs.add(doc_id)
+        doc = doc_map.get(doc_id)
+        if not doc:
+            continue
+        name = doc.filename or f"Document {doc_id}"
+        section = section_by_doc.get(doc_id)
+        if section is not None:
+            lines.append(f"- {name} (section {section})")
+        else:
+            lines.append(f"- {name}")
+        if len(lines) >= max_items:
+            break
+
+    if not lines:
+        return ""
+
+    return "Sources Used:\n" + "\n".join(lines)
+
+
 def _is_simple_greeting_or_small_talk(text: str) -> bool:
     """Detect short greetings or small talk that don't need document context."""
     t = (text or "").strip().lower()
@@ -294,6 +422,597 @@ def _is_simple_greeting_or_small_talk(text: str) -> bool:
         "how are you", "whats up", "sup", "yo",
     }
     return normalized in greetings or normalized.startswith(("hi ", "hey ", "hello "))
+
+
+def _filename_stem(filename: str) -> str:
+    base = (filename or "").strip().lower()
+    if "." in base:
+        base = base.rsplit(".", 1)[0]
+    return re.sub(r"[^a-z0-9\s_-]", "", base)
+
+
+def _tokenize_for_match(text: str) -> list[str]:
+    return [t for t in re.split(r"[^a-z0-9]+", (text or "").lower()) if len(t) >= 3]
+
+
+def _extract_retrieval_terms(query_text: str, max_terms: int = 8) -> list[str]:
+    tokens = _tokenize_for_match(query_text)
+    filtered = [t for t in tokens if t not in COMMON_QUERY_STOPWORDS]
+    # Fallback to raw tokens so short queries still work.
+    selected = filtered if filtered else tokens
+    return selected[:max_terms]
+
+
+def _is_implication_question(query_text: str) -> bool:
+    q = (query_text or "").lower()
+    if not q:
+        return False
+    patterns = (
+        "what happens if",
+        "what if",
+        "if someone",
+        "if we",
+        "if i",
+        "consequence",
+        "consequences",
+        "outcome",
+        "penalty",
+        "penalties",
+        "result if",
+    )
+    return any(p in q for p in patterns)
+
+
+def _is_duration_question(query_text: str) -> bool:
+    q = (query_text or "").lower()
+    if not q:
+        return False
+    patterns = (
+        "how long",
+        "how much time",
+        "how many days",
+        "how many weeks",
+        "how many months",
+        "how many years",
+        "duration",
+        "timeframe",
+        "timeline",
+        "deadline",
+        "by when",
+        "when is it due",
+    )
+    return any(p in q for p in patterns)
+
+
+def _expand_terms_for_implication(query_terms: list[str], implication_query: bool) -> list[str]:
+    if not implication_query:
+        return query_terms
+
+    # Generic, non-domain-specific expansion: lightweight morphological variants
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    def add(term: str) -> None:
+        t = (term or "").strip().lower()
+        if not t or t in seen or len(t) < 3:
+            return
+        seen.add(t)
+        merged.append(t)
+
+    for base in query_terms:
+        add(base)
+
+        # Singular/plural variants
+        if base.endswith("s") and len(base) > 3:
+            add(base[:-1])
+        else:
+            add(base + "s")
+
+        # Simple stem/tense variants
+        if base.endswith("ing") and len(base) > 5:
+            add(base[:-3])
+        if base.endswith("ed") and len(base) > 4:
+            add(base[:-2])
+        if base.endswith("tion"):
+            add(base + "s")
+        if base.endswith("y") and len(base) > 3:
+            add(base[:-1] + "ies")
+
+    return merged[:16]
+
+
+def _expand_terms_for_duration(query_terms: list[str], duration_query: bool) -> list[str]:
+    if not duration_query:
+        return query_terms
+
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    def add(term: str) -> None:
+        t = (term or "").strip().lower()
+        if not t or t in seen or len(t) < 3:
+            return
+        seen.add(t)
+        merged.append(t)
+
+    for base in query_terms:
+        add(base)
+
+    generic_time_terms = (
+        "time",
+        "duration",
+        "timeline",
+        "timeframe",
+        "deadline",
+        "period",
+        "within",
+        "complete",
+        "completion",
+        "finish",
+        "finished",
+        "days",
+        "weeks",
+        "months",
+        "years",
+        "hours",
+    )
+    for term in generic_time_terms:
+        add(term)
+
+    return merged[:24]
+
+
+def _has_temporal_signal(text: str) -> bool:
+    t = (text or "").lower()
+    if not t:
+        return False
+    if re.search(r"\b\d+\s*(day|days|week|weeks|month|months|year|years|hour|hours|minute|minutes)\b", t):
+        return True
+    if re.search(r"\b(within|by|before|after|until|deadline|timeframe|timeline|duration|per\s+week|per\s+month)\b", t):
+        return True
+    return False
+
+
+def _build_query_phrases(query_text: str, terms: list[str], max_phrases: int = 4) -> list[str]:
+    phrase_terms = _tokenize_for_match(query_text)
+    phrase_terms = [t for t in phrase_terms if t in set(terms)]
+    phrases: list[str] = []
+    for idx in range(len(phrase_terms) - 1):
+        a = phrase_terms[idx]
+        b = phrase_terms[idx + 1]
+        if a == b:
+            continue
+        phrase = f"{a} {b}"
+        if phrase not in phrases:
+            phrases.append(phrase)
+        if len(phrases) >= max_phrases:
+            break
+    return phrases
+
+
+def _rank_documents_by_keyword_hits(
+    workspace_id: int,
+    db: Session,
+    current_user_id: int | None,
+    query_terms: list[str],
+    query_phrases: list[str],
+    scoped_document_ids: list[int] | None = None,
+    limit: int = 6,
+) -> list[int]:
+    if not query_terms and not query_phrases:
+        return []
+
+    doc_scope = (
+        (Document.workspace_id == workspace_id)
+        | ((Document.workspace_id.is_(None)) & (Document.uploaded_by == current_user_id))
+    ) if current_user_id else (Document.workspace_id == workspace_id)
+
+    keyword_conditions = []
+    for term in query_terms[:8]:
+        pat = f"%{term}%"
+        keyword_conditions.append(DocumentChunk.text.ilike(pat))
+        keyword_conditions.append(Document.filename.ilike(pat))
+    for phrase in query_phrases[:4]:
+        pat = f"%{phrase}%"
+        keyword_conditions.append(DocumentChunk.text.ilike(pat))
+        keyword_conditions.append(Document.filename.ilike(pat))
+
+    if not keyword_conditions:
+        return []
+
+    chunk_query = db.query(DocumentChunk, Document).join(
+        Document, Document.id == DocumentChunk.document_id
+    ).filter(
+        doc_scope,
+        Document.status == DocumentStatus.READY,
+        Document.status != DocumentStatus.DELETED,
+        or_(*keyword_conditions),
+    )
+
+    if scoped_document_ids:
+        chunk_query = chunk_query.filter(Document.id.in_(scoped_document_ids))
+
+    rows = chunk_query.order_by(DocumentChunk.id.desc()).limit(140).all()
+    if not rows:
+        return []
+
+    scored: dict[int, int] = {}
+    for chunk, doc in rows:
+        text = (chunk.text or "").lower()
+        filename = (doc.filename or "").lower()
+        score = 0
+        for term in query_terms:
+            if term in text:
+                score += 4
+            if term in filename:
+                score += 5
+        for phrase in query_phrases:
+            if phrase in text:
+                score += 10
+            if phrase in filename:
+                score += 12
+        if score:
+            scored[doc.id] = max(scored.get(doc.id, 0), score)
+
+    ranked = sorted(scored.items(), key=lambda item: item[1], reverse=True)
+    return [doc_id for doc_id, _ in ranked[:limit]]
+
+
+def _response_claims_missing_context(text: str) -> bool:
+    lower = (text or "").lower()
+    signals = (
+        "no information",
+        "does not contain",
+        "not enough information",
+        "cannot provide",
+        "can't provide",
+        "no mention",
+    )
+    return any(token in lower for token in signals)
+
+
+def _answer_has_inference_caveat(text: str) -> bool:
+    lower = (text or "").lower()
+    caveat_signals = (
+        "not explicitly stated",
+        "not explicitly mentioned",
+        "does not explicitly state",
+        "not directly stated",
+        "not directly mentioned",
+        "based on related context",
+        "inferred",
+        "recommend",
+        "recommended",
+    )
+    return any(token in lower for token in caveat_signals)
+
+
+def _is_counterfactual_or_missing_item_question(query_text: str) -> bool:
+    q = (query_text or "").strip().lower()
+    if not q:
+        return False
+    patterns = (
+        "what if",
+        "if i don't have",
+        "if i dont have",
+        "if i do not have",
+        "without ",
+        "instead of",
+        "substitute",
+        "replacement",
+        "alternative",
+    )
+    return any(p in q for p in patterns)
+
+
+def _context_has_counterfactual_support(context_text: str) -> bool:
+    """Check if context explicitly guides on counterfactual scenarios.
+    
+    Must have positive outcome signals (can still/will still work/may still be good)
+    paired with counterfactual language (without/omit/substitute).
+    Negative-only consequences (will fail/collapse/not work) without positive continuity
+    do NOT count as support.
+    """
+    t = (context_text or "").lower()
+    if not t:
+        return False
+
+    negative_only_patterns = (
+        r"\b(?:will\s+(?:be\s+)?(?:fail|collapse|not\s+work|be\s+broken|not\s+possible)|cannot|can't|does?n't\s+work|won't\s+work|required|must\s+have|essential|crucial|impossible)\b",
+    )
+    if any(re.search(pattern, t) for pattern in negative_only_patterns):
+        return False
+
+    positive_continuity = (
+        r"\b(?:can\s+still|will\s+still|may\s+still|might\s+still|can\s+still\s+be|will\s+still\s+be|can\s+(?:make|bake|prepare|try))\b",
+        r"\b(?:still\s+(?:delicious|good|work|be|come\s+out|turn\s+out))\b",
+        r"\b(?:and\s+(?:they|it|the)\s+(?:will|may|can)\s+still)\b",
+    )
+    has_positive = any(re.search(pattern, t) for pattern in positive_continuity)
+
+    counterfactual_language = (
+        r"\b(?:without|omit|omitted|substitute|substitut|replace|replac|instead\s+of|alternative|if\s+(?:you|i)\s+(?:don't|do not|skip|leave out))\b",
+    )
+    has_counterfactual = any(re.search(pattern, t) for pattern in counterfactual_language)
+
+    return has_positive and has_counterfactual
+
+
+def _snippet_match_score(snippet_text: str, query_terms: list[str], query_phrases: list[str]) -> int:
+    lower = (snippet_text or "").lower()
+    if not lower:
+        return 0
+
+    score = 0
+    for phrase in query_phrases:
+        if phrase and phrase in lower:
+            score += 5
+    for term in query_terms:
+        if term and term in lower:
+            score += 2
+    return score
+
+
+def _retrieved_context_has_direct_signal(context_text: str, query_terms: list[str], query_phrases: list[str]) -> bool:
+    haystack = (context_text or "").lower()
+    if not haystack:
+        return False
+    if any(phrase in haystack for phrase in query_phrases if phrase):
+        return True
+    term_hits = sum(1 for term in query_terms if term and term in haystack)
+    return term_hits >= 2
+
+
+def _extract_evidence_lines(context_text: str, query_terms: list[str], query_phrases: list[str], max_items: int = 3) -> list[str]:
+    hits: list[str] = []
+    for raw_line in (context_text or "").splitlines():
+        line = raw_line.strip()
+        if not line or ":" not in line:
+            continue
+        # Keep the informative content after the first colon, which usually contains the excerpt.
+        excerpt = line.split(":", 1)[1].strip()
+        if not excerpt:
+            continue
+        if _snippet_match_score(excerpt, query_terms, query_phrases) < 4:
+            continue
+        compact = " ".join(excerpt.split())
+        if compact and compact not in hits:
+            hits.append(compact[:260])
+        if len(hits) >= max_items:
+            break
+    return hits
+
+
+def _best_matching_excerpt(text: str, query_terms: list[str], query_phrases: list[str], max_chars: int = 180) -> str:
+    compact = " ".join((text or "").split())
+    if not compact:
+        return ""
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", compact) if s.strip()]
+    if not sentences:
+        return compact[:max_chars]
+
+    best_sentence = ""
+    best_score = 0
+    for sentence in sentences:
+        score = _snippet_match_score(sentence, query_terms, query_phrases)
+        if score > best_score:
+            best_score = score
+            best_sentence = sentence
+
+    if best_sentence:
+        return best_sentence[:max_chars]
+    return ""
+
+
+def _select_best_chunk_for_document(
+    db: Session,
+    doc_id: int,
+    query_terms: list[str],
+    query_phrases: list[str],
+    vector_similarity_by_chunk: dict[int, float],
+    vector_candidate_ids: list[int] | None = None,
+    implication_query: bool = False,
+    duration_query: bool = False,
+) -> DocumentChunk | None:
+    candidate_ids = list(dict.fromkeys(vector_candidate_ids or []))[:10]
+    candidates: list[DocumentChunk] = []
+    seen_ids: set[int] = set()
+
+    if candidate_ids:
+        for chunk in db.query(DocumentChunk).filter(DocumentChunk.id.in_(candidate_ids)).all():
+            if chunk.id not in seen_ids:
+                candidates.append(chunk)
+                seen_ids.add(chunk.id)
+
+    keyword_filters = []
+    for kw in query_terms[:6]:
+        keyword_filters.append(DocumentChunk.text.ilike(f"%{kw}%"))
+    for phrase in query_phrases[:4]:
+        keyword_filters.append(DocumentChunk.text.ilike(f"%{phrase}%"))
+
+    if keyword_filters:
+        keyword_chunks = db.query(DocumentChunk).filter(
+            DocumentChunk.document_id == doc_id,
+            or_(*keyword_filters),
+        ).order_by(DocumentChunk.chunk_index.asc()).limit(12).all()
+        for chunk in keyword_chunks:
+            if chunk.id not in seen_ids:
+                candidates.append(chunk)
+                seen_ids.add(chunk.id)
+
+    # Always include chunk 0 as a fallback anchor.
+    chunk_zero = db.query(DocumentChunk).filter(
+        DocumentChunk.document_id == doc_id,
+        DocumentChunk.chunk_index == 0,
+    ).first()
+    if chunk_zero and chunk_zero.id not in seen_ids:
+        candidates.append(chunk_zero)
+        seen_ids.add(chunk_zero.id)
+
+    if not candidates:
+        return None
+
+    best_chunk = None
+    best_score = float("-inf")
+    for chunk in candidates:
+        keyword_score = float(_snippet_match_score(chunk.text or "", query_terms, query_phrases))
+        vector_score = float(vector_similarity_by_chunk.get(chunk.id, 0.0))
+        density_bonus = 0.0
+        if implication_query and len((chunk.text or "").split()) > 18:
+            density_bonus = 0.5
+        temporal_bonus = 0.0
+        if duration_query and _has_temporal_signal(chunk.text or ""):
+            temporal_bonus = 1.5
+        score = (vector_score * 8.0) + (keyword_score * 2.5) + density_bonus + temporal_bonus
+        if score > best_score:
+            best_score = score
+            best_chunk = chunk
+
+    return best_chunk
+
+
+def _extract_numeric_tokens(text: str) -> list[str]:
+    normalized = (text or "").lower().replace("—", "-").replace("–", "-")
+    # Capture exact numeric claims including rangeS, percentages, and decimals.
+    pattern = r"\b\d+(?:\.\d+)?(?:\s*%|\s*(?:-|to)\s*\d+(?:\.\d+)?)?\b"
+    return [" ".join(token.split()) for token in re.findall(pattern, normalized)]
+
+
+def _has_ungrounded_numeric_claims(answer_text: str, context_text: str) -> bool:
+    answer_tokens = _extract_numeric_tokens(answer_text)
+    if not answer_tokens:
+        return False
+
+    context_normalized = (context_text or "").lower().replace("—", "-").replace("–", "-")
+    for token in answer_tokens:
+        raw = token.strip()
+        if not raw:
+            continue
+        variants = {raw, raw.replace(" to ", "-")}
+        if "-" in raw:
+            variants.add(raw.replace("-", " to "))
+        if not any(v and v in context_normalized for v in variants):
+            return True
+    return False
+
+
+def _build_direct_grounded_fallback(
+    context_text: str,
+    query_terms: list[str],
+    query_phrases: list[str],
+) -> str | None:
+    lines = _extract_evidence_lines(context_text, query_terms, query_phrases, max_items=2)
+    if not lines:
+        return None
+
+    primary = lines[0].strip()
+    if not primary:
+        return None
+
+    if len(lines) == 1:
+        return primary
+    secondary = lines[1].strip()
+    if not secondary:
+        return primary
+    return f"{primary} {secondary}"
+
+
+def _prefers_single_document_summary(query_text: str) -> bool:
+    q = (query_text or "").strip().lower()
+    if not q:
+        return False
+
+    multi_markers = (
+        "both",
+        "all",
+        "compare",
+        "comparison",
+        "versus",
+        " vs ",
+        "together",
+        "across",
+    )
+    if any(marker in q for marker in multi_markers):
+        return False
+
+    # If the query explicitly joins two targets, avoid forcing single doc focus.
+    if " and " in q and ("document" in q or "file" in q or "guide" in q or "handbook" in q):
+        return False
+
+    return True
+
+
+def _find_explicit_document_mentions(
+    query_text: str,
+    workspace_id: int,
+    db: Session,
+    current_user_id: int | None,
+    scoped_document_ids: list[int] | None = None,
+    max_matches: int = 4,
+) -> list[int]:
+    """Best-effort filename matching so users can ask about a file without manually selecting context."""
+    query = (query_text or "").strip().lower()
+    if not query:
+        return []
+
+    scope_filter = (
+        (Document.workspace_id == workspace_id)
+        | ((Document.workspace_id.is_(None)) & (Document.uploaded_by == current_user_id))
+    ) if current_user_id else (Document.workspace_id == workspace_id)
+
+    docs_query = db.query(Document).filter(
+        Document.status == DocumentStatus.READY,
+        Document.status != DocumentStatus.DELETED,
+        scope_filter,
+    )
+    if scoped_document_ids:
+        docs_query = docs_query.filter(Document.id.in_(scoped_document_ids))
+
+    docs = docs_query.order_by(Document.created_at.desc()).limit(300).all()
+    if not docs:
+        return []
+
+    query_tokens = set(_tokenize_for_match(query))
+    quoted_terms = [
+        m.group(1).strip().lower()
+        for m in re.finditer(r'"([^"\\]{3,120})"', query)
+        if m.group(1).strip()
+    ]
+
+    scored: list[tuple[int, int]] = []
+    for doc in docs:
+        filename = (doc.filename or "").lower()
+        stem = _filename_stem(doc.filename or "")
+        if not filename:
+            continue
+
+        score = 0
+        if stem and stem in query:
+            score += 120
+
+        for term in quoted_terms:
+            if term and (term in filename or term in stem):
+                score += 100
+
+        name_tokens = set(_tokenize_for_match(stem))
+        if name_tokens and query_tokens:
+            overlap = len(name_tokens.intersection(query_tokens))
+            if overlap:
+                score += overlap * 18
+            if len(name_tokens) <= 6 and name_tokens.issubset(query_tokens):
+                score += 70
+
+        if score > 0:
+            scored.append((doc.id, score))
+
+    scored.sort(key=lambda item: item[1], reverse=True)
+    if not scored:
+        return []
+
+    top_score = scored[0][1]
+    score_cutoff = max(18, int(top_score * 0.45))
+    filtered = [doc_id for doc_id, score in scored if score >= score_cutoff]
+    return filtered[:max_matches]
 
 
 def _build_assistant_message_content(
@@ -372,6 +1091,21 @@ def _build_assistant_message_content(
     followup_summary_request = _is_affirmative_followup(query_text) and _is_summary_followup(conversation_id, db)
     is_summary_request = _is_summary_request(query_text) or followup_summary_request
     detailed_summary_request = _is_detailed_summary_request(query_text) or followup_summary_request
+    implication_query = _is_implication_question(query_text)
+    duration_query = _is_duration_question(query_text)
+    query_keywords = _extract_retrieval_terms(query_text, max_terms=8)
+    query_keywords = _expand_terms_for_implication(query_keywords, implication_query)
+    query_keywords = _expand_terms_for_duration(query_keywords, duration_query)
+    query_phrases = _build_query_phrases(query_text, query_keywords, max_phrases=4)
+
+    explicit_doc_ids = _find_explicit_document_mentions(
+        query_text=query_text,
+        workspace_id=workspace_id,
+        db=db,
+        current_user_id=current_user_id,
+        scoped_document_ids=scoped_document_ids if requested_scope else None,
+        max_matches=4,
+    )
 
     history_for_embedding = _recent_turns_for_retrieval(conversation_id, db, limit=6)
     embedding_text = query_text
@@ -381,9 +1115,12 @@ def _build_assistant_message_content(
     # One best chunk per document (cosine), then rank documents — no global threshold that drops
     # whole files whose top match is weaker than a single dominant document.
     if not requested_scope:
-        max_docs_from_vector = 14
+        max_docs_from_vector = 10
     else:
         max_docs_from_vector = 6
+
+    vector_similarity_by_chunk: dict[int, float] = {}
+    vector_chunks_by_doc: dict[int, list[int]] = {}
 
     try:
         query_embedding = embeddings_service.generate_embedding(embedding_text, input_type="query")
@@ -399,6 +1136,23 @@ def _build_assistant_message_content(
                 max_documents=max_docs_from_vector,
                 min_similarity=0.0,
             )
+
+            # Lightweight chunk level candidate pool for reranking: mix semantic proximity
+            # with keyword overlap instead of relying on one strategy alone.
+            similar_chunks = embeddings_service.find_similar_embeddings(
+                query_embedding,
+                workspace_id,
+                limit=180,
+                threshold=0.0,
+                db=db,
+                user_id=current_user_id,
+            )
+            for chunk_id, doc_id, sim in similar_chunks:
+                c_id = int(chunk_id)
+                d_id = int(doc_id)
+                score = float(sim)
+                vector_similarity_by_chunk[c_id] = max(vector_similarity_by_chunk.get(c_id, 0.0), score)
+                vector_chunks_by_doc.setdefault(d_id, []).append(c_id)
     except Exception as exc:
         logger.warning("Vector search failed for workspace_id=%s: %s: %s", workspace_id, type(exc).__name__, exc)
         db.rollback()
@@ -414,11 +1168,33 @@ def _build_assistant_message_content(
     if is_summary_request and scoped_document_ids:
         document_ids = scoped_document_ids[:6]
     else:
-        for _chunk_id, doc_id, _score in similar_docs:
+        keyword_ranked_doc_ids = _rank_documents_by_keyword_hits(
+            workspace_id=workspace_id,
+            db=db,
+            current_user_id=current_user_id,
+            query_terms=query_keywords,
+            query_phrases=query_phrases,
+            scoped_document_ids=scoped_document_ids if requested_scope else None,
+            limit=6,
+        )
+
+        for doc_id in explicit_doc_ids:
             if doc_id not in document_ids:
                 document_ids.append(doc_id)
-            if len(document_ids) >= max_docs_from_vector:
-                break
+        for doc_id in keyword_ranked_doc_ids:
+            if doc_id not in document_ids:
+                document_ids.append(doc_id)
+
+        # If we already found strong keyword ranked matches, keep the set focused to avoid
+        # unrelated snippets diluting the answer. Otherwise, expand using vector matches.
+        if keyword_ranked_doc_ids:
+            document_ids = document_ids[:4]
+        else:
+            for _chunk_id, doc_id, _score in similar_docs:
+                if doc_id not in document_ids:
+                    document_ids.append(doc_id)
+                if len(document_ids) >= max_docs_from_vector:
+                    break
 
         if not document_ids:
             keywords = [w for w in re.split(r"\W+", query_text.lower()) if len(w) >= 3]
@@ -428,7 +1204,7 @@ def _build_assistant_message_content(
             ) if current_user_id else (Document.workspace_id == workspace_id)
 
             keyword_conditions = []
-            for kw in keywords[:6]:
+            for kw in query_keywords[:6]:
                 pat = f"%{kw}%"
                 keyword_conditions.append(DocumentChunk.text.ilike(pat))
                 keyword_conditions.append(Document.filename.ilike(pat))
@@ -453,6 +1229,18 @@ def _build_assistant_message_content(
                             document_ids.append(doc.id)
                         if len(document_ids) == 6:
                             break
+
+    if is_summary_request and document_ids:
+        if explicit_doc_ids:
+            # Keep summary scope aligned to explicitly mentioned filenames when present.
+            focused_ids = [doc_id for doc_id in explicit_doc_ids if doc_id in document_ids]
+            if focused_ids:
+                if _prefers_single_document_summary(query_text):
+                    document_ids = focused_ids[:1]
+                else:
+                    document_ids = focused_ids
+        summary_doc_cap = 6 if detailed_summary_request else 3
+        document_ids = document_ids[:summary_doc_cap]
 
     # Transcript-only embedding: helps short follow-ups after a catalog or long assistant reply.
     if (
@@ -494,29 +1282,20 @@ def _build_assistant_message_content(
 
     docs = db.query(Document).filter(Document.id.in_(document_ids)).all()
     doc_map = {doc.id: doc for doc in docs}
-    # Use the exact matched chunks from vector search when available;
-    # fall back to chunk 0 for documents found only via keyword search.
     chunk_map: dict[int, DocumentChunk] = {}
-    vector_matched_chunk_ids = [
-        vector_chunk_for_doc[doc_id]
-        for doc_id in document_ids
-        if doc_id in vector_chunk_for_doc
-    ]
-    if vector_matched_chunk_ids:
-        vector_chunks = db.query(DocumentChunk).filter(
-            DocumentChunk.id.in_(vector_matched_chunk_ids)
-        ).all()
-        for chunk in vector_chunks:
-            chunk_map[chunk.document_id] = chunk
-    # Fetch chunk 0 for any docs not covered by vector search
-    keyword_only_doc_ids = [did for did in document_ids if did not in chunk_map]
-    if keyword_only_doc_ids:
-        fallback_chunks = db.query(DocumentChunk).filter(
-            DocumentChunk.document_id.in_(keyword_only_doc_ids),
-            DocumentChunk.chunk_index == 0,
-        ).all()
-        for chunk in fallback_chunks:
-            chunk_map[chunk.document_id] = chunk
+    for doc_id in document_ids:
+        best_chunk = _select_best_chunk_for_document(
+            db=db,
+            doc_id=doc_id,
+            query_terms=query_keywords,
+            query_phrases=query_phrases,
+            vector_similarity_by_chunk=vector_similarity_by_chunk,
+            vector_candidate_ids=vector_chunks_by_doc.get(doc_id, []),
+            implication_query=implication_query,
+            duration_query=duration_query,
+        )
+        if best_chunk:
+            chunk_map[doc_id] = best_chunk
 
     # Optional: add the next chunk per doc for richer context (same doc, chunk_index + 1)
     next_chunk_map: dict[int, DocumentChunk] = {}
@@ -529,6 +1308,91 @@ def _build_assistant_message_content(
             ).first()
             if next_chunk:
                 next_chunk_map[doc_id] = next_chunk
+
+    # Add up to two extra chunks per document using keyword hits so answers are grounded in the
+    # relevant section, not only the first chunk.
+    supplemental_chunks_by_doc: dict[int, list[DocumentChunk]] = {}
+    if not is_summary_request and document_ids:
+        for doc_id in document_ids[:8]:
+            primary_ids = {
+                chunk_map[doc_id].id if doc_id in chunk_map else None,
+                next_chunk_map[doc_id].id if doc_id in next_chunk_map else None,
+            }
+
+            chunk_q = db.query(DocumentChunk).filter(DocumentChunk.document_id == doc_id)
+            if query_keywords:
+                keyword_filters = [DocumentChunk.text.ilike(f"%{kw}%") for kw in query_keywords[:6]]
+                chunk_q = chunk_q.filter(or_(*keyword_filters))
+
+            extra = (
+                chunk_q
+                .order_by(DocumentChunk.chunk_index.asc())
+                .limit(20)
+                .all()
+            )
+
+            # Add semantic nearest chunks for this document into the same candidate pool.
+            vector_candidate_ids = vector_chunks_by_doc.get(doc_id, [])[: (12 if (implication_query or duration_query) else 6)]
+            vector_candidates = []
+            if vector_candidate_ids:
+                vector_candidates = db.query(DocumentChunk).filter(
+                    DocumentChunk.id.in_(vector_candidate_ids)
+                ).all()
+
+            combined_candidates: list[DocumentChunk] = []
+            seen_candidate_ids: set[int] = set()
+            for candidate in extra + vector_candidates:
+                if candidate.id in seen_candidate_ids:
+                    continue
+                seen_candidate_ids.add(candidate.id)
+                combined_candidates.append(candidate)
+
+            scored_extra: list[tuple[int, DocumentChunk]] = []
+            for c in combined_candidates:
+                if c.id in primary_ids:
+                    continue
+
+                keyword_score = float(_snippet_match_score(c.text or "", query_keywords, query_phrases))
+                vector_score = float(vector_similarity_by_chunk.get(c.id, 0.0))
+                proximity_bonus = 0.0
+                if doc_id in chunk_map:
+                    if abs(c.chunk_index - chunk_map[doc_id].chunk_index) <= 2:
+                        proximity_bonus = 1.0
+
+                temporal_bonus = 0.0
+                if duration_query and _has_temporal_signal(c.text or ""):
+                    temporal_bonus = 1.5
+
+                composite_score = (keyword_score * 2.0) + (vector_score * 8.0) + proximity_bonus + temporal_bonus
+                if composite_score > 0:
+                    scored_extra.append((int(composite_score * 1000), c))
+
+            scored_extra.sort(key=lambda item: (item[0], -item[1].chunk_index), reverse=True)
+            target_extra_count = 4 if implication_query else 2
+            filtered_extra = [c for _score, c in scored_extra[:target_extra_count]]
+
+            # For implication style questions, include small neighboring context windows from
+            # the same matched document so downstream generation can infer related sections.
+            if implication_query and len(filtered_extra) < target_extra_count and doc_id in chunk_map:
+                anchor_idx = chunk_map[doc_id].chunk_index
+                neighbor_rows = db.query(DocumentChunk).filter(
+                    DocumentChunk.document_id == doc_id,
+                    DocumentChunk.chunk_index.in_([
+                        anchor_idx - 6, anchor_idx - 5, anchor_idx - 4, anchor_idx - 3,
+                        anchor_idx - 2, anchor_idx - 1, anchor_idx + 1, anchor_idx + 2,
+                        anchor_idx + 3, anchor_idx + 4, anchor_idx + 5, anchor_idx + 6,
+                    ]),
+                ).order_by(DocumentChunk.chunk_index.asc()).all()
+
+                for neighbor in neighbor_rows:
+                    if neighbor.id in primary_ids or any(existing.id == neighbor.id for existing in filtered_extra):
+                        continue
+                    filtered_extra.append(neighbor)
+                    if len(filtered_extra) >= target_extra_count:
+                        break
+
+            if filtered_extra:
+                supplemental_chunks_by_doc[doc_id] = filtered_extra
 
     doc_summaries_map = {}
     if is_summary_request:
@@ -544,8 +1408,17 @@ def _build_assistant_message_content(
             chunks_by_doc.setdefault(chunk.document_id, []).append(chunk.text or "")
 
         for doc_id, chunk_texts in chunks_by_doc.items():
-            joined_text = "\n".join(chunk_texts[:14])
-            max_sentences = 5 if detailed_summary_request else 3
+            if len(chunk_texts) <= 24:
+                sample_chunks = chunk_texts
+            else:
+                head = chunk_texts[:8]
+                mid_start = max(0, (len(chunk_texts) // 2) - 4)
+                middle = chunk_texts[mid_start:mid_start + 8]
+                tail = chunk_texts[-8:]
+                sample_chunks = head + middle + tail
+
+            joined_text = "\n".join(sample_chunks)
+            max_sentences = 8 if detailed_summary_request else 5
             doc_summaries_map[doc_id] = _simple_summary(joined_text, max_sentences=max_sentences)
 
     chunk_ids = []
@@ -560,12 +1433,21 @@ def _build_assistant_message_content(
         if not snippet:
             primary_text = (chunk.text if chunk else "") or ""
             next_chunk = next_chunk_map.get(doc_id)
-            combined = primary_text + (" " + (next_chunk.text or "") if next_chunk else "")
-            snippet = " ".join(combined.split())[:700] if combined.strip() else "No preview available"
+            supplemental_text = " ".join((c.text or "") for c in supplemental_chunks_by_doc.get(doc_id, []))
+            combined = primary_text
+            if next_chunk:
+                combined = f"{combined} {next_chunk.text or ''}"
+            if supplemental_text:
+                combined = f"{combined} {supplemental_text}"
+            # Keep a richer contiguous snippet so exact instructions (numbers/ranges) are not lost.
+            max_snippet_chars = 1500 if implication_query else 900
+            snippet = " ".join(combined.split())[:max_snippet_chars] if combined.strip() else "No preview available"
         if chunk:
             chunk_ids.append(chunk.id)
         if next_chunk_map.get(doc_id):
             chunk_ids.append(next_chunk_map[doc_id].id)
+        if supplemental_chunks_by_doc.get(doc_id):
+            chunk_ids.extend([c.id for c in supplemental_chunks_by_doc[doc_id]])
         if is_summary_request:
             dedupe_key = (document.filename.lower(), re.sub(r"\s+", " ", snippet.lower())[:180])
             if dedupe_key in used_summary_keys:
@@ -784,7 +1666,30 @@ async def send_message(
     )
 
     assistant_source = "catalog" if skip_llm_refinement else "retrieval"
+    retrieval_context = assistant_content
+    query_terms = _extract_retrieval_terms(request.content, max_terms=8)
+    query_phrases = _build_query_phrases(request.content, query_terms, max_phrases=4)
+    has_direct_context_signal = _retrieved_context_has_direct_signal(retrieval_context, query_terms, query_phrases)
+    needs_counterfactual_support = _is_counterfactual_or_missing_item_question(request.content)
+    has_counterfactual_support = _context_has_counterfactual_support(retrieval_context)
+    effective_direct_context_signal = has_direct_context_signal and (
+        (not needs_counterfactual_support) or has_counterfactual_support
+    )
     has_grounded_context = bool(assistant_doc_ids or assistant_chunk_ids)
+    followup_summary_request = _is_affirmative_followup(request.content) and _is_summary_followup(conversation_id, db)
+    summary_request = _is_summary_request(request.content) or followup_summary_request
+    detailed_summary_request = _is_detailed_summary_request(request.content) or followup_summary_request
+    base_summary_content = assistant_content
+    summary_doc_ids = assistant_doc_ids[: (6 if detailed_summary_request else 3)] if summary_request else []
+    use_llm_summary = summary_request and bool(summary_doc_ids)
+    summary_context = None
+    if use_llm_summary:
+        summary_context = _build_summary_generation_context(
+            db,
+            summary_doc_ids,
+            detailed=detailed_summary_request,
+        )
+
     # With documents selected, still run the LLM so answers target the question — not raw chunk dumps.
     is_greeting_reply = _is_simple_greeting_or_small_talk(request.content) and not assistant_doc_ids
     if (
@@ -794,13 +1699,83 @@ async def send_message(
         and summary_generation_service.is_available()
     ):
         try:
-            assistant_content = summary_generation_service.generate_grounded_response(
-                user_query=request.content,
-                retrieved_context=assistant_content,
-            )
-            assistant_source = settings.summary_llm_provider.lower()
+            if use_llm_summary and summary_context:
+                async_result = celery_generate_summary.delay(
+                    source_text=summary_context,
+                    instructions=request.content,
+                )
+                assistant_content = async_result.get(timeout=max(10, settings.summary_llm_timeout_seconds + 5))
+                assistant_source = f"celery:{settings.summary_llm_provider.lower()}:summary"
+            elif not summary_request:
+                llm_context = assistant_content
+                if not effective_direct_context_signal:
+                    llm_context = (
+                        f"{assistant_content}\n\n"
+                        "Grounding note: The retrieved context may be related but may not explicitly state the exact answer. "
+                        "If you provide an inferred or recommended answer, clearly say it is inferred/recommended and not explicitly stated."
+                    )
+                async_result = celery_generate_grounded_response.delay(
+                    user_query=request.content,
+                    retrieved_context=llm_context,
+                )
+                assistant_content = async_result.get(timeout=max(10, settings.summary_llm_timeout_seconds + 5))
+                assistant_source = f"celery:{settings.summary_llm_provider.lower()}"
         except Exception as exc:
-            logger.warning("Conversation LLM unavailable; using retrieval response: %s: %s", type(exc).__name__, exc)
+            logger.warning("Celery chat generation unavailable; falling back to direct LLM: %s: %s", type(exc).__name__, exc)
+            try:
+                if use_llm_summary and summary_context:
+                    assistant_content = summary_generation_service.summarize(
+                        source_text=summary_context,
+                        instructions=request.content,
+                    )
+                    assistant_source = f"{settings.summary_llm_provider.lower()}:summary"
+                elif not summary_request:
+                    llm_context = assistant_content
+                    if not effective_direct_context_signal:
+                        llm_context = (
+                            f"{assistant_content}\n\n"
+                            "Grounding note: The retrieved context may be related but may not explicitly state the exact answer. "
+                            "If you provide an inferred or recommended answer, clearly say it is inferred/recommended and not explicitly stated."
+                        )
+                    assistant_content = summary_generation_service.generate_grounded_response(
+                        user_query=request.content,
+                        retrieved_context=llm_context,
+                    )
+                    assistant_source = settings.summary_llm_provider.lower()
+            except Exception as llm_exc:
+                logger.warning("Conversation LLM unavailable; using retrieval response: %s: %s", type(llm_exc).__name__, llm_exc)
+
+    if summary_request and not assistant_content:
+        assistant_content = base_summary_content
+
+    if (
+        assistant_content
+        and has_grounded_context
+        and not summary_request
+        and not effective_direct_context_signal
+        and not _response_claims_missing_context(assistant_content)
+        and not _answer_has_inference_caveat(assistant_content)
+    ):
+        assistant_content = (
+            "The documents do not explicitly state this exact point; this is a recommendation inferred from related context. "
+            + assistant_content
+        )
+
+    requested_scope = bool(request.document_ids)
+    if (
+        assistant_content
+        and assistant_doc_ids
+        and not requested_scope
+        and not skip_llm_refinement
+        and "sources used" not in assistant_content.lower()
+    ):
+        sources_used_block = _build_sources_used_block(
+            db=db,
+            document_ids=assistant_doc_ids,
+            chunk_ids=assistant_chunk_ids,
+        )
+        if sources_used_block:
+            assistant_content = f"{assistant_content.rstrip()}\n\n{sources_used_block}"
 
     assistant_message = AIMessage(
         conversation_id=conversation_id,

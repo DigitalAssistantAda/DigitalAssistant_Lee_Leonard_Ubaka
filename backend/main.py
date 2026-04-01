@@ -10,6 +10,7 @@ from models.user import User
 from models.document import Document
 from models.container import Container
 from models.workspace import Workspace, WorkspaceMember
+from models.task_reminder import TaskReminder  # noqa: F401 — register model for init_db metadata
 from api import (
     auth_router,
     users_router,

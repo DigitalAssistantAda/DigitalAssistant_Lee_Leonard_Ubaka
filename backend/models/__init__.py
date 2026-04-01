@@ -15,6 +15,7 @@ from .document_hint import DocumentHint
 from .audit_log import AuditLog
 from .task import Task, TaskType, TaskStatus, TaskPriority
 from .task_assignee import TaskAssignee
+from .task_reminder import TaskReminder
 from .summary import Summary, SummaryStatus
 from .conversation import Conversation, AIMessage, MessageRole
 from .user_preference import UserPreference
@@ -42,6 +43,7 @@ __all__ = [
     "TaskStatus",
     "TaskPriority",
     "TaskAssignee",
+    "TaskReminder",
     "Summary",
     "SummaryStatus",
     "Conversation",

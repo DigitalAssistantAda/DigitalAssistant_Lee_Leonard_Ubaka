@@ -43,6 +43,8 @@ class EmbeddingJob(Base):
     
     # Error tracking
     error_message = Column(Text, nullable=True)
+    # Set when reminder/hint generation fails (embedding job may still complete)
+    hints_error = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
     
     # Metadata

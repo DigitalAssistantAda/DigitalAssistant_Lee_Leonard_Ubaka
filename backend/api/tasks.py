@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from database import get_db
 from models.task import Task, TaskType, TaskStatus, TaskPriority
 from models.task_assignee import TaskAssignee
+from models.task_reminder import TaskReminder
 from models.user import User
 from models.workspace import WorkspaceMember, MemberStatus
 from models.audit_log import AuditLog
@@ -18,8 +19,10 @@ from schemas.task import (
     TaskHistoryItem,
     TaskHistoryListResponse,
 )
+from schemas.task_reminder import TaskRemindersListResponse
 from utils.auth import get_current_user
 from utils.audit import create_audit_log, AuditActions
+from utils.task_reminder_generation import generate_and_persist_task_reminders
 from realtime import connection_manager
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -155,6 +158,31 @@ def _collect_task_history_changes(
     return changes
 
 
+def _append_task_history_entry(
+    db: Session,
+    actor: User,
+    workspace_id: int,
+    task_id: int,
+    changes: list[dict],
+) -> None:
+    """Single activity-history row for the issue detail timeline (action task.history)."""
+    if not changes:
+        return
+    create_audit_log(
+        db,
+        actor,
+        action=AuditActions.TASK_HISTORY,
+        object_type="task",
+        object_id=task_id,
+        metadata={
+            "task_id": task_id,
+            "workspace_id": workspace_id,
+            "changes": changes,
+        },
+        workspace_id=workspace_id,
+    )
+
+
 async def _ping_notification_users(user_ids: set[int]) -> None:
     msg = {"type": "notifications.changed", "payload": {}}
     for uid in user_ids:
@@ -285,6 +313,77 @@ async def _notify_task_updates(
             ping.add(uid)
 
     await _ping_notification_users(ping)
+
+
+def _active_reminder_lines_for_notify(
+    db: Session,
+    task_id: int,
+    *,
+    max_items: int = 8,
+    content_max: int = 200,
+) -> list[dict]:
+    """Compact reminder rows for notification metadata (truncated content)."""
+    rows = (
+        db.query(TaskReminder)
+        .filter(
+            TaskReminder.task_id == task_id,
+            TaskReminder.dismissed == False,
+            TaskReminder.acknowledged_at.is_(None),
+        )
+        .order_by(TaskReminder.id.asc())
+        .limit(max_items)
+        .all()
+    )
+    out: list[dict] = []
+    for r in rows:
+        raw = (r.content or "").strip()
+        if len(raw) > content_max:
+            text = raw[: content_max - 1].rstrip() + "…"
+        else:
+            text = raw
+        out.append(
+            {
+                "id": r.id,
+                "hint_type": r.hint_type or "follow_up",
+                "content": text,
+            }
+        )
+    return out
+
+
+async def _notify_task_reminders_generated(
+    db: Session,
+    actor: User,
+    workspace_id: int,
+    task: Task,
+    reminder_count: int,
+    reminder_lines: list[dict],
+) -> None:
+    """Notify assignees and creator when issue reminders are regenerated (excluding the actor)."""
+    targets: set[int] = set()
+    recipients = set(_assignee_set_for_task(db, task))
+    if task.created_by is not None:
+        recipients.add(task.created_by)
+    recipients.discard(actor.id)
+    for uid in recipients:
+        create_audit_log(
+            db,
+            actor,
+            action=AuditActions.TASK_REMINDERS_GENERATED,
+            object_type="task",
+            object_id=task.id,
+            metadata={
+                "notified_user_id": uid,
+                "task_id": task.id,
+                "workspace_id": workspace_id,
+                "task_title": task.title,
+                "reminder_count": reminder_count,
+                "reminder_lines": reminder_lines,
+            },
+            workspace_id=workspace_id,
+        )
+        targets.add(uid)
+    await _ping_notification_users(targets)
 
 
 def build_task_response(task: Task, assignees: list[int]) -> TaskResponse:
@@ -484,6 +583,186 @@ def get_task_history(
         )
 
     return TaskHistoryListResponse(items=items)
+
+
+@router.get(
+    "/{workspace_id}/{task_id}/reminders",
+    response_model=TaskRemindersListResponse,
+)
+def list_task_reminders(
+    workspace_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Active reminders for an issue/task (workspace members only)."""
+    require_workspace_member(workspace_id, current_user.id, db)
+    task = db.query(Task).filter(Task.workspace_id == workspace_id, Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    rows = (
+        db.query(TaskReminder)
+        .filter(
+            TaskReminder.task_id == task_id,
+            TaskReminder.dismissed == False,
+            TaskReminder.acknowledged_at.is_(None),
+        )
+        .order_by(TaskReminder.created_at.desc())
+        .all()
+    )
+    return TaskRemindersListResponse(
+        reminders=rows,
+        reminder_generation_error=task.reminders_generation_error,
+    )
+
+
+@router.post("/{workspace_id}/{task_id}/reminders/generate")
+async def generate_task_reminders(
+    workspace_id: int,
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rebuild reminders from issue text + related workspace document excerpts."""
+    require_workspace_member(workspace_id, current_user.id, db)
+    task = db.query(Task).filter(Task.workspace_id == workspace_id, Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    try:
+        generate_and_persist_task_reminders(db, task, current_user.id)
+        reminder_count = (
+            db.query(TaskReminder)
+            .filter(
+                TaskReminder.task_id == task.id,
+                TaskReminder.dismissed == False,
+                TaskReminder.acknowledged_at.is_(None),
+            )
+            .count()
+        )
+        reminder_lines = _active_reminder_lines_for_notify(db, task.id)
+        await _notify_task_reminders_generated(
+            db, current_user, workspace_id, task, reminder_count, reminder_lines
+        )
+        _append_task_history_entry(
+            db,
+            current_user,
+            workspace_id,
+            task.id,
+            [{"field": "reminders_regenerated", "reminder_count": reminder_count}],
+        )
+    except Exception:
+        db.rollback()
+        task = db.query(Task).filter(Task.workspace_id == workspace_id, Task.id == task_id).first()
+        err_msg = "Reminders could not be generated. The issue is unchanged; try again later."
+        if task:
+            task.reminders_generation_error = err_msg
+            db.commit()
+        return {
+            "message": "Reminder generation failed",
+            "reminder_generation_error": err_msg,
+        }
+
+    return {"message": "Reminders updated", "reminder_generation_error": None}
+
+
+@router.post("/{workspace_id}/{task_id}/reminders/{reminder_id}/acknowledge")
+def acknowledge_task_reminder(
+    workspace_id: int,
+    task_id: int,
+    reminder_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_workspace_member(workspace_id, current_user.id, db)
+    task = db.query(Task).filter(Task.workspace_id == workspace_id, Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    reminder = (
+        db.query(TaskReminder)
+        .filter(TaskReminder.id == reminder_id, TaskReminder.task_id == task_id)
+        .first()
+    )
+    if not reminder:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+
+    reminder.acknowledged_by = current_user.id
+    reminder.acknowledged_at = datetime.now(timezone.utc)
+    create_audit_log(
+        db,
+        current_user,
+        action=AuditActions.TASK_REMINDER_ACKNOWLEDGED,
+        object_type="task_reminder",
+        object_id=reminder.id,
+        metadata={"task_id": task_id, "hint_type": reminder.hint_type},
+        workspace_id=workspace_id,
+    )
+    _append_task_history_entry(
+        db,
+        current_user,
+        workspace_id,
+        task_id,
+        [
+            {
+                "field": "reminder_acknowledged",
+                "hint_type": reminder.hint_type,
+                "preview": _text_preview(reminder.content),
+            }
+        ],
+    )
+    db.commit()
+    return {"message": "Reminder acknowledged"}
+
+
+@router.post("/{workspace_id}/{task_id}/reminders/{reminder_id}/dismiss")
+def dismiss_task_reminder(
+    workspace_id: int,
+    task_id: int,
+    reminder_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_workspace_member(workspace_id, current_user.id, db)
+    task = db.query(Task).filter(Task.workspace_id == workspace_id, Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    reminder = (
+        db.query(TaskReminder)
+        .filter(TaskReminder.id == reminder_id, TaskReminder.task_id == task_id)
+        .first()
+    )
+    if not reminder:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+
+    reminder.dismissed = True
+    reminder.dismissed_at = datetime.now(timezone.utc)
+    create_audit_log(
+        db,
+        current_user,
+        action=AuditActions.TASK_REMINDER_DISMISSED,
+        object_type="task_reminder",
+        object_id=reminder.id,
+        metadata={"task_id": task_id, "hint_type": reminder.hint_type},
+        workspace_id=workspace_id,
+    )
+    _append_task_history_entry(
+        db,
+        current_user,
+        workspace_id,
+        task_id,
+        [
+            {
+                "field": "reminder_dismissed",
+                "hint_type": reminder.hint_type,
+                "preview": _text_preview(reminder.content),
+            }
+        ],
+    )
+    db.commit()
+    return {"message": "Reminder dismissed"}
 
 
 @router.put("/{workspace_id}/{task_id}", response_model=TaskResponse)

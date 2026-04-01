@@ -49,3 +49,6 @@ class Task(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Last error from reminder generation (cleared on success); surfaced in GET reminders
+    reminders_generation_error = Column(Text, nullable=True)

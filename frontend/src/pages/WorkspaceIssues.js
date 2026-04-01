@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { apiFetch } from '../utils/apiClient';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -11,6 +12,7 @@ import {
   Columns3,
   ChevronDown,
   ChevronRight,
+  Bell,
 } from 'lucide-react';
 import { getApiErrorMessage } from '../utils/apiError';
 import LoadingState from '../components/LoadingState';
@@ -40,6 +42,12 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const [taskHistory, setTaskHistory] = useState([]);
   const [taskHistoryLoading, setTaskHistoryLoading] = useState(false);
   const [taskHistoryOpen, setTaskHistoryOpen] = useState(false);
+  const [issueReminders, setIssueReminders] = useState([]);
+  const [issueRemindersLoading, setIssueRemindersLoading] = useState(false);
+  const [issueRemindersFetchError, setIssueRemindersFetchError] = useState(null);
+  const [issueRemindersDegraded, setIssueRemindersDegraded] = useState(null);
+  const [issueReminderActionId, setIssueReminderActionId] = useState(null);
+  const [issueRemindersBusy, setIssueRemindersBusy] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -67,6 +75,8 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     const value = Number(params.get('issueId'));
     return Number.isFinite(value) ? value : null;
   }, [location.search]);
+
+  const focusRemindersFromHash = location.hash === '#issue-reminders';
 
   const memberLookup = useMemo(() => {
     const map = new Map();
@@ -173,6 +183,15 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     if (!Number.isNaN(fromRoute) && Number.isFinite(fromRoute)) return fromRoute;
     return null;
   }, [workspaceId, id]);
+
+  /** When this changes (issue selected or server updates issue), reminders regenerate after debounce. */
+  const reminderRegenerationKey = useMemo(() => {
+    if (!resolvedWorkspaceId || !selectedIssueId) return null;
+    const issue = issues.find((i) => i.id === selectedIssueId);
+    if (!issue) return null;
+    const stamp = issue.updated_at || issue.created_at || '';
+    return `${issue.id}:${stamp}`;
+  }, [resolvedWorkspaceId, selectedIssueId, issues]);
 
   useEffect(() => {
     if (!resolvedWorkspaceId) {
@@ -293,6 +312,116 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     fetchTaskHistory(selectedIssueId);
   }, [selectedIssueId, fetchTaskHistory]);
 
+  const loadTaskReminders = useCallback(async () => {
+    if (!resolvedWorkspaceId || !selectedIssueId) {
+      setIssueReminders([]);
+      setIssueRemindersDegraded(null);
+      setIssueRemindersFetchError(null);
+      return;
+    }
+    setIssueRemindersLoading(true);
+    setIssueRemindersFetchError(null);
+    try {
+      const data = await apiFetch(
+        `/api/v1/tasks/${resolvedWorkspaceId}/${selectedIssueId}/reminders`
+      );
+      setIssueReminders(Array.isArray(data.reminders) ? data.reminders : []);
+      setIssueRemindersDegraded(data.reminder_generation_error || null);
+    } catch (err) {
+      setIssueRemindersFetchError(err.message || 'Could not load reminders');
+      setIssueReminders([]);
+      setIssueRemindersDegraded(null);
+    } finally {
+      setIssueRemindersLoading(false);
+    }
+  }, [resolvedWorkspaceId, selectedIssueId]);
+
+  const runRegenerateReminders = useCallback(async () => {
+    if (!resolvedWorkspaceId || !selectedIssueId) return;
+    setIssueRemindersBusy(true);
+    setIssueRemindersFetchError(null);
+    try {
+      const data = await apiFetch(
+        `/api/v1/tasks/${resolvedWorkspaceId}/${selectedIssueId}/reminders/generate`,
+        { method: 'POST' },
+      );
+      if (data.reminder_generation_error) {
+        setIssueRemindersDegraded(data.reminder_generation_error);
+      } else {
+        setIssueRemindersDegraded(null);
+      }
+      const list = await apiFetch(
+        `/api/v1/tasks/${resolvedWorkspaceId}/${selectedIssueId}/reminders`,
+      );
+      setIssueReminders(Array.isArray(list.reminders) ? list.reminders : []);
+      if (list.reminder_generation_error) {
+        setIssueRemindersDegraded(list.reminder_generation_error);
+      }
+      if (!data.reminder_generation_error) {
+        fetchTaskHistory(selectedIssueId);
+      }
+    } catch (err) {
+      setIssueRemindersFetchError(err.message || 'Could not update reminders');
+    } finally {
+      setIssueRemindersBusy(false);
+    }
+  }, [resolvedWorkspaceId, selectedIssueId, fetchTaskHistory]);
+
+  useEffect(() => {
+    if (!reminderRegenerationKey) return undefined;
+    const timer = setTimeout(() => {
+      runRegenerateReminders();
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [reminderRegenerationKey, runRegenerateReminders]);
+
+  useEffect(() => {
+    if (!focusRemindersFromHash || !selectedIssueId) return undefined;
+    const t = window.setTimeout(() => {
+      document.getElementById('issue-reminders')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 200);
+    return () => clearTimeout(t);
+  }, [focusRemindersFromHash, selectedIssueId, issueRemindersLoading]);
+
+  const formatReminderType = (t) =>
+    String(t || '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const handleIssueReminderAcknowledge = async (reminderId) => {
+    if (!resolvedWorkspaceId || !selectedIssueId) return;
+    setIssueReminderActionId(reminderId);
+    try {
+      await apiFetch(
+        `/api/v1/tasks/${resolvedWorkspaceId}/${selectedIssueId}/reminders/${reminderId}/acknowledge`,
+        { method: 'POST' },
+      );
+      await loadTaskReminders();
+      fetchTaskHistory(selectedIssueId);
+    } catch (err) {
+      setIssueRemindersFetchError(err.message || 'Could not update reminder');
+    } finally {
+      setIssueReminderActionId(null);
+    }
+  };
+
+  const handleIssueReminderDismiss = async (reminderId) => {
+    if (!resolvedWorkspaceId || !selectedIssueId) return;
+    setIssueReminderActionId(reminderId);
+    try {
+      await apiFetch(
+        `/api/v1/tasks/${resolvedWorkspaceId}/${selectedIssueId}/reminders/${reminderId}/dismiss`,
+        { method: 'POST' },
+      );
+      await loadTaskReminders();
+      fetchTaskHistory(selectedIssueId);
+    } catch (err) {
+      setIssueRemindersFetchError(err.message || 'Could not update reminder');
+    } finally {
+      setIssueReminderActionId(null);
+    }
+  };
+
   const fetchIssues = async () => {
     try {
       setLoading(true);
@@ -364,6 +493,12 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       setError('Title is required');
       return;
     }
+    if (!formData.description.trim()) {
+      setError(
+        'Description is required. Reminder suggestions use this text (and related documents), so include goals, dates, and next steps.',
+      );
+      return;
+    }
 
     try {
       const payload = {
@@ -410,6 +545,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   };
 
   const handleEditIssue = (issue) => {
+    setError(null);
     const assignees = Array.isArray(issue.assignees) && issue.assignees.length
       ? issue.assignees
       : (issue.assigned_to ? [issue.assigned_to] : []);
@@ -433,6 +569,12 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     if (!editingIssue) return;
     if (!formData.title.trim()) {
       setError('Title is required');
+      return;
+    }
+    if (!formData.description.trim()) {
+      setError(
+        'Description cannot be empty. Add context so assignees and reminder suggestions stay useful.',
+      );
       return;
     }
 
@@ -548,6 +690,15 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         return `Assignees: ${formatAssigneeIdList(change.old)} → ${formatAssigneeIdList(change.new)}`;
       case 'description':
         return 'Description updated';
+      case 'reminders_regenerated': {
+        const n = change.reminder_count;
+        const suffix = n != null && Number.isFinite(Number(n)) ? `${n} active suggestion${Number(n) === 1 ? '' : 's'}` : 'suggestions refreshed';
+        return `Reminder suggestions refreshed (${suffix})`;
+      }
+      case 'reminder_acknowledged':
+        return `Acknowledged ${formatReminderType(change.hint_type)}: ${change.preview || '—'}`;
+      case 'reminder_dismissed':
+        return `Dismissed ${formatReminderType(change.hint_type)}: ${change.preview || '—'}`;
       default:
         return `${change.field} changed`;
     }
@@ -679,7 +830,10 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
         <h1 className="issues-page-title">Issues</h1>
         <button
           type="button"
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => {
+            setError(null);
+            setShowCreateModal(true);
+          }}
           className="btn-create-issue"
           title="Create new issue"
           aria-label="Create new issue"
@@ -1019,6 +1173,70 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                 <p className="issue-detail-description empty">No description provided.</p>
               )}
 
+              <div className="issue-reminders" id="issue-reminders" aria-label="Issue reminders">
+                <div className="issue-reminders-header">
+                  <Bell size={16} strokeWidth={1.75} aria-hidden className="issue-reminders-icon" />
+                  <span className="issue-reminders-heading">Reminders</span>
+                  {(issueRemindersBusy || issueRemindersLoading) && (
+                    <span className="issue-reminders-status" aria-live="polite">
+                      Updating…
+                    </span>
+                  )}
+                </div>
+                <p className="issue-reminders-caption">
+                  From this issue and related workspace documents. Refreshes when the issue changes.
+                </p>
+                {issueRemindersDegraded && (
+                  <p className="issue-reminders-note issue-reminders-note--warn" role="status">
+                    {issueRemindersDegraded}
+                  </p>
+                )}
+                {issueRemindersFetchError && (
+                  <p className="issue-reminders-note issue-reminders-note--error" role="alert">
+                    {issueRemindersFetchError}
+                  </p>
+                )}
+                {!issueRemindersBusy
+                  && !issueRemindersLoading
+                  && !issueRemindersFetchError
+                  && issueReminders.length === 0
+                  && !issueRemindersDegraded && (
+                  <p className="issue-reminders-empty">No suggestions right now.</p>
+                )}
+                <ul className="issue-reminders-list">
+                  {issueReminders.map((r) => (
+                    <li key={r.id} className="issue-reminders-item">
+                      <div className="issue-reminders-item-main">
+                        <span className="issue-reminders-type">{formatReminderType(r.hint_type)}</span>
+                        <span className="issue-reminders-content">{r.content}</span>
+                        {r.ai_suggested && <span className="issue-reminders-badge">Ada</span>}
+                      </div>
+                      <div className="issue-reminders-actions">
+                        <button
+                          type="button"
+                          className="issue-reminders-action"
+                          disabled={issueReminderActionId === r.id}
+                          onClick={() => handleIssueReminderAcknowledge(r.id)}
+                        >
+                          Acknowledge
+                        </button>
+                        <span className="issue-reminders-action-sep" aria-hidden>
+                          ·
+                        </span>
+                        <button
+                          type="button"
+                          className="issue-reminders-action issue-reminders-action--muted"
+                          disabled={issueReminderActionId === r.id}
+                          onClick={() => handleIssueReminderDismiss(r.id)}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
               <div className="issue-detail-history">
                 <button
                   type="button"
@@ -1038,8 +1256,8 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                       <p className="issue-detail-history-empty">Loading history…</p>
                     ) : taskHistory.length === 0 ? (
                       <p className="issue-detail-history-empty">
-                        No recorded changes yet. Updates to status, assignees, title, description, and
-                        other fields will appear here.
+                        No recorded changes yet. Updates to status, assignees, title, description,
+                        reminder suggestions, and other activity will appear here.
                       </p>
                     ) : (
                       <ul className="issue-detail-history-list">
@@ -1114,6 +1332,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
           onClick={() => {
             setShowCreateModal(false);
             setEditingIssue(null);
+            setError(null);
           }}
         >
           <div className="modal-box" onClick={(e) => e.stopPropagation()}>
@@ -1134,17 +1353,22 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
             </div>
 
             <div className="form-group">
-              <label htmlFor="issue-description">Description</label>
-              <p className="form-helper">
-                Basic Markdown: **bold**, *italic*, `code`, links, lists, headings, and fenced code blocks.
+              <label htmlFor="issue-description">Description (required)</label>
+              <p className="form-helper" id="issue-description-hint">
+                Smart reminders (follow-ups, deadlines, reviews) combine this text with related workspace
+                documents—include what needs to happen, by when, owners or stakeholders, and useful links.
+                Use Markdown: **bold**, *italic*, `code`, links, lists, headings, and fenced code blocks.
               </p>
               <textarea
                 id="issue-description"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 className="form-textarea"
-                placeholder="Describe the issue (optional). You can use **bold**, lists, and `code`."
-                rows="4"
+                required
+                aria-required="true"
+                aria-describedby="issue-description-hint"
+                placeholder="What needs doing, key dates, blockers, and next steps? Reminders use this text. You can use **bold**, lists, and `code`."
+                rows={5}
               />
             </div>
 
@@ -1205,6 +1429,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
                 onClick={() => {
                   setShowCreateModal(false);
                   setEditingIssue(null);
+                  setError(null);
                 }}
                 className="btn-secondary"
               >

@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     # Dimension is derived from model; override only if needed (e.g. after fine-tune with same dim)
     embedding_dimensions: int = int(os.getenv("EMBEDDING_DIMENSIONS", "0"))  # 0 = auto from model
 
+    # Smart container suggestion (semantic neighbors + light folder-name overlap)
+    suggestion_chunk_limit: int = int(os.getenv("SUGGESTION_CHUNK_LIMIT", "10"))
+    suggestion_embed_max_chars: int = int(os.getenv("SUGGESTION_EMBED_MAX_CHARS", "8000"))
+    suggestion_neighbor_max_docs: int = int(os.getenv("SUGGESTION_NEIGHBOR_MAX_DOCS", "80"))
+    suggestion_min_doc_similarity: float = float(os.getenv("SUGGESTION_MIN_DOC_SIMILARITY", "0.12"))
+    suggestion_fallback_chunk_limit: int = int(os.getenv("SUGGESTION_FALLBACK_CHUNK_LIMIT", "100"))
+    suggestion_fallback_threshold: float = float(os.getenv("SUGGESTION_FALLBACK_THRESHOLD", "0.14"))
+    suggestion_keyword_boost_max: float = float(os.getenv("SUGGESTION_KEYWORD_BOOST_MAX", "0.08"))
+
     # LLM Summary Settings (supports anthropic, openai, azure)
     summary_llm_enabled: bool = os.getenv("SUMMARY_LLM_ENABLED", "true").lower() == "true"
     summary_llm_provider: str = os.getenv("SUMMARY_LLM_PROVIDER", "anthropic")  # anthropic | openai | azure
@@ -82,6 +91,26 @@ class Settings(BaseSettings):
     conversation_memory_window_enabled: bool = os.getenv("CONVERSATION_MEMORY_WINDOW_ENABLED", "true").lower() == "true"
     conversation_memory_window_messages: int = int(os.getenv("CONVERSATION_MEMORY_WINDOW_MESSAGES", "8"))
     conversation_memory_window_max_chars: int = int(os.getenv("CONVERSATION_MEMORY_WINDOW_MAX_CHARS", "3500"))
+
+    # Issue reminders: bi-encoder retrieval + cross-encoder rerank (SentenceTransformers) + optional LLM
+    reminder_cross_encoder_enabled: bool = os.getenv("REMINDER_CROSS_ENCODER_ENABLED", "true").lower() == "true"
+    reminder_cross_encoder_model: str = os.getenv(
+        "REMINDER_CROSS_ENCODER_MODEL",
+        "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    )
+    # Prefer generative LLM suggestions over regex when merging (still runs both)
+    reminder_generative_first: bool = os.getenv("REMINDER_GENERATIVE_FIRST", "true").lower() == "true"
+    reminder_llm_max_suggestions: int = int(os.getenv("REMINDER_LLM_MAX_SUGGESTIONS", "5"))
+
+    # Trained sklearn classifier on embeddings (see scripts/train_reminder_classifier.py)
+    reminder_classifier_enabled: bool = os.getenv("REMINDER_CLASSIFIER_ENABLED", "true").lower() == "true"
+    reminder_classifier_path: str = os.getenv(
+        "REMINDER_CLASSIFIER_PATH",
+        str(os.path.join(os.path.dirname(__file__), "data", "reminder_classifier_bundle.joblib")),
+    )
+    reminder_classifier_min_prob: float = float(os.getenv("REMINDER_CLASSIFIER_MIN_PROB", "0.38"))
+    reminder_classifier_max_snippets: int = int(os.getenv("REMINDER_CLASSIFIER_MAX_SNIPPETS", "48"))
+    reminder_classifier_max_hints: int = int(os.getenv("REMINDER_CLASSIFIER_MAX_HINTS", "6"))
 
     class Config:
         env_file = ".env"

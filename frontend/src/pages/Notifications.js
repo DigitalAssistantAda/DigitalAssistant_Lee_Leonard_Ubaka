@@ -113,6 +113,24 @@ function NotificationsPage() {
             let kind = 'updated';
             if (act.includes('assigned')) kind = 'assigned';
             else if (act.includes('deleted')) kind = 'deleted';
+            else if (act.includes('reminders_generated')) kind = 'reminders';
+            const reminderCountRaw = metadata?.reminder_count;
+            const reminder_count =
+              reminderCountRaw != null && Number.isFinite(Number(reminderCountRaw))
+                ? Number(reminderCountRaw)
+                : null;
+            let reminder_lines = [];
+            const rawLines = metadata?.reminder_lines;
+            if (Array.isArray(rawLines)) {
+              reminder_lines = rawLines
+                .filter((x) => x && (x.content != null || x.hint_type != null))
+                .map((x) => ({
+                  id: x.id != null ? Number(x.id) : null,
+                  hint_type: String(x.hint_type || ''),
+                  content: String(x.content || ''),
+                }))
+                .filter((x) => Number.isFinite(x.id));
+            }
             return {
               id: `task-${log.id}`,
               log_id: log.id,
@@ -121,6 +139,8 @@ function NotificationsPage() {
               task_id: metadata?.task_id != null ? Number(metadata.task_id) : (log.object_id != null ? Number(log.object_id) : null),
               task_title: metadata?.task_title || '',
               kind,
+              reminder_count,
+              reminder_lines,
             };
           })
           .filter(Boolean);
@@ -310,10 +330,17 @@ function NotificationsPage() {
     navigate(`/workspace/${wsId}?${params.toString()}`);
   };
 
-  const handleOpenWorkspaceIssues = (row) => {
+  const handleOpenWorkspaceIssues = (row, opts = {}) => {
     const wsId = row?.workspace_id;
     if (!wsId) return;
-    navigate(`/workspace/${wsId}/issues`);
+    const params = new URLSearchParams();
+    if (row?.task_id != null) {
+      params.set('issueId', String(row.task_id));
+    }
+    const q = params.toString();
+    const path = q ? `/workspace/${wsId}/issues?${q}` : `/workspace/${wsId}/issues`;
+    const hash = opts.focusReminders ? '#issue-reminders' : '';
+    navigate(path + hash);
   };
 
   const getStatusIcon = (statusValue) => {
@@ -364,7 +391,6 @@ function NotificationsPage() {
   const pendingDeletionNotifications = notifications.filter(
     (n) => n.status === 'pending' && !drDismissed.includes(n.id) && !permDrDeleted.includes(n.id)
   );
-  const pendingCount = pendingDeletionNotifications.length + activeWorkspaceInvitations.length;
 
   // Non pending, not permanently deleted
   const respondedNotDismissed = notifications.filter(
@@ -386,6 +412,11 @@ function NotificationsPage() {
     (t) => taskDismissed.includes(t.id) && !permTaskDeleted.includes(t.id)
   );
 
+  const pendingCount =
+    pendingDeletionNotifications.length +
+    activeWorkspaceInvitations.length +
+    tasksNotDismissed.length;
+
   const historyCount =
     dismissedRequests.length + dismissedMentions.length + dismissedTasks.length + historyWorkspaceInvitations.length;
 
@@ -393,7 +424,6 @@ function NotificationsPage() {
     pendingCount +
     respondedNotDismissed.length +
     mentionsNotDismissed.length +
-    tasksNotDismissed.length +
     historyCount;
 
   const historyRows = useMemo(() => {
@@ -438,6 +468,11 @@ function NotificationsPage() {
     return prefix ? `${prefix} ${formatted}` : formatted;
   };
 
+  const formatReminderTypeLabel = (t) =>
+    String(t || '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+
   const renderDeletionRequestCard = (notification, { faded, actions }) => (
     <div key={notification.id} className={`notification-card${faded ? ' notification-card--faded' : ''}`}>
       <div className="notification-content">
@@ -467,9 +502,29 @@ function NotificationsPage() {
 
   const renderTaskNotificationCard = (row, { faded, actions }) => {
     const title =
-      row.kind === 'assigned' ? 'Task assigned to you' : row.kind === 'deleted' ? 'Task deleted' : 'Task updated';
-    const badgeClass = row.kind === 'assigned' ? 'pending' : row.kind === 'deleted' ? 'denied' : 'mention';
-    const badgeLabel = row.kind === 'assigned' ? 'assigned' : row.kind === 'deleted' ? 'deleted' : 'update';
+      row.kind === 'assigned'
+        ? 'Task assigned to you'
+        : row.kind === 'deleted'
+          ? 'Task deleted'
+          : row.kind === 'reminders'
+            ? 'Issue reminders updated'
+            : 'Task updated';
+    const badgeClass =
+      row.kind === 'assigned'
+        ? 'pending'
+        : row.kind === 'deleted'
+          ? 'denied'
+          : row.kind === 'reminders'
+            ? 'pending'
+            : 'mention';
+    const badgeLabel =
+      row.kind === 'assigned'
+        ? 'assigned'
+        : row.kind === 'deleted'
+          ? 'deleted'
+          : row.kind === 'reminders'
+            ? 'reminders'
+            : 'update';
     return (
       <div key={row.id} className={`notification-card${faded ? ' notification-card--faded' : ''}`}>
         <div className="notification-content">
@@ -484,21 +539,51 @@ function NotificationsPage() {
             </div>
             {!faded && <span className={`status-badge ${badgeClass}`}>{badgeLabel}</span>}
           </div>
-          <p className="notification-reason">
-            {row.kind === 'deleted' ? (
-              <>
-                <strong>{row.task_title || `Task #${row.task_id ?? ''}`}</strong> was removed.
-                {row.task_id != null && ` (#${row.task_id})`}
+          {row.kind === 'reminders' ? (
+            <>
+              <p className="notification-reason">
+                New or refreshed reminder suggestions for{' '}
+                <strong>{row.task_title || `Issue #${row.task_id ?? ''}`}</strong>
+                {row.reminder_count != null && row.reminder_count > 0 && (
+                  <> · {row.reminder_count} active</>
+                )}
+                {row.reminder_count === 0 && <> · no active suggestions</>}
                 {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
-              </>
-            ) : (
-              <>
-                <strong>{row.task_title || `Task #${row.task_id ?? ''}`}</strong>
-                {row.task_id != null && ` · #${row.task_id}`}
-                {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
-              </>
-            )}
-          </p>
+              </p>
+              {Array.isArray(row.reminder_lines) && row.reminder_lines.length > 0 && (
+                <ul className="notification-reminder-lines" aria-label="Reminder suggestions">
+                  {row.reminder_lines.map((line) => (
+                    <li key={line.id}>
+                      <button
+                        type="button"
+                        className="notification-reminder-line"
+                        onClick={() => handleOpenWorkspaceIssues(row, { focusReminders: true })}
+                      >
+                        <span className="notification-reminder-line-type">{formatReminderTypeLabel(line.hint_type)}</span>
+                        <span className="notification-reminder-line-text">{line.content}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : (
+            <p className="notification-reason">
+              {row.kind === 'deleted' ? (
+                <>
+                  <strong>{row.task_title || `Task #${row.task_id ?? ''}`}</strong> was removed.
+                  {row.task_id != null && ` (#${row.task_id})`}
+                  {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
+                </>
+              ) : (
+                <>
+                  <strong>{row.task_title || `Task #${row.task_id ?? ''}`}</strong>
+                  {row.task_id != null && ` · #${row.task_id}`}
+                  {row.workspace_id != null && ` · workspace #${row.workspace_id}`}
+                </>
+              )}
+            </p>
+          )}
           <p className="notification-date">{formatDate(row.created_at, '')}</p>
         </div>
         <div className="notification-actions">{actions}</div>
@@ -640,7 +725,7 @@ function NotificationsPage() {
           </>
         )}
 
-        {!loading && filter === 'all' && tasksNotDismissed.length > 0 && (
+        {!loading && (filter === 'pending' || filter === 'all') && tasksNotDismissed.length > 0 && (
           <>
             <div className="section-title">Tasks</div>
             {tasksNotDismissed.map((t) =>
@@ -648,7 +733,15 @@ function NotificationsPage() {
                 faded: false,
                 actions: (
                   <>
-                    <button type="button" className="btn btn-mention-open" onClick={() => handleOpenWorkspaceIssues(t)}>Open issues</button>
+                    <button
+                      type="button"
+                      className="btn btn-mention-open"
+                      onClick={() =>
+                        handleOpenWorkspaceIssues(t, { focusReminders: t.kind === 'reminders' })
+                      }
+                    >
+                      {t.kind === 'reminders' ? 'Open issue' : 'Open issues'}
+                    </button>
                     <button type="button" className="btn btn-dismiss" onClick={() => handleDismissTaskNotification(t.id)} title="Dismiss" aria-label="Dismiss task notification"><Trash2 size={15} /> Dismiss</button>
                   </>
                 ),

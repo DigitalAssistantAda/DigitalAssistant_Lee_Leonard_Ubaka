@@ -1373,6 +1373,187 @@
   background: color-mix(in srgb, var(--accent-primary) 16%, transparent);
 }
 
+/* Issue reminders — minimal, aligned with issue detail typography */
+.issue-reminders {
+  margin-top: 0.5rem;
+  padding: 0.85rem 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.issue-reminders-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+
+.issue-reminders-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.issue-reminders-heading {
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.issue-reminders-status {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-caption {
+  margin: 0 0 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--text-muted);
+  line-height: 1.45;
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-note {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-family: var(--font-ui);
+  font-weight: 300;
+  padding-left: 0.55rem;
+  border-left: 1px solid color-mix(in srgb, var(--border-color) 85%, transparent);
+}
+
+.issue-reminders-note--warn {
+  color: var(--text-secondary);
+}
+
+.issue-reminders-note--error {
+  color: var(--status-danger, #b91c1c);
+  border-left-color: color-mix(in srgb, var(--status-danger) 35%, var(--border-color));
+}
+
+.issue-reminders-empty {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 300;
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.issue-reminders-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.65rem 0;
+  border: none;
+  background: transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 55%, transparent);
+}
+
+.issue-reminders-item:last-child {
+  border-bottom: none;
+}
+
+.issue-reminders-item-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.5rem;
+}
+
+.issue-reminders-type {
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-content {
+  flex: 1 1 100%;
+  font-size: 0.84rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-family: var(--font-ui);
+}
+
+.issue-reminders-badge {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  letter-spacing: 0.04em;
+}
+
+.issue-reminders-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.issue-reminders-action {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 400;
+  font-family: var(--font-ui);
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
+  text-underline-offset: 2px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.issue-reminders-action:hover:not(:disabled) {
+  color: var(--text-primary);
+  text-decoration-color: var(--accent-hover, var(--accent-primary));
+}
+
+.issue-reminders-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+  text-decoration: none;
+}
+
+.issue-reminders-action--muted {
+  color: var(--text-muted);
+  text-decoration-color: color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+.issue-reminders-action--muted:hover:not(:disabled) {
+  color: var(--text-secondary);
+}
+
+.issue-reminders-action-sep {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  user-select: none;
+  padding: 0 0.1rem;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .issues-container {

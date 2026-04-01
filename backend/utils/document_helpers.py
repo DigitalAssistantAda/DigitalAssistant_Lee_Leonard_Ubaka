@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from models.container import Container
-from models.document import Document
+from models.document import Document, DocumentStatus
 from models.document_chunk import DocumentChunk
 from models.chunk_embedding import ChunkEmbedding
 from models.document_hint import DocumentHint
@@ -53,6 +53,198 @@ def confidence_rank(label: str) -> int:
     if normalized == "medium":
         return 2
     return 1
+
+
+_SUGGESTION_STOPWORDS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "this",
+        "that",
+        "you",
+        "your",
+        "are",
+        "was",
+        "were",
+        "has",
+        "have",
+        "into",
+        "about",
+        "file",
+        "page",
+        "pdf",
+        "txt",
+        "doc",
+        "docx",
+        "recipe",
+        "recipes",
+        "document",
+        "blog",
+        "post",
+    }
+)
+
+
+def suggestion_tokens(*parts: str) -> set[str]:
+    """Lowercase tokens (len ≥ 3) from text parts for light folder-name matching."""
+    blob = " ".join(p or "" for p in parts)
+    return {
+        t
+        for t in re.findall(r"[a-z0-9]+", blob.lower())
+        if len(t) >= 3 and t not in _SUGGESTION_STOPWORDS
+    }
+
+
+def filename_as_embedding_hint(filename: str) -> str:
+    """Turn filename stem into words so embeddings capture title-like signals (not folder name logic)."""
+    base = os.path.basename((filename or "").strip())
+    if not base:
+        return ""
+    stem = base.rsplit(".", 1)[0] if "." in base else base
+    hint = re.sub(r"[_\-\.\s]+", " ", stem)
+    return re.sub(r"\s+", " ", hint).strip()
+
+
+def container_name_keyword_boosts(
+    doc_tokens: set[str],
+    containers: list[Container],
+    *,
+    max_boost: float,
+) -> dict[int, float]:
+    """
+    Small score bump when folder name tokens appear in document text/filename.
+    Requires ≥2 overlapping tokens or one token of length ≥5 to reduce false positives.
+    """
+    out: dict[int, float] = {}
+    if not doc_tokens or max_boost <= 0:
+        return out
+    for c in containers:
+        cname = (c.name or "").strip()
+        if not cname:
+            continue
+        ct = suggestion_tokens(cname)
+        if not ct:
+            continue
+        overlap = doc_tokens & ct
+        if not overlap:
+            continue
+        if len(overlap) < 2 and not any(len(t) >= 5 for t in overlap):
+            continue
+        dice = 2 * len(overlap) / (len(ct) + len(doc_tokens) + 1e-6)
+        boost = min(max_boost, 0.015 + max_boost * min(1.0, dice))
+        out[c.id] = float(boost)
+    return out
+
+
+def suggestion_confidence_label(score: float) -> str:
+    """Bands tuned for blended semantic + feedback + keyword boosts (slightly softer than confidence_label)."""
+    if score >= 0.68:
+        return "high"
+    if score >= 0.48:
+        return "medium"
+    return "low"
+
+
+def max_container_scores_from_embedding_rows(
+    db: Session,
+    document: Document,
+    rows: list,
+    container_by_id: dict[int, Container],
+) -> dict[int, float]:
+    """Aggregate (chunk_id, doc_id, similarity) rows to max similarity per destination container."""
+    max_similarity_by_container: dict[int, float] = {}
+    workspace_id = document.workspace_id
+    if workspace_id is None:
+        return max_similarity_by_container
+    for _chunk_id, similar_doc_id, similarity in rows:
+        if similar_doc_id == document.id:
+            continue
+        similar_doc = db.query(Document).filter(
+            Document.id == similar_doc_id,
+            Document.workspace_id == workspace_id,
+            Document.status != DocumentStatus.DELETED,
+        ).first()
+        if not similar_doc or not similar_doc.container_id:
+            continue
+        cid = similar_doc.container_id
+        if cid not in container_by_id:
+            continue
+        sim = float(similarity)
+        max_similarity_by_container[cid] = max(max_similarity_by_container.get(cid, 0.0), sim)
+    return max_similarity_by_container
+
+
+def run_workspace_container_scoring(
+    db: Session,
+    document: Document,
+    workspace_containers: list[Container],
+    *,
+    combined_text: str,
+    body_text: str,
+    filename_hint: str,
+) -> tuple[dict[int, float], dict[int, float], dict[int, float], bool]:
+    """
+    Shared ranking for smart organization: per-document neighbors, chunk fallback, feedback + keyword boosts.
+
+    Callers build ``combined_text`` / ``body_text`` / ``filename_hint`` (e.g. from chunks) so audit
+    paths can distinguish empty indexed text vs no neighbor match.
+
+    Returns:
+        adjusted_scores: final score per container (capped at 1.0)
+        raw_semantic: embedding-only max per container
+        keyword_boosts: per-container name overlap boosts
+        used_chunk_fallback: True if per-doc neighbors were empty and chunk search was used
+    """
+    from config import settings
+    from utils.embeddings import embeddings_service
+
+    container_by_id = {c.id: c for c in workspace_containers}
+    workspace_id = document.workspace_id
+    if workspace_id is None or not (combined_text or "").strip():
+        return {}, {}, {}, False
+
+    query_embedding = embeddings_service.generate_embedding(
+        combined_text.strip()[: settings.suggestion_embed_max_chars]
+    )
+    feedback_boosts = workspace_feedback_boosts(db, workspace_id)
+
+    per_doc_rows = embeddings_service.find_top_chunk_per_document(
+        query_embedding,
+        workspace_id,
+        db=db,
+        max_documents=settings.suggestion_neighbor_max_docs,
+        min_similarity=settings.suggestion_min_doc_similarity,
+    )
+    raw = max_container_scores_from_embedding_rows(db, document, per_doc_rows, container_by_id)
+    used_fallback = False
+    if not raw:
+        used_fallback = True
+        similar_rows = embeddings_service.find_similar_embeddings(
+            query_embedding,
+            workspace_id,
+            limit=settings.suggestion_fallback_chunk_limit,
+            threshold=settings.suggestion_fallback_threshold,
+            db=db,
+        )
+        raw = max_container_scores_from_embedding_rows(db, document, similar_rows, container_by_id)
+
+    doc_tokens = suggestion_tokens(filename_hint, body_text[:2500])
+    kw_boosts = container_name_keyword_boosts(
+        doc_tokens,
+        workspace_containers,
+        max_boost=settings.suggestion_keyword_boost_max,
+    )
+
+    adjusted_scores: dict[int, float] = {}
+    for container_id, rsim in raw.items():
+        adjusted_scores[container_id] = min(
+            1.0,
+            rsim + feedback_boosts.get(container_id, 0.0) + kw_boosts.get(container_id, 0.0),
+        )
+    return adjusted_scores, raw, kw_boosts, used_fallback
 
 
 def infer_auto_container_name(document: Document) -> str:

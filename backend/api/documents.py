@@ -55,8 +55,11 @@ from utils.document_helpers import (
     parse_storage_uri as _parse_storage_uri_impl,
     confidence_label,
     confidence_rank,
+    filename_as_embedding_hint,
     infer_auto_container_name,
     ensure_workspace_container,
+    run_workspace_container_scoring,
+    suggestion_confidence_label,
     workspace_feedback_boosts,
     delete_document_and_relations,
 )
@@ -123,6 +126,31 @@ async def _notify_documents_changed(
                 "payload": {"workspace_id": workspace_id},
             },
         )
+
+
+def _audit_container_suggestion_request(
+    db: Session,
+    user: User,
+    document: Document,
+    *,
+    outcome: str,
+    extra: dict | None = None,
+) -> None:
+    """One audit row per suggest-container request; use metadata.outcome to filter results."""
+    metadata: dict = {"outcome": outcome}
+    if document.workspace_id is not None:
+        metadata["workspace_id"] = document.workspace_id
+    if extra:
+        metadata.update(extra)
+    create_audit_log(
+        db,
+        user,
+        action=AuditActions.DOCUMENT_CONTAINER_SUGGESTION_REQUESTED,
+        object_type="document",
+        object_id=document.id,
+        metadata=metadata,
+        workspace_id=document.workspace_id,
+    )
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -690,7 +718,7 @@ async def list_documents_for_container(
         r.status_label, r.status_detail = _user_friendly_status(d, job_by_doc.get(d.id))
         r.uploaded_by_username = uploader_names.get(d.uploaded_by)
         items.append(r)
-    return DocumentListResponse(items=items)
+    return DocumentListResponse(items=items    )
 
 
 @router.get("/documents/{document_id}", response_model=DocumentResponse)
@@ -727,6 +755,14 @@ async def suggest_document_container(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     if document.workspace_id is None:
+        suggested_new = _suggest_container_name_from_content(document, db)
+        _audit_container_suggestion_request(
+            db,
+            current_user,
+            document,
+            outcome="no_workspace",
+            extra={"suggested_new_container_name": suggested_new},
+        )
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
@@ -734,7 +770,7 @@ async def suggest_document_container(
             boost_applied=False,
             reason="Smart organization is available for workspace documents only.",
             alternatives=[],
-            suggested_new_container_name=_suggest_container_name_from_content(document, db),
+            suggested_new_container_name=suggested_new,
         )
 
     check_workspace_access(current_user, document.workspace_id, db)
@@ -744,6 +780,14 @@ async def suggest_document_container(
     ).all()
 
     if not workspace_containers:
+        suggested_new = _suggest_container_name_from_content(document, db)
+        _audit_container_suggestion_request(
+            db,
+            current_user,
+            document,
+            outcome="no_containers",
+            extra={"suggested_new_container_name": suggested_new},
+        )
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
@@ -751,10 +795,18 @@ async def suggest_document_container(
             boost_applied=False,
             reason="No destination folders exist in this workspace yet.",
             alternatives=[],
-            suggested_new_container_name=_suggest_container_name_from_content(document, db),
+            suggested_new_container_name=suggested_new,
         )
 
     if document.status != DocumentStatus.READY:
+        suggested_new = _suggest_container_name_from_content(document, db)
+        _audit_container_suggestion_request(
+            db,
+            current_user,
+            document,
+            outcome="not_ready",
+            extra={"document_status": document.status.value if hasattr(document.status, "value") else str(document.status)},
+        )
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
@@ -762,7 +814,7 @@ async def suggest_document_container(
             boost_applied=False,
             reason="Document is still processing. Try again when indexing is complete.",
             alternatives=[],
-            suggested_new_container_name=_suggest_container_name_from_content(document, db),
+            suggested_new_container_name=suggested_new,
         )
 
     container_by_id = {container.id: container for container in workspace_containers}
@@ -772,64 +824,101 @@ async def suggest_document_container(
     fallback_used = False
     feedback_boosts = workspace_feedback_boosts(db, document.workspace_id)
 
+    embedding_error_type: str | None = None
     try:
         chunks = db.query(DocumentChunk).filter(
             DocumentChunk.document_id == document.id,
-        ).order_by(DocumentChunk.chunk_index.asc()).limit(4).all()
+        ).order_by(DocumentChunk.chunk_index.asc()).limit(settings.suggestion_chunk_limit).all()
 
-        combined_text = "\n".join((chunk.text or "") for chunk in chunks).strip()
-        if combined_text:
-            query_embedding = embeddings_service.generate_embedding(combined_text[:6000])
-            similar_rows = embeddings_service.find_similar_embeddings(
-                query_embedding=query_embedding,
-                workspace_id=document.workspace_id,
-                limit=120,
-                threshold=0.2,
-                db=db,
+        body_text = "\n".join((chunk.text or "") for chunk in chunks).strip()
+        filename_hint = filename_as_embedding_hint(document.filename)
+        text_parts: list[str] = []
+        if filename_hint:
+            text_parts.append(filename_hint)
+        if body_text:
+            text_parts.append(body_text)
+        combined_text = "\n".join(text_parts).strip()
+        if not combined_text:
+            suggested_new = _suggest_container_name_from_content(document, db)
+            _audit_container_suggestion_request(
+                db,
+                current_user,
+                document,
+                outcome="no_chunk_text",
+                extra={"suggested_new_container_name": suggested_new},
+            )
+            return SmartContainerSuggestionResponse(
+                document_id=document.id,
+                confidence="low",
+                confidence_score=None,
+                boost_applied=False,
+                reason="No indexed text yet for this document. Wait for indexing or move the file manually.",
+                alternatives=[],
+                suggested_new_container_name=suggested_new,
             )
 
-            max_similarity_by_container: dict[int, float] = {}
-            for _chunk_id, similar_doc_id, similarity in similar_rows:
-                if similar_doc_id == document.id:
-                    continue
-                similar_doc = db.query(Document).filter(
-                    Document.id == similar_doc_id,
-                    Document.workspace_id == document.workspace_id,
-                    Document.status != DocumentStatus.DELETED,
-                ).first()
-                if not similar_doc or not similar_doc.container_id:
-                    continue
-                if similar_doc.container_id not in container_by_id:
-                    continue
-                sim = float(similarity)
-                max_similarity_by_container[similar_doc.container_id] = max(
-                    max_similarity_by_container.get(similar_doc.container_id, 0.0),
-                    sim,
+        (
+            adjusted_scores,
+            max_similarity_by_container,
+            kw_boosts,
+            fallback_used,
+        ) = run_workspace_container_scoring(
+            db,
+            document,
+            workspace_containers,
+            combined_text=combined_text,
+            body_text=body_text,
+            filename_hint=filename_hint,
+        )
+
+        ranked = sorted(adjusted_scores.items(), key=lambda item: item[1], reverse=True)
+        top = ranked[:3]
+        if top:
+            best_container_id, best_score = top[0]
+            alternatives = [
+                ContainerSuggestionOption(
+                    container_id=container_id,
+                    container_name=container_by_id[container_id].name,
+                    score=round(score, 3),
                 )
-
-            adjusted_scores = {
-                container_id: score + feedback_boosts.get(container_id, 0.0)
-                for container_id, score in max_similarity_by_container.items()
-            }
-
-            ranked = sorted(adjusted_scores.items(), key=lambda item: item[1], reverse=True)
-            top = ranked[:3]
-            if top:
-                best_container_id, best_score = top[0]
-                alternatives = [
-                    ContainerSuggestionOption(
-                        container_id=container_id,
-                        container_name=container_by_id[container_id].name,
-                        score=round(score, 3),
-                    )
-                    for container_id, score in top
-                ]
+                for container_id, score in top
+            ]
     except Exception as exc:
+        embedding_error_type = type(exc).__name__
         logger.warning("Container suggestion similarity failed for document %s: %s", document.id, exc)
 
-    # Only suggest an existing container when we have embedding-based semantic similarity (actual ML).
-    # We do not use keyword or count-based fallbacks.
+    if embedding_error_type:
+        suggested_new = _suggest_container_name_from_content(document, db)
+        _audit_container_suggestion_request(
+            db,
+            current_user,
+            document,
+            outcome="embedding_error",
+            extra={
+                "error_type": embedding_error_type,
+                "suggested_new_container_name": suggested_new,
+            },
+        )
+        return SmartContainerSuggestionResponse(
+            document_id=document.id,
+            confidence="low",
+            confidence_score=None,
+            boost_applied=False,
+            reason="Smart organization is temporarily unavailable (embedding error). Try again later or move the file manually.",
+            alternatives=[],
+            suggested_new_container_name=suggested_new,
+        )
+
+    # Require a semantic neighbor (embedding) match; keyword boosts only refine among those candidates.
     if not best_container_id:
+        suggested_new = _suggest_container_name_from_content(document, db)
+        _audit_container_suggestion_request(
+            db,
+            current_user,
+            document,
+            outcome="no_similarity_match",
+            extra={"suggested_new_container_name": suggested_new},
+        )
         return SmartContainerSuggestionResponse(
             document_id=document.id,
             confidence="low",
@@ -837,40 +926,51 @@ async def suggest_document_container(
             boost_applied=False,
             reason="No strong destination signal found. Create a new subfolder or pick one manually.",
             alternatives=[],
-            suggested_new_container_name=_suggest_container_name_from_content(document, db),
+            suggested_new_container_name=suggested_new,
         )
 
     best_container = container_by_id[best_container_id]
-    boost_applied = feedback_boosts.get(best_container_id, 0.0) > 0
-    reason = (
-        f"Suggested based on semantic similarity to other files in '{best_container.name}'."
-        if not fallback_used
-        else f"Suggested by workspace usage pattern: '{best_container.name}' has the strongest current grouping."
-    )
+    sem_raw_best = max_similarity_by_container.get(best_container_id, 0.0)
+    fb_amt = feedback_boosts.get(best_container_id, 0.0)
+    kw_amt = kw_boosts.get(best_container_id, 0.0)
+    boost_applied = fb_amt > 0 or kw_amt > 0
+    conf_lbl = suggestion_confidence_label(best_score)
 
-    create_audit_log(
-        db,
-        current_user,
-        action=AuditActions.DOCUMENT_CONTAINER_SUGGESTED,
-        object_type="document",
-        object_id=document.id,
-        metadata={
-            "workspace_id": document.workspace_id,
-            "suggested_container_id": best_container_id,
-            "suggested_container_name": best_container.name,
-            "confidence": confidence_label(best_score),
-            "fallback_used": fallback_used,
-        },
-        workspace_id=document.workspace_id,
-    )
+    reason = f"Suggested based on semantic similarity to other files in '{best_container.name}'."
+    if fallback_used:
+        reason = (
+            f"Suggested using broader workspace matches; best fit is '{best_container.name}'. "
+            "Similar files may be spread across many documents."
+        )
+    if kw_amt > 0:
+        reason = reason.rstrip(".") + " Folder name also matches words in this file."
 
     suggested_new = _suggest_container_name_from_content(document, db)
+    _audit_container_suggestion_request(
+        db,
+        current_user,
+        document,
+        outcome="semantic_match",
+        extra={
+            "suggested_container_id": best_container_id,
+            "suggested_container_name": best_container.name,
+            "confidence": conf_lbl,
+            "confidence_score": round(float(best_score), 3),
+            "semantic_raw_score": round(float(sem_raw_best), 3),
+            "fallback_used": fallback_used,
+            "boost_applied": boost_applied,
+            "feedback_boost": round(float(fb_amt), 4),
+            "keyword_boost": round(float(kw_amt), 4),
+            "suggested_new_container_name": suggested_new,
+        },
+    )
+
     return SmartContainerSuggestionResponse(
         document_id=document.id,
         suggested_container_id=best_container_id,
         suggested_container_name=best_container.name,
         suggested_new_container_name=suggested_new,
-        confidence=confidence_label(best_score),
+        confidence=conf_lbl,
         confidence_score=round(float(best_score), 3),
         boost_applied=boost_applied,
         reason=reason,

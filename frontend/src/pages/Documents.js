@@ -23,6 +23,7 @@ function Documents({ currentUser }) {
   const [workspaces, setWorkspaces] = useState([]);
   const [dbContainers, setDbContainers] = useState([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
+  const [uploadTargetContainerId, setUploadTargetContainerId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -496,28 +497,23 @@ function Documents({ currentUser }) {
 
   const handleFileUpload = async (e) => {
     e.preventDefault();
-    const targetWorkspaceId = openedFolder?.workspace_id || selectedWorkspace;
-    const uploadToPersonalContainer = Boolean(openedFolder?.id && !openedFolder?.workspace_id);
-    const targetContainerId = Number(openedFolder?.id || NaN);
-    const hasTargetContainer = Number.isFinite(targetContainerId) && targetContainerId > 0;
-    const workspaceUploadContainerId = uploadToPersonalContainer
-      ? null
-      : (openedFolder?.workspace_id && hasTargetContainer
-        ? targetContainerId
-        : resolveWorkspaceUploadContainerId(targetWorkspaceId));
+    const openedContainerId = Number(openedFolder?.id || NaN);
+    const modalTargetContainerId = Number(uploadTargetContainerId || NaN);
+    const uploadContainerId = Number.isFinite(openedContainerId) && openedContainerId > 0
+      ? openedContainerId
+      : (Number.isFinite(modalTargetContainerId) && modalTargetContainerId > 0 ? modalTargetContainerId : null);
+
+    const destinationContainer = displayedContainers.find(
+      (container) => Number(container?.id) === Number(uploadContainerId)
+    );
 
     if (uploadFiles.length === 0) {
       setError('Please select at least one file to upload.');
       return;
     }
 
-    if (!uploadToPersonalContainer && !targetWorkspaceId) {
-      setError('Please select a workspace before uploading.');
-      return;
-    }
-
-    if (!uploadToPersonalContainer && !workspaceUploadContainerId) {
-      setError('Could not find a destination folder for this workspace. Refresh and try again.');
+    if (!uploadContainerId) {
+      setError('Please select a destination folder before uploading.');
       return;
     }
 
@@ -530,32 +526,25 @@ function Documents({ currentUser }) {
         uploadFiles.map(async (file) => {
           try {
             let allowDuplicate = false;
-            if (workspaceUploadContainerId) {
-              const duplicateCheck = await checkDuplicateUploadInContainer(workspaceUploadContainerId, file);
-              if (duplicateCheck?.is_duplicate) {
-                const existingLabel = duplicateCheck.duplicate_filename || `Document #${duplicateCheck.duplicate_document_id}`;
-                const shouldUploadDuplicate = window.confirm(
-                  `"${file.name}" looks identical to "${existingLabel}" in this folder. Upload anyway?`
-                );
-                if (!shouldUploadDuplicate) {
-                  return { status: 'skipped-duplicate' };
-                }
-                allowDuplicate = true;
+            const duplicateCheck = await checkDuplicateUploadInContainer(uploadContainerId, file);
+            if (duplicateCheck?.is_duplicate) {
+              const existingLabel = duplicateCheck.duplicate_filename || `Document #${duplicateCheck.duplicate_document_id}`;
+              const shouldUploadDuplicate = window.confirm(
+                `"${file.name}" looks identical to "${existingLabel}" in this folder. Upload anyway?`
+              );
+              if (!shouldUploadDuplicate) {
+                return { status: 'skipped-duplicate' };
               }
+              allowDuplicate = true;
             }
 
             const formData = new FormData();
             formData.append('file', file);
-            if (!uploadToPersonalContainer && workspaceUploadContainerId) {
-              formData.append('container_id', String(workspaceUploadContainerId));
-            }
             if (allowDuplicate) {
               formData.append('allow_duplicate', 'true');
             }
 
-            const uploadUrl = uploadToPersonalContainer
-              ? `${API_URL}/api/v1/containers/${openedFolder.id}/documents`
-              : `${API_URL}/api/v1/workspaces/${targetWorkspaceId}/documents`;
+            const uploadUrl = `${API_URL}/api/v1/containers/${uploadContainerId}/documents`;
 
             const response = await fetch(uploadUrl, {
               method: 'POST',
@@ -603,8 +592,8 @@ function Documents({ currentUser }) {
         setSuccessMessage(messageParts.join(' '));
         setTimeout(() => setSuccessMessage(null), 4000);
 
-        const wsId = openedFolder?.workspace_id || selectedWorkspace;
-        if (wsId) startProcessingPoll(wsId);
+        const wsId = Number(destinationContainer?.workspace_id || openedFolder?.workspace_id || NaN);
+        if (Number.isFinite(wsId) && wsId > 0) startProcessingPoll(wsId);
 
         if (openedFolder?.id) {
           try {
@@ -2030,6 +2019,95 @@ const handleCreateContainer = async (e) => {
     return 'No folders available yet.';
   }, [filteredDisplayedContainers, searchQuery, ownerFilter]);
 
+  const uploadDestinationOptions = useMemo(() => {
+    const workspaceNameById = new Map(
+      workspaces
+        .map((workspace) => [Number(workspace?.id), String(workspace?.name || '')])
+        .filter(([id]) => Number.isFinite(id) && id > 0)
+    );
+
+    const getOwnershipType = (container) => {
+      const name = String(container?.name ?? '').trim();
+      if (name.startsWith('Ada -')) return 'ai';
+      const rawType = String(container?.type || '').toLowerCase();
+      if (rawType.includes('ai')) return 'ai';
+      if (Boolean(container?.is_workspace_default)) return 'workspace';
+      if (currentUserId != null && Number(container?.created_by) === Number(currentUserId)) return 'user';
+      return 'workspace';
+    };
+
+    const normalizedNameCounts = new Map();
+    workspaceScopedContainers.forEach((container) => {
+      const normalized = String(container?.name || '').trim().toLowerCase();
+      if (!normalized) return;
+      normalizedNameCounts.set(normalized, (normalizedNameCounts.get(normalized) || 0) + 1);
+    });
+
+    return workspaceScopedContainers
+      .filter((container) => {
+        const id = Number(container?.id);
+        return Number.isFinite(id) && id > 0;
+      })
+      .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
+      .map((container) => {
+        const id = Number(container.id);
+        const name = String(container?.name || `Folder #${id}`);
+        const normalizedName = name.trim().toLowerCase();
+        const hasDuplicateName = (normalizedNameCounts.get(normalizedName) || 0) > 1;
+        const workspaceId = Number(container?.workspace_id);
+        const workspaceName = Number.isFinite(workspaceId) && workspaceId > 0
+          ? (workspaceNameById.get(workspaceId) || `Workspace #${workspaceId}`)
+          : 'Personal';
+        const type = getOwnershipType(container);
+        const destinationType = type === 'user' ? 'user' : 'workspace';
+        const contextLabel = hasDuplicateName ? ` · ${workspaceName}` : '';
+
+        return {
+          id: String(id),
+          type: destinationType,
+          label: `${name}${contextLabel}`,
+        };
+      });
+  }, [workspaceScopedContainers, workspaces, currentUserId]);
+
+  const workspaceUploadDestinationOptions = useMemo(
+    () => uploadDestinationOptions.filter((option) => option.type === 'workspace'),
+    [uploadDestinationOptions]
+  );
+
+  const userUploadDestinationOptions = useMemo(
+    () => uploadDestinationOptions.filter((option) => option.type === 'user'),
+    [uploadDestinationOptions]
+  );
+
+  useEffect(() => {
+    if (!showUploadModal || openedFolder?.id) return;
+    // Keep the destination empty so the placeholder is shown until user picks a folder.
+    setUploadTargetContainerId('');
+  }, [
+    showUploadModal,
+    openedFolder?.id,
+  ]);
+
+  useEffect(() => {
+    if (!showUploadModal || openedFolder?.id) return;
+    if (!uploadTargetContainerId) {
+      return;
+    }
+
+    const isStillVisible = uploadDestinationOptions.some(
+      (option) => option.id === String(uploadTargetContainerId)
+    );
+    if (!isStillVisible) {
+      setUploadTargetContainerId(uploadDestinationOptions[0]?.id || '');
+    }
+  }, [
+    showUploadModal,
+    openedFolder?.id,
+    uploadTargetContainerId,
+    uploadDestinationOptions,
+  ]);
+
   const getContainerParentName = (container) => {
     if (!container.parent_container_id) return null;
     const parent = filteredDisplayedContainers.find((c) => String(c.id) === String(container.parent_container_id));
@@ -3350,6 +3428,7 @@ const handleCreateContainer = async (e) => {
                   setShowUploadModal(false);
                   setUploadFiles([]);
                   setUploadProgress({});
+                  setUploadTargetContainerId('');
                   setError(null);
                 }}
                 title="Close dialog"
@@ -3360,18 +3439,40 @@ const handleCreateContainer = async (e) => {
             </div>
             <form onSubmit={handleFileUpload}>
               <div className="form-group">
-                <label htmlFor="workspace-select">Workspace</label>
+                <label htmlFor="workspace-select">Destination Folder</label>
                 <select 
                   id="workspace-select"
-                  value={selectedWorkspace} 
-                  onChange={(e) => handleWorkspaceSelect(e.target.value)}
-                  required
+                  className="upload-destination-select"
+                  value={openedFolder?.id ? String(openedFolder.id) : uploadTargetContainerId}
+                  onChange={(e) => setUploadTargetContainerId(e.target.value)}
+                  disabled={Boolean(openedFolder?.id) || uploading}
+                  required={!openedFolder?.id}
                 >
-                  <option value="">Select workspace</option>
-                  {workspaces.map(ws => (
-                    <option key={ws.id} value={ws.id}>{ws.name}</option>
+                  <option value="">Select destination folder</option>
+                  {(openedFolder?.id
+                    ? [{ id: String(openedFolder.id), label: openedFolder.name || `Folder #${openedFolder.id}` }]
+                    : []
+                  ).map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
                   ))}
+                  {!openedFolder?.id && workspaceUploadDestinationOptions.length > 0 && (
+                    <optgroup label="Workspace-Owned">
+                      {workspaceUploadDestinationOptions.map((option) => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {!openedFolder?.id && userUploadDestinationOptions.length > 0 && (
+                    <optgroup label="User-Created">
+                      {userUploadDestinationOptions.map((option) => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
+                {!openedFolder?.id && (
+                  <p className="field-helper-text">Choose where uploaded files should be stored.</p>
+                )}
               </div>
 
               {error && (
@@ -3479,6 +3580,7 @@ const handleCreateContainer = async (e) => {
                   className="btn btn-secondary"
                   onClick={() => {
                     setShowUploadModal(false);
+                    setUploadTargetContainerId('');
                   }}
                   disabled={uploading}
                 >
@@ -3487,7 +3589,7 @@ const handleCreateContainer = async (e) => {
                 <button 
                   type="submit" 
                   className="btn btn-primary"
-                  disabled={uploadFiles.length === 0 || !((openedFolder?.id && !openedFolder?.workspace_id) || (openedFolder?.workspace_id || selectedWorkspace)) || uploading}
+                  disabled={uploadFiles.length === 0 || (!openedFolder?.id && !uploadTargetContainerId) || uploading}
                 >
                   {uploading ? `Uploading ${Object.values(uploadProgress).filter(p => p === 100).length}/${uploadFiles.length}...` : `Upload (${uploadFiles.length}/50)`}
                 </button>

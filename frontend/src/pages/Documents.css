@@ -217,6 +217,18 @@
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent-primary) 12%, transparent);
 }
 
+.upload-destination-select {
+  background: color-mix(in srgb, var(--bg-secondary, #f8f9fa) 70%, var(--bg-primary, #ffffff));
+  font-size: 0.92rem;
+  line-height: 1.2;
+}
+
+.field-helper-text {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted, #9ca3af);
+}
+
 .file-upload-area {
   border: 2px dashed var(--border-color, #e0e6ed);
   padding: 2rem;

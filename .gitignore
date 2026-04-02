@@ -110,3 +110,5 @@ demo_seed/
 backend/data/
 backend/data/embedding_model_data/
 backend/tests/
+
+TODO_AI.md

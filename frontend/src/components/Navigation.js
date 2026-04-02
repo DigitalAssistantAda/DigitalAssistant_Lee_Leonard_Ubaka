@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Bell, Moon, Sun, LogOut, Settings, Search, X } from 'lucide-react';
 import adaFlower from '../ada_logo.png';
@@ -13,6 +13,7 @@ function Navigation({ user, onLogout }) {
   const location = useLocation();
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const notifCountFetchSeq = useRef(0);
 
   const profileInitial = (user?.username || 'A').charAt(0).toUpperCase();
 
@@ -26,63 +27,59 @@ function Navigation({ user, onLogout }) {
     let cancelled = false;
 
     const fetchNotificationCount = async () => {
+      const mySeq = ++notifCountFetchSeq.current;
       try {
         const token = localStorage.getItem('token');
         const rawUser = localStorage.getItem('user');
         if (!token || !rawUser) {
-          if (!cancelled) setNotificationCount(0);
+          if (!cancelled && mySeq === notifCountFetchSeq.current) setNotificationCount(0);
           return;
         }
 
         const parsed = JSON.parse(rawUser);
         const currentUserId = Number(parsed?.id ?? parsed?.user_id ?? NaN);
         if (!Number.isFinite(currentUserId)) {
-          if (!cancelled) setNotificationCount(0);
+          if (!cancelled && mySeq === notifCountFetchSeq.current) setNotificationCount(0);
           return;
         }
 
+        const fetchOpts = { cache: 'no-store', headers: { Authorization: `Bearer ${token}` } };
         const [mentionsResponse, tasksAuditResponse, invitationsResponse, deletionRequestsResponse, prefsResponse] = await Promise.all([
-          fetch(`${API_URL}/api/v1/audit-logs?action=message.mentioned&limit=200`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          fetch(`${API_URL}/api/v1/audit-logs?action=task.&limit=200`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          fetch(`${API_URL}/api/v1/workspaces/invitations/pending`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          fetch(`${API_URL}/api/v1/deletion-requests/pending`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          fetch(`${API_URL}/api/v1/users/preferences`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
+          fetch(`${API_URL}/api/v1/audit-logs?action=message.mentioned&limit=200`, fetchOpts),
+          fetch(`${API_URL}/api/v1/audit-logs?action=task.&limit=200`, fetchOpts),
+          fetch(`${API_URL}/api/v1/workspaces/invitations/pending`, fetchOpts),
+          fetch(`${API_URL}/api/v1/deletion-requests/pending`, fetchOpts),
+          fetch(`${API_URL}/api/v1/users/preferences`, fetchOpts),
         ]);
+
+        if (cancelled || mySeq !== notifCountFetchSeq.current) return;
 
         const prefsData = prefsResponse.ok ? await prefsResponse.json() : {};
         const dn = prefsData?.dismissed_notification_ids;
-        const dismissedMentionIds = new Set(Array.isArray(dn?.mention_ids) ? dn.mention_ids : []);
-        const dismissedTaskIds = new Set(Array.isArray(dn?.task_notification_ids) ? dn.task_notification_ids : []);
+        const dismissedMentionIds = new Set(
+          (Array.isArray(dn?.mention_ids) ? dn.mention_ids : []).map(String)
+        );
+        const dismissedTaskIds = new Set(
+          (Array.isArray(dn?.task_notification_ids) ? dn.task_notification_ids : []).map(String)
+        );
         const permanentlyDeletedTaskIds = new Set(
-          Array.isArray(dn?.permanently_deleted_task_notification_ids) ? dn.permanently_deleted_task_notification_ids : []
+          (Array.isArray(dn?.permanently_deleted_task_notification_ids)
+            ? dn.permanently_deleted_task_notification_ids
+            : []
+          ).map(String)
         );
         const dismissedDeletionIds = new Set(Array.isArray(dn?.deletion_request_ids) ? dn.deletion_request_ids : []);
         const permanentlyDeletedDeletionIds = new Set(
           Array.isArray(dn?.permanently_deleted_deletion_request_ids) ? dn.permanently_deleted_deletion_request_ids : []
         );
-        const dismissedWorkspaceInvites = new Set(Array.isArray(dn?.workspace_invitation_ids) ? dn.workspace_invitation_ids : []);
+        const dismissedWorkspaceInvites = new Set(
+          (Array.isArray(dn?.workspace_invitation_ids) ? dn.workspace_invitation_ids : []).map(String)
+        );
         const permanentlyDeletedWorkspaceInvites = new Set(
-          Array.isArray(dn?.permanently_deleted_workspace_invitation_ids) ? dn.permanently_deleted_workspace_invitation_ids : []
+          (Array.isArray(dn?.permanently_deleted_workspace_invitation_ids)
+            ? dn.permanently_deleted_workspace_invitation_ids
+            : []
+          ).map(String)
         );
 
         let mentionCount = 0;
@@ -139,6 +136,9 @@ function Navigation({ user, onLogout }) {
                 const key = `${ws}:${taskId}`;
                 if (seenReminderKeys.has(key)) return total;
                 seenReminderKeys.add(key);
+                const stableTid = `task-reminders-${ws}-${taskId}`;
+                if (dismissedTaskIds.has(stableTid) || permanentlyDeletedTaskIds.has(stableTid)) return total;
+                return total + 1;
               }
             }
 
@@ -170,11 +170,11 @@ function Navigation({ user, onLogout }) {
           ).length;
         }
 
-        if (!cancelled) {
+        if (!cancelled && mySeq === notifCountFetchSeq.current) {
           setNotificationCount(mentionCount + taskNotifyCount + invitationsCount + deletionRequestsCount);
         }
       } catch (error) {
-        if (!cancelled) {
+        if (!cancelled && mySeq === notifCountFetchSeq.current) {
           setNotificationCount(0);
         }
       }

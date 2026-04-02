@@ -166,11 +166,13 @@ async def dismiss_notifications(
         if isinstance(mid, str) and mid and mid not in perm_m_ids:
             perm_m_ids.append(mid)
     for tid in request.task_notification_ids or []:
-        if isinstance(tid, str) and tid and tid not in task_ids:
-            task_ids.append(tid)
+        s = str(tid).strip() if tid is not None else ""
+        if s and s not in task_ids:
+            task_ids.append(s)
     for tid in request.permanently_deleted_task_notification_ids or []:
-        if isinstance(tid, str) and tid and tid not in perm_task_ids:
-            perm_task_ids.append(tid)
+        s = str(tid).strip() if tid is not None else ""
+        if s and s not in perm_task_ids:
+            perm_task_ids.append(s)
     for iid in request.workspace_invitation_ids or []:
         if isinstance(iid, str) and iid and iid not in invite_ids:
             invite_ids.append(iid)

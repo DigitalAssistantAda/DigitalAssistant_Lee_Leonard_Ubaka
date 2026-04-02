@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
@@ -32,6 +32,7 @@ function Dashboard() {
     status: '',
   });
   const [recentActivity, setRecentActivity] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [issues, setIssues] = useState([]);
   const [deadlines, setDeadlines] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -40,6 +41,7 @@ function Dashboard() {
   });
   const [selectedDay, setSelectedDay] = useState(() => new Date().getDate());
   const [activityFilter, setActivityFilter] = useState('all');
+  const activityRequestIdRef = useRef(0);
 
   const monthIndexMap = {
     January: 0,
@@ -105,14 +107,28 @@ function Dashboard() {
   }, []);
 
   const fetchActivityData = useCallback(async () => {
+    const requestId = activityRequestIdRef.current + 1;
+    activityRequestIdRef.current = requestId;
+
     try {
       const token = localStorage.getItem('token');
       if (!token) return;
+
+      setActivityLoading(true);
+      // Clear stale rows so a newly selected filter doesn't momentarily show previous filter items.
+      setRecentActivity([]);
+
       const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
       const activityData = await apiFetch(`/api/v1/dashboard/activity?limit=8${filterParam}`);
+      if (activityRequestIdRef.current !== requestId) return;
       setRecentActivity(activityData.items || []);
     } catch (err) {
+      if (activityRequestIdRef.current !== requestId) return;
       console.error('Error fetching filtered activity:', err);
+    } finally {
+      if (activityRequestIdRef.current === requestId) {
+        setActivityLoading(false);
+      }
     }
   }, [activityFilter]);
 
@@ -197,7 +213,19 @@ function Dashboard() {
     const type = String(activity?.type || '').toLowerCase();
     const actionType = String(activity?.action_type || '').toLowerCase();
     const actionText = String(activity?.action || '').toLowerCase();
+    const titleText = String(activity?.title || '').toLowerCase();
+
+    const isSearchActivity =
+      type === 'search'
+      || actionType.startsWith('search.')
+      || actionType.includes('.search')
+      || actionText.includes('search')
+      || titleText.includes('search');
+
     if (activityFilter === 'searches') {
+      return 'search';
+    }
+    if (isSearchActivity) {
       return 'search';
     }
     if (
@@ -583,7 +611,9 @@ function Dashboard() {
             <div className="activity-date">{monthDay}</div>
 
             <div className="activity-list">
-              {filteredActivity.length === 0 ? (
+              {activityLoading ? (
+                <p className="empty-line">Loading activity...</p>
+              ) : filteredActivity.length === 0 ? (
                 <p className="empty-line">No recent activity</p>
               ) : (
                 filteredActivity.map((activity, index) => (

@@ -360,6 +360,8 @@ function Dashboard() {
   });
 
   const profileInitial = (user.username || 'A').charAt(0).toUpperCase();
+  const statusText = user.status ? `"${user.status}"` : '—';
+  const isLongStatus = statusText.length > 56;
 
   return (
     <div className="dashboard-page">
@@ -384,12 +386,12 @@ function Dashboard() {
                 <span className="profile-row-label">Documents</span>
                 <span className="profile-row-value">{stats.documents}</span>
               </div>
-              {user.status && (
-                <div className="profile-row profile-row-status">
-                  <span className="profile-row-label">Status</span>
-                  <span className="profile-row-value profile-row-status-value">&quot;{user.status}&quot;</span>
-                </div>
-              )}
+              <div className={`profile-row profile-row-status ${isLongStatus ? 'profile-row-status-stacked' : ''}`}>
+                <span className="profile-row-label">Status</span>
+                <span className={`profile-row-value profile-row-status-value ${isLongStatus ? 'profile-row-status-value-stacked' : ''}`}>
+                  {statusText}
+                </span>
+              </div>
             </div>
           </section>
 

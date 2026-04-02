@@ -164,9 +164,27 @@
 
 .profile-row-status-value {
   font-family: var(--font-display);
-  font-size: 15px;
+  font-size: 13px;
   font-style: italic;
   color: var(--dash-gray-800);
+}
+
+.profile-row-status-stacked {
+  display: block;
+  text-align: left;
+}
+
+.profile-row-status-stacked .profile-row-label {
+  display: block;
+  margin-bottom: var(--dash-s-4);
+  text-align: left;
+}
+
+.profile-row-status-value-stacked {
+  display: block;
+  text-align: left;
+  line-height: 1.45;
+  overflow-wrap: break-word;
 }
 
 .calendar-card {

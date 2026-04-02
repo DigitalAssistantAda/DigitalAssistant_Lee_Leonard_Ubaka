@@ -1,8 +1,36 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, X, CheckCircle, XCircle, Clock, MessageSquare, Users, Trash2, FileText, ListTodo, Bell } from 'lucide-react';
 import LoadingState from '../components/LoadingState';
 import './Notifications.css';
+
+const EMPTY_DISMISSED = {
+  deletion_request_ids: [],
+  mention_ids: [],
+  permanently_deleted_deletion_request_ids: [],
+  permanently_deleted_mention_ids: [],
+  task_notification_ids: [],
+  permanently_deleted_task_notification_ids: [],
+  workspace_invitation_ids: [],
+  permanently_deleted_workspace_invitation_ids: [],
+};
+
+function normalizeDismissedFromApi(d) {
+  if (!d || typeof d !== 'object') return { ...EMPTY_DISMISSED };
+  const asStrings = (arr) => (Array.isArray(arr) ? arr.map((x) => String(x)) : []);
+  return {
+    deletion_request_ids: Array.isArray(d.deletion_request_ids) ? d.deletion_request_ids : [],
+    mention_ids: asStrings(d.mention_ids),
+    permanently_deleted_deletion_request_ids: Array.isArray(d.permanently_deleted_deletion_request_ids)
+      ? d.permanently_deleted_deletion_request_ids
+      : [],
+    permanently_deleted_mention_ids: asStrings(d.permanently_deleted_mention_ids),
+    task_notification_ids: asStrings(d.task_notification_ids),
+    permanently_deleted_task_notification_ids: asStrings(d.permanently_deleted_task_notification_ids),
+    workspace_invitation_ids: asStrings(d.workspace_invitation_ids),
+    permanently_deleted_workspace_invitation_ids: asStrings(d.permanently_deleted_workspace_invitation_ids),
+  };
+}
 
 function NotificationsPage() {
   const [notifications, setNotifications] = useState([]);
@@ -24,6 +52,7 @@ function NotificationsPage() {
   const [filter, setFilter] = useState('pending');
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const fetchEpochRef = useRef(0);
 
   const currentUserId = useMemo(() => {
     try {
@@ -38,6 +67,7 @@ function NotificationsPage() {
   }, []);
 
   const fetchNotifications = useCallback(async () => {
+    const epoch = ++fetchEpochRef.current;
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
@@ -45,6 +75,7 @@ function NotificationsPage() {
       const response = await fetch(`${API_URL}/api/v1/deletion-requests/all`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (epoch !== fetchEpochRef.current) return;
       if (!response.ok) {
         setNotifications([]);
       } else {
@@ -55,6 +86,7 @@ function NotificationsPage() {
       const invitationsResponse = await fetch(`${API_URL}/api/v1/workspaces/invitations/pending`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (epoch !== fetchEpochRef.current) return;
       if (!invitationsResponse.ok) {
         setWorkspaceInvitations([]);
       } else {
@@ -75,6 +107,7 @@ function NotificationsPage() {
       const mentionsResponse = await fetch(`${API_URL}/api/v1/audit-logs?action=message.mentioned&limit=200`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (epoch !== fetchEpochRef.current) return;
       if (!mentionsResponse.ok) {
         setMentionNotifications([]);
       } else {
@@ -100,6 +133,7 @@ function NotificationsPage() {
       const tasksAuditResponse = await fetch(`${API_URL}/api/v1/audit-logs?action=task.&limit=200`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (epoch !== fetchEpochRef.current) return;
       if (!tasksAuditResponse.ok) {
         setTaskNotifications([]);
       } else {
@@ -132,8 +166,13 @@ function NotificationsPage() {
                 }))
                 .filter((x) => Number.isFinite(x.id));
             }
+            const wsId = Number(metadata?.workspace_id ?? log.workspace_id);
+            const taskIdNum =
+              metadata?.task_id != null ? Number(metadata.task_id) : log.object_id != null ? Number(log.object_id) : NaN;
+            const useStableReminderDismissId =
+              kind === 'reminders' && Number.isFinite(wsId) && Number.isFinite(taskIdNum);
             return {
-              id: `task-${log.id}`,
+              id: useStableReminderDismissId ? `task-reminders-${wsId}-${taskIdNum}` : `task-${log.id}`,
               log_id: log.id,
               created_at: log.created_at,
               workspace_id: Number(metadata?.workspace_id ?? log.workspace_id),
@@ -161,40 +200,21 @@ function NotificationsPage() {
       }
 
       const prefsResponse = await fetch(`${API_URL}/api/v1/users/preferences`, {
+        cache: 'no-store',
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (epoch !== fetchEpochRef.current) return;
       if (prefsResponse.ok) {
         const prefs = await prefsResponse.json();
-        const d = prefs?.dismissed_notification_ids;
-        setDismissedIds(
-          d && typeof d === 'object'
-            ? {
-                deletion_request_ids: Array.isArray(d.deletion_request_ids) ? d.deletion_request_ids : [],
-                mention_ids: Array.isArray(d.mention_ids) ? d.mention_ids : [],
-                permanently_deleted_deletion_request_ids: Array.isArray(d.permanently_deleted_deletion_request_ids) ? d.permanently_deleted_deletion_request_ids : [],
-                permanently_deleted_mention_ids: Array.isArray(d.permanently_deleted_mention_ids) ? d.permanently_deleted_mention_ids : [],
-                task_notification_ids: Array.isArray(d.task_notification_ids) ? d.task_notification_ids : [],
-                permanently_deleted_task_notification_ids: Array.isArray(d.permanently_deleted_task_notification_ids) ? d.permanently_deleted_task_notification_ids : [],
-                workspace_invitation_ids: Array.isArray(d.workspace_invitation_ids) ? d.workspace_invitation_ids : [],
-                permanently_deleted_workspace_invitation_ids: Array.isArray(d.permanently_deleted_workspace_invitation_ids) ? d.permanently_deleted_workspace_invitation_ids : [],
-              }
-            : {
-                deletion_request_ids: [],
-                mention_ids: [],
-                permanently_deleted_deletion_request_ids: [],
-                permanently_deleted_mention_ids: [],
-                task_notification_ids: [],
-                permanently_deleted_task_notification_ids: [],
-                workspace_invitation_ids: [],
-                permanently_deleted_workspace_invitation_ids: [],
-              }
-        );
+        if (epoch !== fetchEpochRef.current) return;
+        setDismissedIds(normalizeDismissedFromApi(prefs?.dismissed_notification_ids));
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
       /* Do not clear all lists: a single failing request would wipe unrelated items. */
+    } finally {
+      if (epoch === fetchEpochRef.current) setLoading(false);
     }
-    setLoading(false);
   }, [API_URL, currentUserId]);
 
   useEffect(() => { fetchNotifications(); }, [fetchNotifications, filter]);
@@ -244,16 +264,34 @@ function NotificationsPage() {
   const callDismissEndpoint = async (payload) => {
     return fetch(`${API_URL}/api/v1/users/notifications-dismiss`, {
       method: 'POST',
+      cache: 'no-store',
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+  };
+
+  const applyDismissResponse = async (response) => {
+    if (!response.ok) return false;
+    try {
+      const data = await response.json();
+      if (data?.dismissed_notification_ids && typeof data.dismissed_notification_ids === 'object') {
+        setDismissedIds(normalizeDismissedFromApi(data.dismissed_notification_ids));
+        return true;
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
   };
 
   const handleDismissDeletionRequest = async (requestId) => {
     try {
       const response = await callDismissEndpoint({ deletion_request_ids: [requestId] });
       if (response.ok) {
-        setDismissedIds((prev) => ({ ...prev, deletion_request_ids: [...(prev.deletion_request_ids || []), requestId] }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({ ...prev, deletion_request_ids: [...(prev.deletion_request_ids || []), requestId] }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) { console.error('Error dismissing notification:', error); }
@@ -261,9 +299,12 @@ function NotificationsPage() {
 
   const handleDismissMention = async (mentionId) => {
     try {
-      const response = await callDismissEndpoint({ mention_ids: [mentionId] });
+      const response = await callDismissEndpoint({ mention_ids: [String(mentionId)] });
       if (response.ok) {
-        setDismissedIds((prev) => ({ ...prev, mention_ids: [...(prev.mention_ids || []), mentionId] }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({ ...prev, mention_ids: [...(prev.mention_ids || []), String(mentionId)] }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) { console.error('Error dismissing mention:', error); }
@@ -273,7 +314,13 @@ function NotificationsPage() {
     try {
       const response = await callDismissEndpoint({ permanently_deleted_deletion_request_ids: [requestId] });
       if (response.ok) {
-        setDismissedIds((prev) => ({ ...prev, permanently_deleted_deletion_request_ids: [...(prev.permanently_deleted_deletion_request_ids || []), requestId] }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({
+            ...prev,
+            permanently_deleted_deletion_request_ids: [...(prev.permanently_deleted_deletion_request_ids || []), requestId],
+          }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) { console.error('Error permanently deleting notification:', error); }
@@ -281,9 +328,15 @@ function NotificationsPage() {
 
   const handlePermanentlyDeleteMention = async (mentionId) => {
     try {
-      const response = await callDismissEndpoint({ permanently_deleted_mention_ids: [mentionId] });
+      const response = await callDismissEndpoint({ permanently_deleted_mention_ids: [String(mentionId)] });
       if (response.ok) {
-        setDismissedIds((prev) => ({ ...prev, permanently_deleted_mention_ids: [...(prev.permanently_deleted_mention_ids || []), mentionId] }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({
+            ...prev,
+            permanently_deleted_mention_ids: [...(prev.permanently_deleted_mention_ids || []), String(mentionId)],
+          }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) { console.error('Error permanently deleting mention:', error); }
@@ -291,9 +344,17 @@ function NotificationsPage() {
 
   const handleDismissTaskNotification = async (taskNotifId) => {
     try {
-      const response = await callDismissEndpoint({ task_notification_ids: [taskNotifId] });
+      const response = await callDismissEndpoint({ task_notification_ids: [String(taskNotifId)] });
       if (response.ok) {
-        setDismissedIds((prev) => ({ ...prev, task_notification_ids: [...(prev.task_notification_ids || []), taskNotifId] }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({
+            ...prev,
+            task_notification_ids: Array.from(
+              new Set([...(prev.task_notification_ids || []).map(String), String(taskNotifId)])
+            ),
+          }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) { console.error('Error dismissing task notification:', error); }
@@ -301,9 +362,19 @@ function NotificationsPage() {
 
   const handlePermanentlyDeleteTaskNotification = async (taskNotifId) => {
     try {
-      const response = await callDismissEndpoint({ permanently_deleted_task_notification_ids: [taskNotifId] });
+      const response = await callDismissEndpoint({
+        permanently_deleted_task_notification_ids: [String(taskNotifId)],
+      });
       if (response.ok) {
-        setDismissedIds((prev) => ({ ...prev, permanently_deleted_task_notification_ids: [...(prev.permanently_deleted_task_notification_ids || []), taskNotifId] }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({
+            ...prev,
+            permanently_deleted_task_notification_ids: Array.from(
+              new Set([...(prev.permanently_deleted_task_notification_ids || []).map(String), String(taskNotifId)])
+            ),
+          }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) { console.error('Error permanently deleting task notification:', error); }
@@ -316,7 +387,10 @@ function NotificationsPage() {
     try {
       const response = await callDismissEndpoint({ workspace_invitation_ids: [key] });
       if (response.ok) {
-        setDismissedIds((prev) => ({ ...prev, workspace_invitation_ids: [...(prev.workspace_invitation_ids || []), key] }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({ ...prev, workspace_invitation_ids: [...(prev.workspace_invitation_ids || []), key] }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) { console.error('Error dismissing workspace invitation:', error); }
@@ -327,7 +401,16 @@ function NotificationsPage() {
     try {
       const response = await callDismissEndpoint({ permanently_deleted_workspace_invitation_ids: [key] });
       if (response.ok) {
-        setDismissedIds((prev) => ({ ...prev, permanently_deleted_workspace_invitation_ids: [...(prev.permanently_deleted_workspace_invitation_ids || []), key] }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({
+            ...prev,
+            permanently_deleted_workspace_invitation_ids: [
+              ...(prev.permanently_deleted_workspace_invitation_ids || []),
+              key,
+            ],
+          }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) { console.error('Error permanently deleting workspace invitation:', error); }
@@ -382,23 +465,42 @@ function NotificationsPage() {
     return 'Unknown document';
   };
 
+  const taskDismissSet = useMemo(
+    () => new Set((dismissedIds.task_notification_ids || []).map(String)),
+    [dismissedIds.task_notification_ids]
+  );
+  const permTaskSet = useMemo(
+    () => new Set((dismissedIds.permanently_deleted_task_notification_ids || []).map(String)),
+    [dismissedIds.permanently_deleted_task_notification_ids]
+  );
+  const inviteDismissSet = useMemo(
+    () => new Set((dismissedIds.workspace_invitation_ids || []).map(String)),
+    [dismissedIds.workspace_invitation_ids]
+  );
+  const permInviteSet = useMemo(
+    () => new Set((dismissedIds.permanently_deleted_workspace_invitation_ids || []).map(String)),
+    [dismissedIds.permanently_deleted_workspace_invitation_ids]
+  );
+  const mentionDismissSet = useMemo(
+    () => new Set((dismissedIds.mention_ids || []).map(String)),
+    [dismissedIds.mention_ids]
+  );
+  const permMentionSet = useMemo(
+    () => new Set((dismissedIds.permanently_deleted_mention_ids || []).map(String)),
+    [dismissedIds.permanently_deleted_mention_ids]
+  );
+
   const drDismissed = dismissedIds.deletion_request_ids || [];
-  const mentionDismissed = dismissedIds.mention_ids || [];
   const permDrDeleted = dismissedIds.permanently_deleted_deletion_request_ids || [];
-  const permMentionDeleted = dismissedIds.permanently_deleted_mention_ids || [];
-  const taskDismissed = dismissedIds.task_notification_ids || [];
-  const permTaskDeleted = dismissedIds.permanently_deleted_task_notification_ids || [];
-  const inviteDismissed = dismissedIds.workspace_invitation_ids || [];
-  const permInviteDeleted = dismissedIds.permanently_deleted_workspace_invitation_ids || [];
 
   const activeWorkspaceInvitations = workspaceInvitations.filter((inv) => {
     const key = workspaceInviteKey(inv.invitation_id);
-    return !inviteDismissed.includes(key) && !permInviteDeleted.includes(key);
+    return !inviteDismissSet.has(key) && !permInviteSet.has(key);
   });
 
   const historyWorkspaceInvitations = workspaceInvitations.filter((inv) => {
     const key = workspaceInviteKey(inv.invitation_id);
-    return inviteDismissed.includes(key) && !permInviteDeleted.includes(key);
+    return inviteDismissSet.has(key) && !permInviteSet.has(key);
   });
 
   const pendingDeletionNotifications = notifications.filter(
@@ -410,19 +512,19 @@ function NotificationsPage() {
     (n) => n.status !== 'pending' && !drDismissed.includes(n.id) && !permDrDeleted.includes(n.id)
   );
   const mentionsNotDismissed = mentionNotifications.filter(
-    (m) => !mentionDismissed.includes(m.id) && !permMentionDeleted.includes(m.id)
+    (m) => !mentionDismissSet.has(String(m.id)) && !permMentionSet.has(String(m.id))
   );
   const dismissedRequests = notifications.filter(
     (n) => drDismissed.includes(n.id) && !permDrDeleted.includes(n.id)
   );
   const dismissedMentions = mentionNotifications.filter(
-    (m) => mentionDismissed.includes(m.id) && !permMentionDeleted.includes(m.id)
+    (m) => mentionDismissSet.has(String(m.id)) && !permMentionSet.has(String(m.id))
   );
   const tasksNotDismissed = taskNotifications.filter(
-    (t) => !taskDismissed.includes(t.id) && !permTaskDeleted.includes(t.id)
+    (t) => !taskDismissSet.has(String(t.id)) && !permTaskSet.has(String(t.id))
   );
   const dismissedTasks = taskNotifications.filter(
-    (t) => taskDismissed.includes(t.id) && !permTaskDeleted.includes(t.id)
+    (t) => taskDismissSet.has(String(t.id)) && !permTaskSet.has(String(t.id))
   );
 
   const pendingCount =
@@ -447,12 +549,17 @@ function NotificationsPage() {
     try {
       const response = await callDismissEndpoint(payload);
       if (response.ok) {
-        setDismissedIds((prev) => ({
-          ...prev,
-          deletion_request_ids: Array.from(new Set([...(prev.deletion_request_ids || []), ...drIds])),
-          workspace_invitation_ids: Array.from(new Set([...(prev.workspace_invitation_ids || []), ...inviteKeys])),
-          task_notification_ids: Array.from(new Set([...(prev.task_notification_ids || []), ...taskIds])),
-        }));
+        const applied = await applyDismissResponse(response);
+        if (!applied) {
+          setDismissedIds((prev) => ({
+            ...prev,
+            deletion_request_ids: Array.from(new Set([...(prev.deletion_request_ids || []), ...drIds])),
+            workspace_invitation_ids: Array.from(new Set([...(prev.workspace_invitation_ids || []).map(String), ...inviteKeys])),
+            task_notification_ids: Array.from(
+              new Set([...(prev.task_notification_ids || []).map(String), ...taskIds.map(String)])
+            ),
+          }));
+        }
         window.dispatchEvent(new Event('notifications-updated'));
       }
     } catch (error) {

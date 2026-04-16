@@ -106,34 +106,6 @@ function Workspaces() {
     }
   };
 
-  const handleDeleteWorkspace = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this workspace?')) return;
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/api/v1/workspaces/${id}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const message = await getApiErrorMessage(response, 'Failed to delete workspace');
-        throw new Error(message);
-      }
-
-      setSelectedWorkspaces(prev => {
-        const updated = new Set(prev);
-        updated.delete(id);
-        return updated;
-      });
-      fetchWorkspaces();
-    } catch (err) {
-      setError(err.message || 'Failed to delete workspace');
-    }
-  };
-
   const handleBulkDelete = async () => {
     if (selectedWorkspaces.size === 0) return;
     const count = selectedWorkspaces.size;

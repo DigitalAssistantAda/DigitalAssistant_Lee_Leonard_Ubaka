@@ -11,10 +11,24 @@ import {
   FileText,
   Minus,
   Search,
-  Upload,
 } from 'lucide-react';
 import './Dashboard.css';
 import { apiFetch } from '../utils/apiClient';
+
+const MONTH_INDEX_MAP = {
+  January: 0,
+  February: 1,
+  March: 2,
+  April: 3,
+  May: 4,
+  June: 5,
+  July: 6,
+  August: 7,
+  September: 8,
+  October: 9,
+  November: 10,
+  December: 11,
+};
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -43,24 +57,9 @@ function Dashboard() {
   const [activityFilter, setActivityFilter] = useState('all');
   const activityRequestIdRef = useRef(0);
 
-  const monthIndexMap = {
-    January: 0,
-    February: 1,
-    March: 2,
-    April: 3,
-    May: 4,
-    June: 5,
-    July: 6,
-    August: 7,
-    September: 8,
-    October: 9,
-    November: 10,
-    December: 11,
-  };
-
   const currentMonthInfo = useMemo(() => {
     const [monthName, yearValue] = currentMonth.split(' ');
-    const monthIndex = monthIndexMap[monthName] ?? 0;
+    const monthIndex = MONTH_INDEX_MAP[monthName] ?? 0;
     const year = Number.parseInt(yearValue, 10) || new Date().getFullYear();
     return { monthIndex, year };
   }, [currentMonth]);
@@ -159,7 +158,7 @@ function Dashboard() {
 
   const shiftMonth = (direction) => {
     const [monthName, yearValue] = currentMonth.split(' ');
-    const monthIndex = monthIndexMap[monthName] ?? 0;
+    const monthIndex = MONTH_INDEX_MAP[monthName] ?? 0;
     const year = Number.parseInt(yearValue, 10) || new Date().getFullYear();
     const nextDate = new Date(year, monthIndex + direction, 1);
     setCurrentMonth(nextDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
@@ -238,6 +237,7 @@ function Dashboard() {
     if (
       activityFilter === 'workspaces'
       || actionType.startsWith('workspace.')
+      || actionText.includes('workspace')
     ) {
       return 'workspace';
     }

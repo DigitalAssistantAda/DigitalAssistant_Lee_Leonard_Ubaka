@@ -42,6 +42,23 @@ function UserSettings() {
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('token');
 
+  useEffect(() => {
+    if (!token) {
+      navigate('/login');
+    }
+  }, [token, navigate]);
+
+  const syncUserAccent = (accentColor) => {
+    try {
+      const rawUser = localStorage.getItem('user');
+      if (!rawUser) return;
+      const parsed = JSON.parse(rawUser);
+      if (!parsed || typeof parsed !== 'object') return;
+      parsed.accent_color = normalizeHexColor(accentColor) || null;
+      localStorage.setItem('user', JSON.stringify(parsed));
+    } catch (_) {}
+  };
+
   const getDefaultAccent = () => {
     const value = getComputedStyle(document.documentElement)
       .getPropertyValue('--accent-primary')
@@ -84,6 +101,7 @@ function UserSettings() {
         if (response.ok) {
           const data = await response.json();
           const normalizedAccent = normalizeHexColor(data.accent_color);
+          syncUserAccent(normalizedAccent);
           setAccentColor(normalizedAccent || '');
           if (normalizedAccent) {
             localStorage.setItem(USER_ACCENT_STORAGE_KEY, normalizedAccent);
@@ -156,6 +174,7 @@ function UserSettings() {
       } else {
         const data = await response.json();
         const normalizedAccent = normalizeHexColor(data.accent_color);
+        syncUserAccent(normalizedAccent);
         setAccentColor(normalizedAccent || '');
         if (normalizedAccent) {
           localStorage.setItem(USER_ACCENT_STORAGE_KEY, normalizedAccent);

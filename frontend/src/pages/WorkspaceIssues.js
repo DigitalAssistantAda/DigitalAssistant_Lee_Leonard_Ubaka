@@ -148,13 +148,13 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     return result;
   }, [normalizedIssues, statusFilter, searchQuery]);
 
-  const isAssignedToMe = (issue) => {
+  const isAssignedToMe = useCallback((issue) => {
     if (!currentUserId) return false;
     const assignees = Array.isArray(issue.assignees) && issue.assignees.length
       ? issue.assignees
       : (issue.assigned_to ? [issue.assigned_to] : []);
     return assignees.includes(currentUserId);
-  };
+  }, [currentUserId]);
 
   const todoSortedIssues = useMemo(() => {
     const assigned = filteredIssues.filter(isAssignedToMe);
@@ -166,7 +166,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       (issue) => completedStatuses.includes(issue.effectiveStatus || issue.status)
     );
     return [...incomplete, ...completed];
-  }, [filteredIssues, currentUserId]);
+  }, [filteredIssues, isAssignedToMe]);
 
   const kanbanColumns = useMemo(() => {
     return ISSUE_STATUS_ORDER.map((status) => ({
@@ -225,6 +225,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
     fetchIssues();
     fetchMembers();
     fetchWorkspaces();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedWorkspaceId, API_URL, token, assignmentScope, currentUserId]);
 
   useEffect(() => {
@@ -249,6 +250,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
       window.removeEventListener('documents-updated', handleWorkspaceUpdated);
       window.removeEventListener('containers-updated', handleWorkspaceUpdated);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedWorkspaceId, assignmentScope, currentUserId]);
 
   useEffect(() => {

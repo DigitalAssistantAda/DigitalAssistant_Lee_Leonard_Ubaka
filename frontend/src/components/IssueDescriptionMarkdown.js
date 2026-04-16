@@ -108,10 +108,11 @@ function parseBlocks(text) {
         items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
         i += 1;
       }
+      const listKey = blockKey++;
       elements.push(
-        <ul key={`md-${blockKey++}`}>
+        <ul key={`md-${listKey}`}>
           {items.map((item, j) => (
-            <li key={j}>{formatInline(item, `ul-${blockKey}-${j}`)}</li>
+            <li key={j}>{formatInline(item, `ul-${listKey}-${j}`)}</li>
           ))}
         </ul>
       );
@@ -124,10 +125,11 @@ function parseBlocks(text) {
         items.push(lines[i].trim().replace(/^\d+\.\s+/, ''));
         i += 1;
       }
+      const listKey = blockKey++;
       elements.push(
-        <ol key={`md-${blockKey++}`}>
+        <ol key={`md-${listKey}`}>
           {items.map((item, j) => (
-            <li key={j}>{formatInline(item, `ol-${blockKey}-${j}`)}</li>
+            <li key={j}>{formatInline(item, `ol-${listKey}-${j}`)}</li>
           ))}
         </ol>
       );

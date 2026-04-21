@@ -1,5 +1,9 @@
 FROM node:20-alpine
 
+# Cache package manifests outside /app so the bind mount can't shadow them (iCloud errno -35)
+RUN mkdir /pkg-cache
+COPY package.json package-lock.json /pkg-cache/
+
 WORKDIR /app
 
 # Copy both files explicitly so the lockfile is always in the image (see npm ci requirements).

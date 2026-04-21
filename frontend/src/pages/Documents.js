@@ -4,7 +4,6 @@ import { Upload, Download, Trash2, Search, Grid3x3, List, X, Plus, Folder, Folde
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import AccessState from '../components/AccessState';
 import ColorSwatchPicker from '../components/ColorSwatchPicker';
-import LoadingState from '../components/LoadingState';
 import TxtPreview from '../components/document-previews/TxtPreview';
 import DocxPreview from '../components/document-previews/DocxPreview';
 import PdfPreview from '../components/document-previews/PdfPreview';
@@ -19,15 +18,14 @@ function Documents({ currentUser }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { containerId: containerIdParam } = useParams();
-  const [documents, setDocuments] = useState([]);
+  const [, setDocuments] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
   const [dbContainers, setDbContainers] = useState([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState('');
   const [uploadTargetContainerId, setUploadTargetContainerId] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadFile, setUploadFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [showCreateContainer, setShowCreateContainer] = useState(false);
   const [createContainerParentId, setCreateContainerParentId] = useState(null);
@@ -81,7 +79,6 @@ function Documents({ currentUser }) {
     } catch (_) {}
     return { ...defaultVisibleColumns };
   });
-  const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [showFolderOptionsMenu, setShowFolderOptionsMenu] = useState(false);
   const folderOptionsMenuRef = useRef(null);
 
@@ -185,12 +182,16 @@ function Documents({ currentUser }) {
     return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   };
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     fetchWorkspaces();
     fetchContainers();
   }, []);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   // Clean up processing poll on unmount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     return () => {
       if (processingPollRef.current) clearInterval(processingPollRef.current);
@@ -461,6 +462,7 @@ function Documents({ currentUser }) {
       window.removeEventListener('documents-updated', handleDocumentsUpdated);
     };
   }, [openedFolder, selectedWorkspace, workspaceIdFromQuery, containerIdParam]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const checkDuplicateUploadInContainer = async (containerId, file) => {
     const formData = new FormData();
@@ -469,30 +471,6 @@ function Documents({ currentUser }) {
       method: 'POST',
       body: formData,
     });
-  };
-
-  const resolveWorkspaceUploadContainerId = (workspaceId) => {
-    const numericWorkspaceId = Number(workspaceId);
-    if (!Number.isFinite(numericWorkspaceId) || numericWorkspaceId <= 0) return null;
-
-    const workspaceContainers = (Array.isArray(dbContainers) ? dbContainers : []).filter(
-      (container) => Number(container?.workspace_id) === numericWorkspaceId
-    );
-    if (!workspaceContainers.length) return null;
-
-    const defaultContainer = workspaceContainers.find((container) => Boolean(container?.is_workspace_default));
-    if (defaultContainer?.id != null) {
-      const id = Number(defaultContainer.id);
-      if (Number.isFinite(id) && id > 0) return id;
-    }
-
-    const topLevelContainer = workspaceContainers.find((container) => container?.parent_container_id == null);
-    if (topLevelContainer?.id != null) {
-      const id = Number(topLevelContainer.id);
-      if (Number.isFinite(id) && id > 0) return id;
-    }
-
-    return null;
   };
 
   const handleFileUpload = async (e) => {
@@ -522,6 +500,9 @@ function Documents({ currentUser }) {
 
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Your session expired. Please sign in again.');
+      }
       const uploadResults = await Promise.all(
         uploadFiles.map(async (file) => {
           try {
@@ -762,18 +743,6 @@ const handleCreateContainer = async (e) => {
   }
 };
 
-  const handleDeleteDocument = async (docId) => {
-    if (!window.confirm('Delete this document?')) return;
-
-    try {
-      await apiFetch(`/api/v1/documents/${docId}`, { method: 'DELETE' });
-      setError(null);
-      fetchDocuments();
-    } catch (err) {
-      setError(err?.message || 'Failed to delete document');
-    }
-  };
-
   const [requestingDeletionId, setRequestingDeletionId] = useState(null);
 
   const handleRequestDeletion = async (docId, docFilename) => {
@@ -796,39 +765,12 @@ const handleCreateContainer = async (e) => {
     }
   };
 
-  const handleBulkDelete = async () => {
-    if (selectedDocuments.size === 0) return;
-    const count = selectedDocuments.size;
-    if (!window.confirm(`Delete ${count} document${count > 1 ? 's' : ''}?`)) return;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const docIds = Array.from(selectedDocuments);
-      const results = await Promise.allSettled(
-        docIds.map((docId) => apiFetch(`/api/v1/documents/${docId}`, { method: 'DELETE' }))
-      );
-      const succeededIds = new Set(docIds.filter((_, i) => results[i].status === 'fulfilled'));
-      const failed = results.filter((r) => r.status === 'rejected');
-      if (succeededIds.size > 0) {
-        setSelectedDocuments((prev) => new Set([...prev].filter((id) => !succeededIds.has(id))));
-        fetchDocuments();
-      }
-      if (failed.length > 0) {
-        const firstReason = failed[0].reason?.message || 'Delete failed';
-        setError(failed.length === 1 ? firstReason : `${firstReason} (and ${failed.length - 1} other failure${failed.length > 2 ? 's' : ''})`);
-      }
-    } catch (err) {
-      setError(err?.message || 'Failed to delete documents');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
   const handleDownloadDocument = async (docId, filename) => {
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Your session expired. Please sign in again.');
+      }
       const response = await fetch(`${API_URL}/api/v1/documents/${docId}/download`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1388,16 +1330,6 @@ const handleCreateContainer = async (e) => {
     navigate(backTarget);
   };
 
-  const handleWorkspaceSelect = (value) => {
-    const nextWorkspaceId = Number(value);
-    if (!Number.isFinite(nextWorkspaceId) || nextWorkspaceId <= 0) {
-      setSelectedWorkspace('');
-      return;
-    }
-
-    setSelectedWorkspace(nextWorkspaceId);
-  };
-
   const handleDeleteFolderDocument = async (docId) => {
     if (!window.confirm('Delete this document?')) return;
 
@@ -1757,40 +1689,10 @@ const handleCreateContainer = async (e) => {
     setSelectedFolders(nextSelected);
   };
 
-  const handleSelectAll = () => {
-    if (selectedDocuments.size === filteredDocuments.length) {
-      setSelectedDocuments(new Set());
-    } else {
-      setSelectedDocuments(new Set(filteredDocuments.map(doc => doc.id)));
-    }
-  };
-
-  const handleClearUploadForm = () => {
-    setUploadFiles([]);
-    setUploadProgress({});
-    setError(null);
-  };
-
   const handleDocumentDoubleClick = (doc) => {
     setPreviewDocument(doc);
     setShowPreviewModal(true);
   };
-
-  const blockedNames = new Set([
-    'component library v2.3.fig',
-    'design tokens spec.pdf',
-    'accessibility guidelines.docx'
-  ]);
-
-  const filteredDocuments = useMemo(() => {
-    return documents.filter(doc => {
-      const filename = (doc.filename || '').toLowerCase();
-      if (blockedNames.has(filename)) return false;
-      const matchSearch = filename.includes(searchQuery.toLowerCase());
-      return matchSearch;
-    });
-  }, [documents, searchQuery]);
-
 
   const containers = useMemo(() => {
     const palette = ['#93c5fd','#fda4af','#f59e0b','#a78bfa','#f472b6','#60a5fa','#34d399','#fbd38d'];
@@ -2772,8 +2674,6 @@ const handleCreateContainer = async (e) => {
 
                 const doc = entry.item;
                 const statusDisplay = getDocumentStatusDisplay(doc);
-                const isRetryingIndex = retryingDocIds.has(doc.id);
-                const canRetryIndexing = statusDisplay.statusKey === 'failed' || statusDisplay.statusKey === 'processing' || statusDisplay.statusKey === 'uploaded';
                 return (
                   <div
                     key={doc.id}

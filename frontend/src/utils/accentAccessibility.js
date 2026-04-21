@@ -11,6 +11,8 @@ export const normalizeHexColor = (value) => {
 };
 
 export const USER_ACCENT_STORAGE_KEY = 'ada:user-accent-color';
+const ACCENT_CACHE_KEY = 'ada:accent-vars:v1';
+const ACCENT_COLOR_KEY = 'ada:accent-color';
 
 const hexToRgb = (hex) => {
   const normalized = normalizeHexColor(hex);
@@ -266,6 +268,23 @@ export const applyAccentColor = (color) => {
   root.style.setProperty('--accent-secondary-custom-dark', darkSet.secondary);
   root.style.setProperty('--accent-highlight-custom-dark', darkSet.highlight);
   root.style.setProperty('--accent-contrast-custom-dark', darkSet.contrast);
+
+  try {
+    const cache = {
+      '--accent-primary-custom': lightSet.accent,
+      '--accent-hover-custom': lightSet.hover,
+      '--accent-secondary-custom': lightSet.secondary,
+      '--accent-highlight-custom': lightSet.highlight,
+      '--accent-contrast-custom': lightSet.contrast,
+      '--accent-primary-custom-dark': darkSet.accent,
+      '--accent-hover-custom-dark': darkSet.hover,
+      '--accent-secondary-custom-dark': darkSet.secondary,
+      '--accent-highlight-custom-dark': darkSet.highlight,
+      '--accent-contrast-custom-dark': darkSet.contrast,
+    };
+    localStorage.setItem(ACCENT_CACHE_KEY, JSON.stringify(cache));
+    localStorage.setItem(ACCENT_COLOR_KEY, nextColor);
+  } catch (_) {}
 };
 
 export const buildAccessibleAccentTokens = (accentHex, backgroundHex) => {

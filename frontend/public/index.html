@@ -14,8 +14,61 @@
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Pinyon+Script&family=La+Belle+Aurore&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Sen:wght@400;500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
     <title>Ada — Digital Assistant</title>
     <script>
-      // Apply dark mode before first paint to prevent white flash on loading screens
-      (function(){try{if(localStorage.getItem('darkMode')==='true'){document.documentElement.classList.add('dark');document.querySelector('meta[name="theme-color"]').setAttribute('content','#1b1b1e')}}catch(e){}})();
+      // Apply theme + cached accent tokens before first paint to prevent color flash.
+      (function () {
+        try {
+          var root = document.documentElement;
+          var themeMeta = document.querySelector('meta[name="theme-color"]');
+          if (localStorage.getItem('darkMode') === 'true') {
+            root.classList.add('dark');
+            if (themeMeta) themeMeta.setAttribute('content', '#1b1b1e');
+          }
+
+          var rawAccentCache = localStorage.getItem('ada:accent-vars:v1');
+          if (rawAccentCache) {
+            var accentCache = JSON.parse(rawAccentCache);
+            if (accentCache && typeof accentCache === 'object') {
+              Object.keys(accentCache).forEach(function (key) {
+                var value = accentCache[key];
+                if (typeof value === 'string' && value) {
+                  root.style.setProperty(key, value);
+                }
+              });
+              return;
+            }
+          }
+
+          // Fallbacks for sessions created before token cache existed.
+          var rawAccent = localStorage.getItem('ada:accent-color')
+            || localStorage.getItem('accent_color');
+          if (!rawAccent) {
+            var rawUser = localStorage.getItem('user');
+            if (rawUser) {
+              try {
+                var parsedUser = JSON.parse(rawUser);
+                if (parsedUser && typeof parsedUser.accent_color === 'string') {
+                  rawAccent = parsedUser.accent_color;
+                }
+              } catch (_) {}
+            }
+          }
+
+          if (typeof rawAccent === 'string') {
+            rawAccent = rawAccent.trim();
+          }
+          if (typeof rawAccent === 'string' && /^#?[0-9A-Fa-f]{6}$/.test(rawAccent)) {
+            var hex = rawAccent.charAt(0) === '#' ? rawAccent.toUpperCase() : ('#' + rawAccent.toUpperCase());
+            root.style.setProperty('--accent-primary-custom', hex);
+            root.style.setProperty('--accent-hover-custom', hex);
+            root.style.setProperty('--accent-secondary-custom', hex);
+            root.style.setProperty('--accent-highlight-custom', hex);
+            root.style.setProperty('--accent-primary-custom-dark', hex);
+            root.style.setProperty('--accent-hover-custom-dark', hex);
+            root.style.setProperty('--accent-secondary-custom-dark', hex);
+            root.style.setProperty('--accent-highlight-custom-dark', hex);
+          }
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body>

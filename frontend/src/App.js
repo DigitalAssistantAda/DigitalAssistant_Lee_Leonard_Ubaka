@@ -25,12 +25,32 @@ function App() {
   const [loading, setLoading] = useState(true);
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
+  const seedAccentCache = (accentColor) => {
+    try {
+      const normalized = normalizeHexColor(accentColor);
+      if (!normalized) return;
+      localStorage.setItem('ada:accent-color', normalized);
+      localStorage.setItem('accent_color', normalized);
+    } catch (_) {}
+  };
+
+  const syncUserAccent = (accentColor) => {
+    try {
+      const rawUser = localStorage.getItem('user');
+      if (!rawUser) return;
+      const parsed = JSON.parse(rawUser);
+      if (!parsed || typeof parsed !== 'object') return;
+      parsed.accent_color = normalizeHexColor(accentColor) || null;
+      localStorage.setItem('user', JSON.stringify(parsed));
+    } catch (_) {}
+  };
+
   useLayoutEffect(() => {
     if (localStorage.getItem('darkMode') === 'true') {
       document.documentElement.classList.add('dark');
     }
-
-    const cachedAccent = normalizeHexColor(localStorage.getItem(USER_ACCENT_STORAGE_KEY));
+    const cachedAccent = normalizeHexColor(localStorage.getItem(USER_ACCENT_STORAGE_KEY))
+      || normalizeHexColor(localStorage.getItem('ada:accent-color'));
     applyAccentColor(cachedAccent);
   }, []);
 
@@ -87,6 +107,8 @@ function App() {
       try {
         const data = await apiFetch('/api/v1/users/preferences');
         const normalizedAccent = normalizeHexColor(data?.accent_color);
+        syncUserAccent(normalizedAccent);
+        seedAccentCache(normalizedAccent);
         if (normalizedAccent) {
           localStorage.setItem(USER_ACCENT_STORAGE_KEY, normalizedAccent);
         } else {
@@ -97,6 +119,10 @@ function App() {
         console.error('Error fetching preferences:', err);
       }
     };
+
+    // Avoid clearing cached/pre-applied accent during initial auth bootstrap,
+    // otherwise a refresh can briefly flash back to default colors.
+    if (loading) return;
 
     if (user) {
       fetchPreferences();

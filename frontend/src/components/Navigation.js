@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Bell, Moon, Sun, LogOut, Settings, Search, X } from 'lucide-react';
 import adaFlower from '../ada_logo.png';
+import { applyAccentColor, normalizeHexColor } from '../utils/accentAccessibility';
 import './Navigation.css';
 
 function Navigation({ user, onLogout }) {
@@ -14,6 +15,17 @@ function Navigation({ user, onLogout }) {
   const navigate = useNavigate();
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
   const notifCountFetchSeq = useRef(0);
+
+  const syncUserAccent = (accentColor) => {
+    try {
+      const rawUser = localStorage.getItem('user');
+      if (!rawUser) return;
+      const parsed = JSON.parse(rawUser);
+      if (!parsed || typeof parsed !== 'object') return;
+      parsed.accent_color = normalizeHexColor(accentColor) || null;
+      localStorage.setItem('user', JSON.stringify(parsed));
+    } catch (_) {}
+  };
 
   const profileInitial = (user?.username || 'A').charAt(0).toUpperCase();
 
@@ -55,6 +67,15 @@ function Navigation({ user, onLogout }) {
         if (cancelled || mySeq !== notifCountFetchSeq.current) return;
 
         const prefsData = prefsResponse.ok ? await prefsResponse.json() : {};
+        if (prefsResponse.ok) {
+          syncUserAccent(prefsData?.accent_color ?? null);
+          const normalized = normalizeHexColor(prefsData?.accent_color ?? null);
+          if (normalized) {
+            localStorage.setItem('ada:accent-color', normalized);
+            localStorage.setItem('accent_color', normalized);
+          }
+          applyAccentColor(prefsData?.accent_color ?? null);
+        }
         const dn = prefsData?.dismissed_notification_ids;
         const dismissedMentionIds = new Set(
           (Array.isArray(dn?.mention_ids) ? dn.mention_ids : []).map(String)

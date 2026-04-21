@@ -71,6 +71,14 @@ function NotificationsPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        setNotifications([]);
+        setMentionNotifications([]);
+        setTaskNotifications([]);
+        setWorkspaceInvitations([]);
+        setDismissedIds({ ...EMPTY_DISMISSED });
+        return;
+      }
 
       const response = await fetch(`${API_URL}/api/v1/deletion-requests/all`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -217,7 +225,7 @@ function NotificationsPage() {
     }
   }, [API_URL, currentUserId]);
 
-  useEffect(() => { fetchNotifications(); }, [fetchNotifications, filter]);
+  useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
 
   useEffect(() => {
     const onUpdate = () => fetchNotifications();

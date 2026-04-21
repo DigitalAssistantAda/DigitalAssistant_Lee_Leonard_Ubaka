@@ -60,6 +60,12 @@ function AIAssistant() {
   const API_URL = (process.env.REACT_APP_API_URL || localStorage.getItem('api_url') || 'http://localhost:8000').replace(/\/+$/, '');
   const token = localStorage.getItem('token');
 
+  useEffect(() => {
+    if (!token) {
+      navigate('/login');
+    }
+  }, [token, navigate]);
+
   const getFriendlyErrorMessage = (error, fallbackMessage) => {
     const raw = String(error?.message || '').toLowerCase();
     if (raw.includes('failed to fetch') || raw.includes('networkerror')) {

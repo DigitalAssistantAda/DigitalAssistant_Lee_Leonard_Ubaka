@@ -3,7 +3,12 @@ from dotenv import load_dotenv
 import os
 
 # Load environment variables from .env file
-load_dotenv()
+try:
+    load_dotenv()
+except OSError:
+    # On some macOS/iCloud-mounted paths, reading .env can raise
+    # "Resource deadlock avoided". Docker env_file still provides vars.
+    pass
 
 
 class Settings(BaseSettings):

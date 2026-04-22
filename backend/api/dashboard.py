@@ -1,6 +1,8 @@
 """
 Dashboard statistics endpoint - provides user stats and recent activity
 """
+import json
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -16,6 +18,42 @@ from typing import Dict, Any, List
 from datetime import datetime, timedelta, timezone
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+def _parse_audit_metadata(raw_metadata: Any) -> Dict[str, Any]:
+    if isinstance(raw_metadata, dict):
+        return raw_metadata
+    if isinstance(raw_metadata, str):
+        try:
+            parsed = json.loads(raw_metadata)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _resolve_task_history_activity(log: AuditLog, metadata: Dict[str, Any], fallback_name: str | None) -> tuple[str, str]:
+    task_name = metadata.get("task_title") or fallback_name
+    if not task_name:
+        task_name = f"Task #{log.object_id}" if log.object_id else "task"
+    changes = metadata.get("changes") or []
+    status_change = next(
+        (
+            change for change in changes
+            if isinstance(change, dict)
+            and change.get("field") == "status"
+            and str(change.get("new") or "").lower() in {"completed", "closed"}
+        ),
+        None,
+    )
+
+    if status_change:
+        next_status = str(status_change.get("new") or "").lower()
+        if next_status == "completed":
+            return f"Completed {task_name}", "task.completed"
+        return f"Closed {task_name}", "task.closed"
+
+    return f"Updated {task_name}", "task.updated"
 
 
 @router.get("/stats")
@@ -131,16 +169,20 @@ async def get_recent_activity(
         # Extract item name and location from metadata
         item_name = None
         location_name = None
+        metadata = _parse_audit_metadata(log.metadata_json)
         
-        if log.metadata_json and isinstance(log.metadata_json, dict):
-            item_name = log.metadata_json.get("filename") or log.metadata_json.get("name")
-            location_name = log.metadata_json.get("workspace_name") or log.metadata_json.get("container_name")
+        if metadata:
+            item_name = metadata.get("filename") or metadata.get("name") or metadata.get("task_title")
+            location_name = metadata.get("workspace_name") or metadata.get("container_name")
         
         # Fallback: fetch from database if not in metadata
         if not item_name:
             if log.object_type == "document" and log.object_id:
                 doc = db.query(Document).filter(Document.id == log.object_id).first()
                 item_name = doc.filename if doc else "document"
+            elif log.object_type == "task" and log.object_id:
+                task = db.query(Task).filter(Task.id == log.object_id).first()
+                item_name = task.title if task else "task"
             elif log.object_type == "container" and log.object_id:
                 from models.container import Container
                 container = db.query(Container).filter(Container.id == log.object_id).first()
@@ -155,9 +197,11 @@ async def get_recent_activity(
             location_name = workspace.name if workspace else None
         
         # Build action description based on action type
-                # Build action description based on action type
+        resolved_action_type = log.action
         action_description = ""
-        if "uploaded" in log.action:
+        if log.action == "task.history":
+            action_description, resolved_action_type = _resolve_task_history_activity(log, metadata, item_name)
+        elif "uploaded" in log.action:
             action_description = f"uploaded {item_name}"
             if location_name:
                 action_description += f" to {location_name}"
@@ -172,8 +216,8 @@ async def get_recent_activity(
         elif "invite_sent" in log.action or "member_invited" in log.action:
             # Get who sent the invite
             invited_user_name = None
-            if log.metadata_json and isinstance(log.metadata_json, dict):
-                invited_user_email = log.metadata_json.get("invited_email")
+            if metadata:
+                invited_user_email = metadata.get("invited_email")
                 if invited_user_email:
                     invited_user = db.query(User).filter(User.email == invited_user_email).first()
                     invited_user_name = invited_user.username if invited_user else invited_user_email
@@ -195,7 +239,9 @@ async def get_recent_activity(
         }
 
         icon_type = action_map.get(log.action, "success")
-        if log.action.startswith("workspace.") or log.object_type in {"workspace", "workspace_member"}:
+        if resolved_action_type.startswith("task."):
+            icon_type = "success"
+        elif log.action.startswith("workspace.") or log.object_type in {"workspace", "workspace_member"}:
             icon_type = "workspace"
         elif log.action.startswith("search."):
             icon_type = "search"
@@ -206,7 +252,7 @@ async def get_recent_activity(
             "type": icon_type,
             "time": time_ago,
             "status": "success",
-            "action_type": log.action,
+            "action_type": resolved_action_type,
             "created_at": log.created_at.isoformat()
         })
     

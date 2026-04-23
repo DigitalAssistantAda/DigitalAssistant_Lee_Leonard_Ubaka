@@ -20,6 +20,7 @@ import {
   PanelLeft,
 } from 'lucide-react';
 import './AIAssistant.css';
+import IssueDescriptionMarkdown from '../components/IssueDescriptionMarkdown';
 import { scheduleClientFilterSearchLog } from '../utils/clientSearchActivity';
 
 const HISTORY_SIDEBAR_KEY = 'ada:chat-history-collapsed';
@@ -808,7 +809,14 @@ function AIAssistant() {
                   <article key={message.id} className={`ada-message ${message.role}`}>
                     <div className="ada-message-avatar">{message.role === 'user' ? <User size={14} /> : 'A'}</div>
                     <div className="ada-message-body">
-                      <p className="ada-message-text">{message.content}</p>
+                      {message.role === 'assistant' ? (
+                        <IssueDescriptionMarkdown
+                          text={message.content}
+                          className="ada-message-text ada-message-markdown"
+                        />
+                      ) : (
+                        <p className="ada-message-text">{message.content}</p>
+                      )}
                       {message.sources && message.sources.length > 0 && (
                         <div className="ada-source-row">
                           {message.sources.map((source, index) => (

@@ -46,6 +46,37 @@ function Login({ onLogin }) {
     return [];
   };
 
+  const parseRetryAfterSeconds = (errorData, response) => {
+    const candidates = [
+      errorData?.error?.retry_after_seconds,
+      errorData?.error?.retry_after,
+      errorData?.retry_after_seconds,
+      errorData?.retry_after,
+      errorData?.detail?.retry_after_seconds,
+      response?.headers?.get('Retry-After'),
+    ];
+
+    for (const value of candidates) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.ceil(parsed);
+      }
+    }
+
+    return null;
+  };
+
+  const formatWaitDuration = (seconds) => {
+    if (!Number.isFinite(seconds) || seconds <= 0) return null;
+    if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
+
+    const minutes = Math.ceil(seconds / 60);
+    if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+
+    const hours = Math.ceil(minutes / 60);
+    return `${hours} hour${hours === 1 ? '' : 's'}`;
+  };
+
   const buildRegisterErrors = (errorData) => {
     const validationDetails = getValidationDetails(errorData);
     if (validationDetails.length > 0) {
@@ -70,7 +101,7 @@ function Login({ onLogin }) {
     return ['Registration failed. Please check your details and try again.'];
   };
 
-  const buildLoginErrors = (errorData) => {
+  const buildLoginErrors = (errorData, response) => {
     const validationDetails = getValidationDetails(errorData);
     if (validationDetails.length > 0) {
       return validationDetails.map((item) => {
@@ -86,7 +117,14 @@ function Login({ onLogin }) {
     if (errorCode === 'USER_NOT_FOUND') return ['No account found for that email or username.'];
     if (errorCode === 'INVALID_PASSWORD') return ['Password is incorrect.'];
     if (errorCode === 'ACCOUNT_INACTIVE') return ['Your account is inactive. Contact your workspace administrator.'];
-    if (errorCode === 'RATE_LIMITED') return ['Too many attempts. Please wait and try again.'];
+    if (errorCode === 'RATE_LIMITED') {
+      const retryAfterSeconds = parseRetryAfterSeconds(errorData, response);
+      const waitDuration = formatWaitDuration(retryAfterSeconds);
+      if (waitDuration) {
+        return [`Too many attempts. Please try again in about ${waitDuration}.`];
+      }
+      return ['Too many attempts. Please wait up to 5 minutes and try again.'];
+    }
 
     const apiMessage = parseApiErrorMessage(errorData, null);
     if (apiMessage) return [apiMessage];
@@ -117,7 +155,7 @@ function Login({ onLogin }) {
         if (isRegister) {
           setErrorMessages(buildRegisterErrors(errorData));
         } else {
-          setErrorMessages(buildLoginErrors(errorData));
+          setErrorMessages(buildLoginErrors(errorData, response));
         }
         setLoading(false);
         return;

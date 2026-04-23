@@ -427,6 +427,308 @@ def _format_summary_block(filename: str, summary_text: str, detailed: bool) -> s
     return "\n".join(lines)
 
 
+def _clean_fallback_snippet(text: str, max_chars: int = 420) -> str:
+    clean = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    # Replace filled checkmark symbols inside brackets: [✓] → [x]; bare ✓ → x
+    clean = re.sub(r"\[([✓✔☑])\]", "[x]", clean)
+    clean = re.sub(r"[✓✔☑]", "x", clean)
+    clean = re.sub(r"(?:[ \t]*[-–—_=|/\\]{2,}[ \t]*)+", " ", clean)
+    # Collapse horizontal whitespace only (preserve newlines)
+    clean = re.sub(r"[ \t]+", " ", clean)
+    # Collapse 3+ consecutive newlines to 2
+    clean = re.sub(r"\n{3,}", "\n\n", clean)
+    # Re-insert newlines before checklist items that got squashed onto one line
+    # e.g. "foo [ ] bar" → "foo\n[ ] bar"
+    clean = re.sub(r"(?<!\n)([ \t]*\[ ?[xX ]?\])", r"\n\1", clean)
+    clean = clean.strip(" \t\n-:;,.")
+    if not clean:
+        return "No readable excerpt available."
+    if len(clean) <= max_chars:
+        return clean
+
+    clipped = clean[:max_chars]
+    sentence_end = max(clipped.rfind(". "), clipped.rfind("? "), clipped.rfind("! "))
+    if sentence_end >= max_chars // 2:
+        return clipped[:sentence_end + 1].strip()
+    word_end = clipped.rfind(" ")
+    if word_end >= max_chars // 2:
+        clipped = clipped[:word_end]
+    return clipped.rstrip(" ,;:") + "..."
+
+
+def _extract_answer_preview(user_query: str, snippets: list[str], max_sentences: int = 2) -> str:
+    cleaned_snippets = [snippet for snippet in (_clean_fallback_snippet(s, max_chars=320) for s in snippets) if snippet]
+    if not cleaned_snippets:
+        return "I found relevant evidence below."
+
+    query_terms = _extract_retrieval_terms(user_query, max_terms=8)
+    ranked_sentences: list[tuple[int, str]] = []
+    for snippet in cleaned_snippets[:3]:
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", snippet) if s.strip()]
+        if not sentences:
+            sentences = [snippet]
+        for sentence in sentences:
+            lowered = sentence.lower()
+            score = sum(1 for term in query_terms if term and term in lowered)
+            if any(ch.isdigit() for ch in sentence):
+                score += 1
+            ranked_sentences.append((score, sentence))
+
+    ranked_sentences.sort(key=lambda item: item[0], reverse=True)
+    chosen: list[str] = []
+    seen: set[str] = set()
+    for _score, sentence in ranked_sentences:
+        key = sentence.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        chosen.append(sentence)
+        if len(chosen) >= max_sentences:
+            break
+
+    if not chosen:
+        return cleaned_snippets[0]
+    return " ".join(chosen)
+
+
+def _query_wants_table(query_text: str) -> bool:
+    text = (query_text or "").lower()
+    if not text:
+        return False
+    markers = (
+        "table",
+        "tabular",
+        "matrix",
+        "put it in a table",
+        "format as a table",
+        "compare",
+        "columns",
+        "rows",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _query_wants_list(query_text: str) -> bool:
+    text = (query_text or "").lower()
+    if not text:
+        return False
+    markers = (
+        "list",
+        "bullet",
+        "itemize",
+        "items",
+        "steps",
+        "step by step",
+        "numbered",
+        "checklist",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _query_wants_numbered_list(query_text: str) -> bool:
+    text = (query_text or "").lower()
+    if not text:
+        return False
+    markers = (
+        "numbered",
+        "steps",
+        "step by step",
+        "step-by-step",
+        "checklist",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _has_markdown_table(text: str) -> bool:
+    if not text:
+        return False
+    has_row = re.search(r"(?m)^\s*\|.+\|\s*$", text) is not None
+    has_separator = re.search(r"(?m)^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$", text) is not None
+    return has_row and has_separator
+
+
+def _has_markdown_list(text: str) -> bool:
+    if not text:
+        return False
+    return re.search(r"(?m)^\s*(?:[-*+]\s+|\d+\.\s+)", text) is not None
+
+
+def _markdown_table_from_rows(rows: list[list[str]]) -> str:
+    if len(rows) < 2:
+        return ""
+    col_count = len(rows[0])
+    if col_count < 2:
+        return ""
+    if any(len(row) != col_count for row in rows):
+        return ""
+
+    header = [cell.strip() or f"Column {idx + 1}" for idx, cell in enumerate(rows[0])]
+    separator = ["---"] * col_count
+    body = [[cell.strip() or "-" for cell in row] for row in rows[1:]]
+
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join(separator) + " |",
+    ]
+    lines.extend("| " + " | ".join(row) + " |" for row in body)
+    return "\n".join(lines)
+
+
+def _try_delimited_text_to_table(content: str) -> str:
+    lines = [line.strip() for line in (content or "").splitlines() if line.strip()]
+    if len(lines) < 2:
+        return ""
+
+    # Try to convert plain pipe rows without markdown separator.
+    if all("|" in line for line in lines) and not _has_markdown_table(content):
+        rows = [[cell.strip() for cell in line.strip("|").split("|")] for line in lines]
+        table = _markdown_table_from_rows(rows)
+        if table:
+            return table
+
+    # Try tab or comma delimited rows with consistent column count.
+    delimiter = "\t" if all("\t" in line for line in lines) else None
+    if delimiter is None and all("," in line and line.count(",") <= 6 and not line.endswith(".") for line in lines
+    ):
+        delimiter = ","
+
+    if delimiter:
+        rows = []
+        for line in lines:
+            raw_cells = [cell.strip().strip('"\'') for cell in line.split(delimiter)]
+            rows.append(raw_cells)
+        table = _markdown_table_from_rows(rows)
+        if table:
+            return table
+
+    return ""
+
+
+def _try_key_value_lines_to_table(content: str) -> str:
+    lines = [line.strip() for line in (content or "").splitlines() if line.strip()]
+    if len(lines) < 2:
+        return ""
+
+    pairs: list[tuple[str, str]] = []
+    prefix_lines: list[str] = []
+    for line in lines:
+        candidate = re.sub(r"^[-*+]\s+", "", line)
+        match = re.match(r"^([^:]{1,80}):\s+(.+)$", candidate)
+        if match:
+            key = match.group(1).strip()
+            value = match.group(2).strip()
+            if key and value:
+                pairs.append((key, value))
+        else:
+            prefix_lines.append(line)
+
+    if len(pairs) < 2:
+        return ""
+
+    table_lines = [
+        "| Item | Value |",
+        "|---|---|",
+    ]
+    table_lines.extend(f"| {key} | {value} |" for key, value in pairs)
+    table = "\n".join(table_lines)
+
+    if prefix_lines:
+        return f"{prefix_lines[0]}\n\n{table}"
+    return table
+
+
+def _split_list_candidates(content: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", content or "").strip()
+    if not normalized:
+        return []
+
+    parts = re.split(
+        r"\s*(?:\n+|\[\s?[xX]?\s?\]\s+|(?<!\S)\d+\.\s+|(?<!\S)[-*+]\s+)",
+        normalized,
+    )
+
+    candidates: list[str] = []
+    for part in parts:
+        for subpart in re.split(r"\s+(?=\d+\.\s+[A-Z])", part):
+            cleaned = subpart.strip(" -:;,.\t\n")
+            if len(cleaned) >= 8:
+                candidates.append(cleaned)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
+def _render_markdown_list(items: list[str], numbered: bool) -> str:
+    if not items:
+        return ""
+    if numbered:
+        return "\n".join(f"{idx + 1}. {item}" for idx, item in enumerate(items))
+    return "\n".join(f"- {item}" for item in items)
+
+
+def _normalize_answer_section_to_list(user_query: str, section_text: str) -> str:
+    if _has_markdown_list(section_text) or _has_markdown_table(section_text):
+        return section_text
+
+    numbered = _query_wants_numbered_list(user_query)
+    items = _split_list_candidates(section_text)
+    if len(items) >= 2:
+        return _render_markdown_list(items[:10], numbered)
+
+    sentence_parts = [
+        part.strip()
+        for part in re.split(r"(?<=[.!?])\s+", section_text)
+        if part.strip()
+    ]
+    if len(sentence_parts) >= 2:
+        return _render_markdown_list(sentence_parts[:8], numbered)
+
+    return section_text
+
+
+def _normalize_assistant_markdown(user_query: str, assistant_content: str) -> str:
+    content = (assistant_content or "").strip()
+    if not content:
+        return assistant_content
+
+    wants_table = _query_wants_table(user_query)
+    wants_list = _query_wants_list(user_query)
+
+    # Preserve already-correct markdown structures.
+    if wants_table and not _has_markdown_table(content):
+        table_from_kv = _try_key_value_lines_to_table(content)
+        if table_from_kv:
+            content = table_from_kv
+        else:
+            table_from_delimited = _try_delimited_text_to_table(content)
+            if table_from_delimited:
+                content = table_from_delimited
+
+    if wants_list:
+        evidence_split = re.split(r"\n(?=#+\s+Evidence\b|Evidence\b)", content, maxsplit=1)
+        leading = evidence_split[0]
+        trailing = f"\n{evidence_split[1]}" if len(evidence_split) > 1 else ""
+
+        answer_match = re.match(r"^(.*?)(#+\s+Answer\b\s*\n|Answer\b\s*\n)(.*)$", leading, flags=re.DOTALL)
+        if answer_match:
+            prefix = answer_match.group(1)
+            answer_heading = answer_match.group(2)
+            answer_body = answer_match.group(3).strip()
+            normalized_answer = _normalize_answer_section_to_list(user_query, answer_body)
+            content = f"{prefix}{answer_heading}{normalized_answer}{trailing}".strip()
+        elif not _has_markdown_list(content) and not _has_markdown_table(content):
+            content = _normalize_answer_section_to_list(user_query, content)
+
+    return content
+
+
 def _is_simple_greeting_or_small_talk(text: str) -> bool:
     """Detect short greetings or small talk that don't need document context."""
     t = (text or "").strip().lower()
@@ -1994,7 +2296,13 @@ def _build_assistant_message_content(
                 combined = f"{combined} {supplemental_text}"
             # Keep a richer contiguous snippet so exact instructions (numbers/ranges) are not lost.
             max_snippet_chars = 1500 if implication_query else 900
-            snippet = " ".join(combined.split())[:max_snippet_chars] if combined.strip() else "No preview available"
+            if combined.strip():
+                # Collapse horizontal whitespace per line but preserve newlines so
+                # checklist items ([ ] ...) and table rows remain on separate lines.
+                cleaned_lines = [re.sub(r"[ \t]+", " ", line).strip() for line in combined.splitlines()]
+                snippet = "\n".join(line for line in cleaned_lines if line)[:max_snippet_chars]
+            else:
+                snippet = "No preview available"
 
         source_match_score = _snippet_match_score(snippet or "", source_terms, source_phrases)
         prepared_rows.append({
@@ -2003,6 +2311,7 @@ def _build_assistant_message_content(
             "chunk": chunk,
             "next_chunk": next_chunk,
             "snippet": snippet,
+            "preview": _clean_fallback_snippet(snippet),
             "chunk_index_value": chunk_index_value,
             "source_match_score": source_match_score,
         })
@@ -2018,6 +2327,7 @@ def _build_assistant_message_content(
         chunk = item["chunk"]
         next_chunk = item["next_chunk"]
         snippet = str(item["snippet"])
+        preview = str(item["preview"])
         chunk_index_value = str(item["chunk_index_value"])
         source_match_score = int(item["source_match_score"])
 
@@ -2065,11 +2375,25 @@ def _build_assistant_message_content(
                 f"   Source: {document.filename}, section {chunk_index_value if chunk_index_value != 'n/a' else 'n/a'}"
             )
         else:
-            line_number = len(lines) + 1
-            lines.append(
-                f"{line_number}. {document.filename}: {snippet}\n"
-                f"   Evidence: {document.filename}, section {chunk_index_value if chunk_index_value != 'n/a' else 'n/a'}"
-            )
+            section_label = f", section {chunk_index_value}" if chunk_index_value != "n/a" else ""
+            # If the preview contains checklist-style lines, format them as a nested
+            # markdown list so ReactMarkdown renders each item on its own line.
+            has_checklist = bool(re.search(r"\[ ?[xX ]?\]", preview))
+            if "\n" in preview and has_checklist:
+                nested: list[str] = []
+                for pline in preview.split("\n"):
+                    pline = pline.strip()
+                    if not pline:
+                        continue
+                    if re.match(r"\[ ?[xX ]?\]", pline):
+                        nested.append(f"  - {pline}")
+                    else:
+                        nested.append(f"  {pline}")
+                formatted = "\n".join(nested)
+                lines.append(f"- **{document.filename}**{section_label}:\n{formatted}")
+            else:
+                indented_preview = preview.replace("\n", "\n  ")
+                lines.append(f"- **{document.filename}**{section_label}: {indented_preview}")
 
     if not lines:
         return (
@@ -2102,10 +2426,16 @@ def _build_assistant_message_content(
             + pending_scope_note
         )
     else:
+        answer_preview = _extract_answer_preview(
+            query_text,
+            [str(item["snippet"]) for item in prepared_rows[:3]],
+        )
+        scope_label = "selected documents" if requested_scope else "workspace documents"
         content = (
-            ("I searched the selected documents and found grounded evidence.\n\n" if requested_scope else "I searched your workspace and found grounded evidence.\n\n")
-            + "Evidence:\n"
+            f"### Answer\n{answer_preview}\n\n"
+            + f"### Evidence\n"
             + "\n".join(lines)
+            + f"\n\nSource scope: {scope_label}."
             + pending_scope_note
         )
     return (content, kept_document_ids or document_ids, chunk_ids, False)
@@ -2417,6 +2747,11 @@ async def send_message(
 
     if summary_request and not assistant_content:
         assistant_content = base_summary_content
+
+    assistant_content = _normalize_assistant_markdown(
+        user_query=request.content,
+        assistant_content=assistant_content,
+    )
 
 
     requested_scope = bool(request.document_ids)

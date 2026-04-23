@@ -126,6 +126,9 @@ class SummaryGenerationService:
             "Keep answers concise and non-repetitive: do not restate the question, avoid repeating the same fact in different wording, and avoid filler phrases like 'based on the context provided'. "
             "Prefer 2-4 sentences unless the user explicitly asks for detailed output. "
             "When a direct sentence in context answers the question, quote or closely paraphrase that sentence first, then add at most one short follow-up sentence. "
+            "When the user requests a table, output a valid GitHub-flavored markdown table with a header row and separator row. "
+            "When the user requests a list or steps, output valid markdown list syntax using bullets or numbered items. "
+            "Do not fake tables using spacing or alignment characters. "
         )
         memory_block = ""
         if memory_window and memory_window.strip():

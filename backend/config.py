@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     summary_llm_provider: str = os.getenv("SUMMARY_LLM_PROVIDER", "anthropic")  # anthropic | openai | azure
     summary_llm_api_url: str = os.getenv("SUMMARY_LLM_API_URL", "https://api.anthropic.com/v1/messages")
     summary_llm_api_key: str = os.getenv("SUMMARY_LLM_API_KEY", "")
-    summary_llm_model: str = os.getenv("SUMMARY_LLM_MODEL", "claude-3-haiku-20240307")
+    summary_llm_model: str = os.getenv("SUMMARY_LLM_MODEL", "claude-3-haiku-20241022")
     summary_llm_timeout_seconds: int = int(os.getenv("SUMMARY_LLM_TIMEOUT_SECONDS", "45"))
     summary_llm_max_input_chars: int = int(os.getenv("SUMMARY_LLM_MAX_INPUT_CHARS", "12000"))
     summary_llm_temperature: float = float(os.getenv("SUMMARY_LLM_TEMPERATURE", "0.2"))

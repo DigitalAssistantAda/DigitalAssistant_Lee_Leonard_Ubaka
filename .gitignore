@@ -99,6 +99,14 @@ R2_SETUP.md
 CODEBASE_GUIDE.md
 SECURITY_TODO.md
 
+# Demo / seed data files
+GoldenCrustFiles/
+RELEASE_CHECKLIST_W15.md
+SETUP.md
+backend/check_files.py
+backend/scripts/upload_golden_crust_pdfs.py
+docs/DEMO_*.md
+
 # Symposium files
 symposium/
 TEST_NOTES_W9_ASSISTANT.md

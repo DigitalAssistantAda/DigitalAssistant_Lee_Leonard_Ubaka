@@ -114,7 +114,7 @@ function Dashboard() {
       if (!token) return;
 
       setActivityLoading(true);
-      // Clear stale rows so a newly selected filter doesn't momentarily show previous filter items.
+      // Clear stale rows so a newly selected filter doesn't momentarily show previous filter items
       setRecentActivity([]);
 
       const filterParam = activityFilter === 'all' ? '' : `&filter_type=${activityFilter}`;
@@ -186,20 +186,11 @@ function Dashboard() {
   };
 
   const accomplishments = useMemo(() => {
-    const accomplishmentActions = new Set([
-      'document.uploaded',
-      'document.downloaded',
-      'workspace.created',
-      'workspace.updated',
-      'workspace.member_added',
-      'workspace.member_updated',
-      'workspace.member_removed',
-    ]);
+    const accomplishmentActions = new Set(['task.completed', 'task.closed']);
 
     return recentActivity.filter((activity) => {
       if (isAuthAction(activity)) return false;
-      if (accomplishmentActions.has(activity.action)) return true;
-      return activity.status === 'success' && activity.type !== 'access';
+      return accomplishmentActions.has(String(activity.action_type || '').toLowerCase());
     });
   }, [recentActivity]);
 
@@ -504,12 +495,12 @@ function Dashboard() {
               <h3 className="data-card-title">Accomplishments</h3>
               <span className="data-card-badge">
                 <CheckCircle size={12} />
-                {accomplishments.length} completed from activity
+                {accomplishments.length} task completions
               </span>
             </div>
             <div className="data-card-body">
               {accomplishments.length === 0 ? (
-                <p className="empty-line">No completed items yet</p>
+                <p className="empty-line">No completed or closed issues yet</p>
               ) : (
                 accomplishments.slice(0, 4).map((item, index) => (
                   <div key={`${item.title || item.action}-${index}`} className="overview-row">

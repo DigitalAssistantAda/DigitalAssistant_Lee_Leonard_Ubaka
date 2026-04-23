@@ -2439,7 +2439,7 @@ const handleCreateContainer = async (e) => {
                 </button>
                 {showSortMenu && (
                   <div className="sort-menu">
-                    <button className={`sort-option ${sortBy === 'lastOpened' ? 'active' : ''}`} onClick={() => { setSortBy('lastOpened'); setShowSortMenu(false); }}>✓ Last opened</button>
+                    <button className={`sort-option ${sortBy === 'lastOpened' ? 'active' : ''}`} onClick={() => { setSortBy('lastOpened'); setShowSortMenu(false); }}>{sortBy === 'lastOpened' && '✓ '}Last opened</button>
                     <button className={`sort-option ${sortBy === 'name' ? 'active' : ''}`} onClick={() => { setSortBy('name'); setShowSortMenu(false); }}>{sortBy === 'name' && '✓ '}Name</button>
                     <button className={`sort-option ${sortBy === 'size' ? 'active' : ''}`} onClick={() => { setSortBy('size'); setShowSortMenu(false); }}>{sortBy === 'size' && '✓ '}Size</button>
                     <button className={`sort-option ${sortBy === 'lastModified' ? 'active' : ''}`} onClick={() => { setSortBy('lastModified'); setShowSortMenu(false); }}>{sortBy === 'lastModified' && '✓ '}Date modified</button>

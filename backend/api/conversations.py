@@ -2776,6 +2776,15 @@ async def send_message(
     db.commit()
     db.refresh(assistant_message)
 
+    # Auto-generate a title on the first message exchange (last_message_at is None before any messages)
+    if conversation.last_message_at is None and summary_generation_service.is_available():
+        try:
+            new_title = summary_generation_service.generate_title(request.content, assistant_content)
+            if new_title:
+                conversation.title = new_title
+        except Exception as title_exc:
+            logger.warning("Auto-title generation failed: %s: %s", type(title_exc).__name__, title_exc)
+
     # Update conversation's last_message_at
     conversation.last_message_at = datetime.utcnow()
     db.commit()

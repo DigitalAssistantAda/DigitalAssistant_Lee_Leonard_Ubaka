@@ -103,6 +103,34 @@ class SummaryGenerationService:
         name = (out or "").strip().strip('"\'.,;:')
         return name if name else "New folder"
 
+    def generate_title(self, user_message: str, ai_response: str) -> str:
+        """Generate a short conversation title (4–7 words) from the first exchange."""
+        if not self.is_available():
+            raise RuntimeError("LLM service is not configured")
+
+        excerpt_user = (user_message or "").strip()[:500]
+        excerpt_ai = (ai_response or "").strip()[:500]
+
+        system_prompt = (
+            "You generate short conversation titles for a knowledge-work assistant. "
+            "Reply with only the title: 4 to 7 words, title case, no quotes, no punctuation at the end. "
+            "The title should capture the main topic of the conversation."
+        )
+        user_prompt = (
+            f"User message: {excerpt_user}\n\n"
+            f"Assistant reply: {excerpt_ai}\n\n"
+            "Generate a short title (4–7 words) for this conversation."
+        )
+
+        out = self._generate_from_messages(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+        title = (out or "").strip().strip('"\'.,;:')
+        return title[:120] if title else "Chat"
+
     def generate_grounded_response(
         self,
         user_query: str,

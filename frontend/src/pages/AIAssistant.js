@@ -394,6 +394,11 @@ function AIAssistant() {
 
       const data = await response.json();
       setMessages(Array.isArray(data?.messages) ? data.messages : []);
+      // Sync the conversation title in state (populated after first message by auto-title)
+      if (data?.title) {
+        setActiveConversation((prev) => (prev?.id === conversationId ? { ...prev, title: data.title } : prev));
+        setConversations((prev) => prev.map((c) => (c.id === conversationId ? { ...c, title: data.title } : c)));
+      }
     } catch (err) {
       setError(getFriendlyErrorMessage(err, 'Failed to load messages'));
     } finally {
@@ -408,7 +413,7 @@ function AIAssistant() {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ title: 'Chat' }),
+      body: JSON.stringify({}),
     });
 
     if (!response.ok) {

@@ -17,7 +17,7 @@ import './Documents.css';
 function Documents({ currentUser }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { containerId: containerIdParam } = useParams();
+  const { containerId: containerIdParam, documentId: documentIdParam } = useParams();
   const [, setDocuments] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
   const [dbContainers, setDbContainers] = useState([]);
@@ -1693,6 +1693,18 @@ const handleCreateContainer = async (e) => {
     setPreviewDocument(doc);
     setShowPreviewModal(true);
   };
+
+  // Auto-open preview when navigating from search results (/documents/:containerId/:documentId)
+  useEffect(() => {
+    if (!documentIdParam || folderDocuments.length === 0) return;
+    const parsedDocId = Number(documentIdParam);
+    if (!Number.isFinite(parsedDocId)) return;
+    const doc = folderDocuments.find((d) => Number(d.id) === parsedDocId);
+    if (doc) {
+      setPreviewDocument(doc);
+      setShowPreviewModal(true);
+    }
+  }, [documentIdParam, folderDocuments]);
 
   const containers = useMemo(() => {
     const palette = ['#93c5fd','#fda4af','#f59e0b','#a78bfa','#f472b6','#60a5fa','#34d399','#fbd38d'];

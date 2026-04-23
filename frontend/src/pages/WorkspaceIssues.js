@@ -30,7 +30,7 @@ function WorkspaceIssues({ workspaceId, currentUser }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [assignmentScope, setAssignmentScope] = useState('assigned');
+  const [assignmentScope, setAssignmentScope] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingIssue, setEditingIssue] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');

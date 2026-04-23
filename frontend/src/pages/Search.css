@@ -211,6 +211,18 @@
   background: var(--bg-secondary);
 }
 
+.search-result-card--clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.search-result-card--clickable:hover,
+.search-result-card--clickable:focus-visible {
+  border-color: var(--accent-color, #c0846a);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  outline: none;
+}
+
 .search-result-card h3 {
   margin: 0;
   font-size: 1.35rem;

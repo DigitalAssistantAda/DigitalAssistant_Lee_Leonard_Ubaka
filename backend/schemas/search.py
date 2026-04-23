@@ -12,6 +12,7 @@ class SearchRequest(BaseModel):
 
 class SearchResultItem(BaseModel):
     document_id: int
+    container_id: Optional[int]
     chunk_id: int
     score: float
     snippet: str

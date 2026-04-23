@@ -78,7 +78,19 @@ async def search(
         return SearchResponse(query="", items=[])
 
     limit = max(1, min(request.limit or 10, 50))
-    pattern = f"%{query_text}%"
+    exact_pattern = f"%{query_text}%"
+
+    # Build per-term patterns so multi-word queries match documents containing any term.
+    terms = [t for t in query_text.split() if len(t) >= 2]
+    if not terms:
+        terms = [query_text]
+    term_patterns = [f"%{t}%" for t in terms]
+
+    def _any_term_matches_filename(col):
+        return or_(*[col.ilike(p) for p in term_patterns])
+
+    def _any_term_matches_chunk(col):
+        return or_(*[col.ilike(p) for p in term_patterns])
 
     results = db.query(Document, DocumentChunk).outerjoin(
         DocumentChunk, DocumentChunk.document_id == Document.id
@@ -86,11 +98,12 @@ async def search(
         Document.workspace_id == request.workspace_id,
         Document.status != DocumentStatus.DELETED,
         or_(
-            Document.filename.ilike(pattern),
-            DocumentChunk.text.ilike(pattern)
+            _any_term_matches_filename(Document.filename),
+            _any_term_matches_chunk(DocumentChunk.text),
         )
     ).order_by(
-        case((Document.filename.ilike(pattern), 0), else_=1),
+        # Exact phrase match in filename first, then any-term match, then chunks
+        case((Document.filename.ilike(exact_pattern), 0), else_=1),
         case((DocumentChunk.chunk_index.is_(None), 1), else_=0),
         DocumentChunk.chunk_index.asc(),
         Document.id.desc()
@@ -105,10 +118,18 @@ async def search(
         seen_document_ids.add(doc.id)
 
         snippet = _build_snippet(chunk.text if chunk else "", query_text)
+        filename_lower = (doc.filename or "").lower()
+        if query_text.lower() in filename_lower:
+            score = 1.0
+        elif any(t.lower() in filename_lower for t in terms):
+            score = 0.85
+        else:
+            score = 0.6
         items.append(SearchResultItem(
             document_id=doc.id,
+            container_id=doc.container_id,
             chunk_id=chunk.id if chunk else 0,
-            score=1.0 if query_text.lower() in (doc.filename or "").lower() else 0.6,
+            score=score,
             snippet=snippet,
             filename=doc.filename,
             created_at=doc.created_at

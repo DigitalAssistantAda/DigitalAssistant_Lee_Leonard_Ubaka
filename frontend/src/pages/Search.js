@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Search as SearchIcon } from 'lucide-react';
 import './Search.css';
 import { apiFetch } from '../utils/apiClient';
@@ -13,6 +13,7 @@ function Search() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const fetchWorkspaces = useCallback(async () => {
     try {
@@ -177,9 +178,27 @@ function Search() {
           </div>
           <div className="search-results-grid">
             {searchResults.map((result, index) => (
-              <div 
-                key={index} 
-                className="search-result-card"
+              <div
+                key={index}
+                className="search-result-card search-result-card--clickable"
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  if (result.container_id) {
+                    navigate(`/documents/${result.container_id}/${result.document_id}`);
+                  } else {
+                    navigate(`/documents`);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    if (result.container_id) {
+                      navigate(`/documents/${result.container_id}/${result.document_id}`);
+                    } else {
+                      navigate(`/documents`);
+                    }
+                  }
+                }}
               >
                 <h3>{result.title || result.filename || 'Untitled Document'}</h3>
                 {result.snippet && (

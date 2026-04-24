@@ -883,6 +883,58 @@ async def suggest_document_container(
                 )
                 for container_id, score in top
             ]
+
+        # LLM fallback signal: only fire when the doc is in a catch-all/unorganized container.
+        # "General" (and similarly generic names) are holding folders — docs there have no
+        # meaningful embedding neighbors yet, so LLM makes the placement decision.
+        # Docs already in specific named folders stay put via embedding similarity alone.
+        _CATCHALL_CONTAINER_NAMES = {"general", "unsorted", "inbox", "unorganized", "misc", "miscellaneous"}
+        _in_catchall = (
+            document.container_id is None
+            or any(
+                c.id == document.container_id and c.name.strip().lower() in _CATCHALL_CONTAINER_NAMES
+                for c in workspace_containers
+            )
+        )
+        try:
+            from utils.text_generation import summary_generation_service
+            if summary_generation_service.is_available() and combined_text and _in_catchall:
+                container_names = [
+                    c.name for c in workspace_containers
+                    if c.name.strip().lower() not in _CATCHALL_CONTAINER_NAMES
+                ]
+                llm_pick_name = summary_generation_service.pick_best_container(
+                    body_text[:4000] or combined_text[:4000],
+                    container_names,
+                )
+                if llm_pick_name:
+                    for c in workspace_containers:
+                        if c.name == llm_pick_name:
+                            llm_embedding_score = adjusted_scores.get(c.id, 0.0)
+                            llm_combined_score = max(0.75, llm_embedding_score)
+                            best_container_id = c.id
+                            best_score = llm_combined_score
+                            boost_applied = True
+                            others = [
+                                    ContainerSuggestionOption(
+                                        container_id=cid,
+                                        container_name=container_by_id[cid].name,
+                                        score=round(sc, 3),
+                                    )
+                                    for cid, sc in ranked[:3]
+                                    if cid != c.id
+                                ]
+                            alternatives = [
+                                ContainerSuggestionOption(
+                                    container_id=c.id,
+                                    container_name=c.name,
+                                    score=round(llm_combined_score, 3),
+                                )
+                            ] + others[:2]
+                            break
+        except Exception as llm_exc:
+            logger.debug("LLM container pick skipped for document %s: %s", document.id, llm_exc)
+
     except Exception as exc:
         embedding_error_type = type(exc).__name__
         logger.warning("Container suggestion similarity failed for document %s: %s", document.id, exc)

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
         "DATABASE_URL", 
         "postgresql://postgres:postgres@db:5432/digitalassistant"
     )
+    db_pool_size: int = int(os.getenv("DB_POOL_SIZE", "8"))
+    db_max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "4"))
+    db_pool_timeout: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+    db_pool_recycle_seconds: int = int(os.getenv("DB_POOL_RECYCLE_SECONDS", "300"))
     
     # JWT Authentication
     jwt_secret: str = os.getenv("JWT_SECRET", "dev-secret-key-change-in-production")

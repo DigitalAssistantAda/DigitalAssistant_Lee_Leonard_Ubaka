@@ -2223,15 +2223,22 @@ const handleCreateContainer = async (e) => {
     if (isAdaCreatedContainer(container)) return 'Created by Ada';
     const rawType = String(container?.type || '').toLowerCase();
     const isWorkspaceDefault = Boolean(container?.is_workspace_default);
+    const workspaceId = Number(container?.workspace_id);
+    const workspace = Number.isFinite(workspaceId) && workspaceId > 0
+      ? workspaces.find((item) => Number(item?.id) === workspaceId)
+      : null;
+    const workspaceLabel = workspace?.name
+      ? `Belongs to ${workspace.name}`
+      : (Number.isFinite(workspaceId) && workspaceId > 0 ? `Belongs to workspace #${workspaceId}` : 'Belongs to workspace');
     if (rawType.includes('ai')) return 'Created by Ada';
-    if (isWorkspaceDefault) return 'Belongs to workspace';
+    if (isWorkspaceDefault) return workspaceLabel;
     if (currentUserId != null && Number(container?.created_by) === Number(currentUserId)) {
       return 'Created by you';
     }
     if (container?.created_by_username) {
       return `Created by ${container.created_by_username}`;
     }
-    return 'Belongs to workspace';
+    return workspaceLabel;
   };
 
   const colorInputRef = useRef(null);
